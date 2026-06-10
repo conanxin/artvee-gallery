@@ -1,0 +1,47 @@
+# Artvee Library · 本地 .gitignore
+#
+# 说明：本目录位于 hermes-agent 主仓的 /project/artvee-library/，
+# 整个 /project/artvee-library/ 已被 .git/info/exclude 整体排除，
+# 因此本文件对当前 git 树是 0 影响的"约定性"文件。
+#
+# 当未来把 artvee-library 拆为独立 git repo 时，把本文件改名为
+# .gitignore 即可生效。
+
+# === 源数据：大体积原始资产 ===
+images/
+metadata/
+
+# === 生成数据：可重建 ===
+thumbs/
+web/data/artworks.json
+web/data/gallery_stats.json
+web/data/*.json.bak
+
+# === 候选池 / 中转 ===
+inbox/
+
+# === 导出包：默认不入 git（导出时再生成） ===
+dist/
+# 例外：保留 dist 目录占位
+!dist/.gitkeep
+
+# === 日志 / 锁 / 临时 ===
+logs/
+*.lock
+*.tmp
+.tmp_new_records.json
+
+# === 备份 / 旧版残影 ===
+backups/
+*.bak
+*.bak.*
+
+# === Python 缓存 ===
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# === 临时 thumbs 目录占位（保留空目录用） ===
+# thumbs/256/.gitkeep
+# thumbs/512/.gitkeep
