@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Artvee Library · 本地图库</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Artvee Library</h1>
+      <p class="subtitle">本地图库浏览 · 数据来自 index/artworks.csv + metadata/</p>
+    </div>
+    <div class="stats" id="stats">
+      <div class="stat"><span class="num" data-k="artworks">–</span><span class="lbl">已下载</span></div>
+      <div class="stat"><span class="num" data-k="categories">–</span><span class="lbl">分类</span></div>
+      <div class="stat"><span class="num" data-k="artists">–</span><span class="lbl">艺术家</span></div>
+      <div class="stat"><span class="num" data-k="thumb_256_total">–</span><span class="lbl">缩略图 256</span></div>
+      <div class="stat"><span class="num" data-k="thumb_512_total">–</span><span class="lbl">缩略图 512</span></div>
+      <div class="stat stat-wide">
+        <span class="num small" data-k="last_downloaded_at">–</span>
+        <span class="lbl">最近下载</span>
+      </div>
+    </div>
+  </header>
+
+  <section class="controls">
+    <input id="q" type="search" placeholder="搜索 title / artist / category / source_url…" autocomplete="off" />
+    <select id="f-category"><option value="">全部分类</option></select>
+    <select id="f-artist"><option value="">全部艺术家</option></select>
+    <select id="f-recent">
+      <option value="">全部时间</option>
+      <option value="7">最近 7 天</option>
+      <option value="30">最近 30 天</option>
+      <option value="90">最近 90 天</option>
+    </select>
+    <select id="sort">
+      <option value="newest">最新下载</option>
+      <option value="title">按标题</option>
+      <option value="artist">按艺术家</option>
+    </select>
+    <span class="counter" id="visible-count">0 / 0</span>
+  </section>
+
+  <main>
+    <section class="grid" id="grid" aria-live="polite"></section>
+    <aside class="detail" id="detail" hidden>
+      <button class="close" id="detail-close" aria-label="关闭">×</button>
+      <div class="detail-image">
+        <img id="detail-img" alt="" />
+      </div>
+      <div class="detail-meta" id="detail-meta"></div>
+    </aside>
+  </main>
+
+  <footer>
+    <small>
+      数据 schema 见
+      <a href="../docs/GALLERY_DATA_SCHEMA.md">GALLERY_DATA_SCHEMA.md</a>。
+      重建命令：<code>python3 scripts/build_artvee_gallery.py --mode local</code>
+    </small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
