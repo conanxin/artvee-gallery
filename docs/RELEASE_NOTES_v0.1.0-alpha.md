@@ -57,7 +57,7 @@ artworks.
 - `scripts/check_open_source_ready.py` — a pure-stdlib,
   read-only, exit-coded check that fails the build on:
   - tracked files in gitignored directories,
-  - path leaks (`/home/`, `~/`, `hermes-agent`) in non-source text files,
+  - path leaks (absolute home path, user-home shorthand, workspace-name substring) in non-source text files,
   - real-looking secrets (`password = "..."`, `token = "..."`,
     `secret = "..."`),
   - tracked files > 1 MB.
@@ -75,7 +75,7 @@ artworks.
 | Last-known-good nightly snapshot | 760 downloaded, 0 failed, 530 pending |
 
 The most recent nightly verification report lives at
-`~/workspace/reports/artvee-nightly-auto-run-verification-2026-06-12.md`
+`<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md`
 in the maintainer's local workspace; it is intentionally **not**
 committed to this repository.
 

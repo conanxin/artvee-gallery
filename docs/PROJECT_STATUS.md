@@ -9,12 +9,12 @@
 
 | Phase | Description | Status | Date | Verification report |
 | --- | --- | --- | --- | --- |
-| **P1** | Local Gallery Browser | ✅ PASS | 2026-06-11 | `~/workspace/reports/artvee-gallery-p1-local-browser-20260611.md` |
-| **P2** | Public Demo Export | ✅ PASS | 2026-06-11 | `~/workspace/reports/artvee-gallery-p2-public-demo-export-20260611.md` |
-| **P3A** | Public Demo Publish (GitHub Pages) | ✅ PASS | 2026-06-11 | `~/workspace/reports/artvee-gallery-p3a-public-demo-publish-20260611.md` |
-| **P3B** | Daily Inspiration Digest | ✅ PASS | 2026-06-11 | `~/workspace/reports/artvee-gallery-p3b-daily-digest-20260611.md` |
-| **P3C** | Open-Source Readiness | ✅ PASS | 2026-06-12 | `~/workspace/reports/artvee-gallery-p3c-open-source-readiness-20260612.md` |
-| **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `~/workspace/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
+| **P1** | Local Gallery Browser | ✅ PASS | 2026-06-11 | `<workspace>/reports/artvee-gallery-p1-local-browser-20260611.md` |
+| **P2** | Public Demo Export | ✅ PASS | 2026-06-11 | `<workspace>/reports/artvee-gallery-p2-public-demo-export-20260611.md` |
+| **P3A** | Public Demo Publish (GitHub Pages) | ✅ PASS | 2026-06-11 | `<workspace>/reports/artvee-gallery-p3a-public-demo-publish-20260611.md` |
+| **P3B** | Daily Inspiration Digest | ✅ PASS | 2026-06-11 | `<workspace>/reports/artvee-gallery-p3b-daily-digest-20260611.md` |
+| **P3C** | Open-Source Readiness | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p3c-open-source-readiness-20260612.md` |
+| **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
 
