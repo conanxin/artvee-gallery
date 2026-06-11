@@ -1,0 +1,278 @@
+# Artvee Gallery
+
+> A local-first Artvee library builder that turns collected public-domain art
+> references into a browsable local gallery, lightweight public demo exports,
+> and a daily inspiration digest.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
+[![Status: v0.1.0-alpha](https://img.shields.io/badge/status-v0.1.0--alpha-orange.svg)](docs/RELEASE_NOTES_v0.1.0-alpha.md)
+
+## Live Demo
+
+A static, curated subset of the gallery is published at:
+
+> **https://conanxin.github.io/projects/artvee-gallery-demo/**
+
+The public demo is a hand-picked selection of thumbnails — it does **not**
+contain the full local archive, the original image assets, or any private
+metadata. See [docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md)
+for the full breakdown.
+
+## What it does
+
+- **Nightly Artvee batch collection** — `refill` + `batch` workflow that
+  pulls a bounded set of public-domain works from artvee.com into a local
+  archive with full provenance metadata.
+- **Local gallery builder** — turn the archive into a structured
+  `web/data/*.json` index plus 256/512 px thumbnails; serve a static
+  browse UI from any HTTP server.
+- **Public demo export** — emit a curated, CDN-friendly static bundle
+  (`dist/`) suitable for GitHub Pages or any static host.
+- **Daily inspiration digest** — automatically pick 5 representative
+  works from the latest batch and render Markdown + HTML for archival,
+  reading, and future publishing.
+- **Telegram-friendly run summaries** — the nightly wrapper posts a
+  compact Chinese-keyword summary (`统计 / 图库 / 灵感`) to Telegram
+  after each run, via a pluggable notifier bridge.
+
+## What is **not** included in this repository
+
+- The full local image archive (`images/`)
+- The full metadata archive (`metadata/`)
+- Generated thumbnails (`thumbs/`)
+- Runtime logs and wrapper run histories (`logs/`)
+- The private machine path of any contributor
+- Pre-built demos, digests, or any nightly-generated data
+
+The repository is **code + docs + examples + readiness check** only.
+All `data/` and `dist/` artifacts are rebuilt locally by the user.
+
+## Architecture
+
+```
+              ┌─────────────────────────────────────────────┐
+              │  External: artvee.com public-domain works   │
+              └─────────────────────────────────────────────┘
+                              │ scraped / batched
+                              ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │  scripts/                                                    │
+   │    scrape_artvee_seeds.py        → seeds candidate pool      │
+   │    add_artvee_candidates.py      → expand manifest           │
+   │    refill_artvee_pending.py      → top up pending queue      │
+   │    run_artvee_nightly_batch.py   → download + parse + index  │
+   │    artvee_nightly_wrapper.sh     → orchestrate the 3 stages  │
+   └──────────────────────────────────────────────────────────────┘
+                              │ images/, metadata/
+                              ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │  scripts/build_artvee_gallery.py                             │
+   │    → thumbs/{256,512}/*.jpg                                  │
+   │    → web/data/artworks.json                                  │
+   │    → web/data/gallery_stats.json                             │
+   └──────────────────────────────────────────────────────────────┘
+            │                                   │
+            ▼                                   ▼
+  ┌───────────────────────┐          ┌────────────────────────────────┐
+  │  web/ (local UI)      │          │ scripts/export_artvee_gallery_ │
+  │  index.html, app.js   │          │   public_demo.py               │
+  │  style.css            │          │   → dist/ (curated, static)    │
+  │  data/*.json          │          │   (deployable to any host)     │
+  └───────────────────────┘          └────────────────────────────────┘
+            │
+            ▼
+  ┌────────────────────────────────────┐
+  │ scripts/build_artvee_daily_digest.py│
+  │   → digests/artvee-digest-*.md     │
+  │   → digests/artvee-digest-*.html   │
+  │   → web/data/digests.json          │
+  └────────────────────────────────────┘
+            │
+            ▼
+  ┌────────────────────────────────────┐
+  │ scripts/artvee_telegram_notify.py  │
+  │   (optional) summary to Telegram   │
+  └────────────────────────────────────┘
+```
+
+The nightly wrapper (`scripts/artvee_nightly_wrapper.sh batch`) chains
+**refill → batch → gallery rebuild → digest build → Telegram notify**
+in one cron-friendly invocation. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full data flow.
+
+## Quick Start
+
+This is a **local-first** project. You start with the code, then the
+code generates everything else in your own working copy.
+
+### Prerequisites
+
+- Python 3.9 or newer
+- (Optional) `Pillow` for thumbnail generation and dominant-palette
+  extraction in the digest builder
+- (Optional) A static HTTP server of choice (`python3 -m http.server`,
+  `nginx`, GitHub Pages, etc.) for serving the local UI
+
+### Build the local gallery (after you have `images/`, `metadata/`, `index/`)
+
+```bash
+# from the repo root
+python3 scripts/build_artvee_gallery.py --mode local
+bash scripts/serve_artvee_gallery.sh          # serves web/ on :8000
+```
+
+### Export a curated public demo bundle
+
+```bash
+python3 scripts/export_artvee_gallery_public_demo.py \
+    --limit 100 --strategy diverse \
+    --out-dir dist/artvee-gallery-public-demo
+```
+
+The `dist/` output is a self-contained static bundle; deploy it to
+GitHub Pages, Netlify, an S3 bucket, or any static host.
+
+### Generate a daily inspiration digest
+
+```bash
+python3 scripts/build_artvee_daily_digest.py \
+    --strategy diverse --select 5 --candidate-limit 20
+```
+
+This writes `digests/artvee-digest-YYYY-MM-DD.{md,html}` and updates
+the rolling index `web/data/digests.json`.
+
+### (Optional) Wire up the nightly wrapper
+
+The wrapper script is **path-agnostic** — it derives its base directory
+from its own location, so you can `git clone` anywhere.
+
+```bash
+# add to crontab (machine-local, example)
+0 2 * * * cd <path-to-clone> && bash scripts/artvee_nightly_wrapper.sh batch
+30 1 * * * cd <path-to-clone> && bash scripts/artvee_nightly_wrapper.sh refill
+```
+
+You can override the Python interpreter:
+
+```bash
+ARTVEE_PYTHON=python3.11 bash scripts/artvee_nightly_wrapper.sh batch
+```
+
+## Directory Layout
+
+```
+artvee-library/
+├── README.md                    ← you are here
+├── LICENSE                      ← MIT
+├── .gitignore                   ← generic ignore rules
+│
+├── docs/                        ← documentation
+│   ├── ARCHITECTURE.md
+│   ├── OPEN_SOURCE_BOUNDARIES.md
+│   ├── ROADMAP.md
+│   ├── DEVELOPMENT.md
+│   ├── PROJECT_STATUS.md
+│   ├── RELEASE_NOTES_v0.1.0-alpha.md
+│   ├── GALLERY_DATA_SCHEMA.md
+│   ├── GALLERY_LOCAL_USAGE.md
+│   ├── GALLERY_PUBLIC_DEMO.md
+│   └── GALLERY_DAILY_DIGEST.md
+│
+├── scripts/                     ← executable code
+│   ├── build_artvee_gallery.py
+│   ├── export_artvee_gallery_public_demo.py
+│   ├── build_artvee_daily_digest.py
+│   ├── artvee_nightly_wrapper.sh
+│   ├── artvee_telegram_notify.py
+│   └── check_open_source_ready.py
+│
+├── web/                         ← local UI (static)
+│   ├── index.html
+│   ├── app.js
+│   ├── style.css
+│   └── data/.gitkeep            ← generated JSON lives here
+│
+├── examples/                    ← tiny synthetic sample data
+│   ├── artworks.sample.json
+│   ├── gallery_stats.sample.json
+│   └── digest.sample.json
+│
+├── dist/.gitkeep                ← public demo bundles (regenerated)
+├── thumbs/{256,512}/.gitkeep    ← thumbnails (regenerated)
+└── digests/.gitkeep             ← daily digests (regenerated)
+```
+
+> Paths shown above as `<dir>/` are *intentionally* gitignored — they
+> are produced locally by the scripts in `scripts/`. See
+> [docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md).
+
+## Data Boundaries
+
+This repository is intentionally **read-only-data-only**. The
+following are tracked:
+
+- Source code (`.py`, `.sh`)
+- Documentation (`.md`)
+- Public web UI shell (`web/index.html`, `web/app.js`, `web/style.css`)
+- Tiny sample data (`examples/*.json`)
+- Placeholder files (`.gitkeep`)
+
+The following are **never** tracked (see `.gitignore`):
+
+- `images/`, `metadata/`, `previews/` — the source archive
+- `thumbs/` — generated thumbnails
+- `web/data/*.json` — generated indices
+- `dist/` — generated public demo bundles
+- `digests/` — generated daily digests
+- `inbox/`, `index/`, `logs/`, `backups/` — local staging / runtime
+
+For the full rationale and a risk surface, see
+[docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md).
+
+## Documentation
+
+| Document | What it covers |
+| --- | --- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Data flow, script responsibilities, generated-vs-tracked boundary |
+| [docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md) | What is and is not in this repository, and why |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Past phases, near-term, mid-term, long-term |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local dev loop, syntax checks, readiness check, what **not** to run |
+| [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) | Current phase markers and last-known-good snapshot |
+| [docs/RELEASE_NOTES_v0.1.0-alpha.md](docs/RELEASE_NOTES_v0.1.0-alpha.md) | v0.1.0-alpha release notes |
+| [docs/GALLERY_DATA_SCHEMA.md](docs/GALLERY_DATA_SCHEMA.md) | Field-level schema for `web/data/*.json` |
+| [docs/GALLERY_LOCAL_USAGE.md](docs/GALLERY_LOCAL_USAGE.md) | Local gallery usage and serving |
+| [docs/GALLERY_PUBLIC_DEMO.md](docs/GALLERY_PUBLIC_DEMO.md) | Public demo export internals |
+| [docs/GALLERY_DAILY_DIGEST.md](docs/GALLERY_DAILY_DIGEST.md) | Daily digest selection strategies and outputs |
+
+## Roadmap
+
+- ✅ **P1** Local gallery browser
+- ✅ **P2** Public demo export
+- ✅ **P3A** Public demo publish (GitHub Pages)
+- ✅ **P3B** Daily inspiration digest
+- ✅ **P3C** Open-source readiness (this release)
+- 🔜 **P3D** Standalone public GitHub repository
+- 🔜 **P3E** Public daily-digest page
+
+For the long view, see [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Contributing
+
+Open an issue or a pull request against the standalone public
+repository (see [docs/ROADMAP.md](docs/ROADMAP.md) for the publish
+plan). Local forks are welcome; please keep generated data out of
+commits — `scripts/check_open_source_ready.py` is your friend.
+
+## License
+
+[MIT](LICENSE) — see `LICENSE` for the full text.
+
+## Acknowledgements
+
+- Data source: [artvee.com](https://artvee.com) — public-domain art
+  curated by the Artvee team.
+- All works archived by this tool are public-domain in their country
+  of origin; users are responsible for verifying the licensing status
+  of any individual work before redistribution.

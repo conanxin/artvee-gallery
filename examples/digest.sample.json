@@ -1,0 +1,17 @@
+[
+  {
+    "date": "2026-01-01",
+    "title": "Sample Daily Digest — 2026-01-01",
+    "markdown_path": "digests/sample-digest-2026-01-01.md",
+    "html_path": "digests/sample-digest-2026-01-01.html",
+    "selected_count": 3,
+    "categories": ["japanese-prints", "book-illustrations", "posters-design"],
+    "artists": [
+      "Sample Artist (Synthetic)",
+      "Sample Illustrator (Synthetic)",
+      "Sample Poster Artist (Synthetic)"
+    ],
+    "strategy": "diverse",
+    "created_at": "2026-01-01T00:00:00"
+  }
+]

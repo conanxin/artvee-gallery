@@ -1,0 +1,50 @@
+[
+  {
+    "id": "Sample_Print_001_japanese-prints_standard",
+    "title": "Sample Print — Mountain at Dawn",
+    "artist": "Sample Artist (Synthetic)",
+    "category": "japanese-prints",
+    "download_variant": "standard",
+    "tags": "sample;synthetic;ukiyo-e-inspired",
+    "usage_note": "Synthetic example; not a real artwork.",
+    "source_url": "https://example.invalid/dl/sample-print-001/",
+    "source": "example.invalid",
+    "downloaded_at": "2026-01-01T00:00:00",
+    "image_path": "./assets/images/sample-print-001.jpg",
+    "thumb_256": "./assets/thumbs/256/sample-print-001.jpg",
+    "thumb_512": "./assets/thumbs/512/sample-print-001.jpg",
+    "metadata_path": "./metadata/sample-print-001.json"
+  },
+  {
+    "id": "Sample_Book_Illustration_001_book-illustrations_standard",
+    "title": "Sample Book Illustration — Forest Path",
+    "artist": "Sample Illustrator (Synthetic)",
+    "category": "book-illustrations",
+    "download_variant": "standard",
+    "tags": "sample;synthetic;forest;path",
+    "usage_note": "Synthetic example; not a real artwork.",
+    "source_url": "https://example.invalid/dl/sample-book-illustration-001/",
+    "source": "example.invalid",
+    "downloaded_at": "2026-01-01T00:00:01",
+    "image_path": "./assets/images/sample-book-illustration-001.jpg",
+    "thumb_256": "./assets/thumbs/256/sample-book-illustration-001.jpg",
+    "thumb_512": "./assets/thumbs/512/sample-book-illustration-001.jpg",
+    "metadata_path": "./metadata/sample-book-illustration-001.json"
+  },
+  {
+    "id": "Sample_Poster_001_posters-design_standard",
+    "title": "Sample Poster — Festival in the City",
+    "artist": "Sample Poster Artist (Synthetic)",
+    "category": "posters-design",
+    "download_variant": "standard",
+    "tags": "sample;synthetic;festival;city",
+    "usage_note": "Synthetic example; not a real artwork.",
+    "source_url": "https://example.invalid/dl/sample-poster-001/",
+    "source": "example.invalid",
+    "downloaded_at": "2026-01-01T00:00:02",
+    "image_path": "./assets/images/sample-poster-001.jpg",
+    "thumb_256": "./assets/thumbs/256/sample-poster-001.jpg",
+    "thumb_512": "./assets/thumbs/512/sample-poster-001.jpg",
+    "metadata_path": "./metadata/sample-poster-001.json"
+  }
+]

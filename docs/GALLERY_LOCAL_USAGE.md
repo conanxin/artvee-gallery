@@ -6,7 +6,7 @@
 ## 1. 一句话启动
 
 ```bash
-cd ~/hermes-agent/project/artvee-library
+cd <project-root>
 bash scripts/serve_artvee_gallery.sh        # 默认端口 8877
 # 或：PORT=9000 bash scripts/serve_artvee_gallery.sh
 ```
@@ -18,7 +18,7 @@ bash scripts/serve_artvee_gallery.sh        # 默认端口 8877
 每日新增的精选灵感日报，deterministic 本地生成，输出 Markdown + HTML。
 
 ```bash
-cd ~/hermes-agent/project/artvee-library
+cd <project-root>
 
 # 生成今日 digest（diverse 策略，5 张精选，候选池 20）
 python3 scripts/build_artvee_daily_digest.py
@@ -56,7 +56,7 @@ web/data/digests.json   # 滚动索引（幂等，按 date 倒序）
 ### 生成 demo
 
 ```bash
-cd ~/hermes-agent/project/artvee-library
+cd <project-root>
 
 # 默认：精选 100 张
 python3 scripts/export_artvee_gallery_public_demo.py
@@ -134,7 +134,7 @@ python3 scripts/build_artvee_gallery.py --mode public --base-url https://cdn.exa
 ### 方式 B：手动
 
 ```bash
-cd ~/hermes-agent/project/artvee-library
+cd <project-root>
 python3 scripts/build_artvee_gallery.py --mode local
 # 增量：只补缺失的缩略图，秒级
 ```
@@ -157,7 +157,7 @@ python3 scripts/build_artvee_gallery.py --mode local
 
 ### Q4. Pillow 不存在
 - builder 会输出 `ERROR: Pillow is required.`
-- 安装：`~/hermes-agent/.venv/bin/pip install Pillow`
+- 安装：`python3 -m pip install Pillow (推荐在虚拟环境中)`
 - builder 不动环境；只检测 + 报错
 
 ### Q5. 端口被占用

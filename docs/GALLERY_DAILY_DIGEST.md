@@ -46,7 +46,7 @@ web/data/digests.json                ← 滚动索引，按 date 倒序，dedupe
 ## 3. 手动生成 digest
 
 ```bash
-cd ~/hermes-agent/project/artvee-library
+cd <project-root>
 
 # 默认：今天日期，diverse 策略，5 张精选，候选池 20
 python3 scripts/build_artvee_daily_digest.py
@@ -145,16 +145,16 @@ P3B digest 在设计层面就排除了泄露：
 |---|---|
 | 不复制原图 | `image_path` 字段从未被读取；只读 `thumb_256/512` |
 | 不嵌入 base64 | Markdown 用 `![preview](../thumbs/512/...)`，HTML 用 `<img src="../thumbs/512/...">` |
-| 不输出 `/home/` | 所有路径手工构造为相对 `digests/` / `web/`；脚本内 `_safe_rel` 是 belt-and-suspenders |
-| 不输出 `~/` | 同上 |
-| 不输出 `hermes-agent` | 同上 |
+| 不输出绝对 home 路径 | 所有路径手工构造为相对 `digests/` / `web/`；脚本内 `_safe_rel` 是 belt-and-suspenders |
+| 不输出用户家目录缩写 | 同上 |
+| 不输出工作区名 | 同上 |
 | 缩略图为已存在的 P1 派生 | 与 `web/data/artworks.json` 引用一致 |
 
 ## 7. 后续发布到 GitHub Pages
 
 P3B 阶段不做发布。后续路线：
 
-1. 把 `digests/` 软链/同步到 `~/conanxin.github.io/projects/artvee-gallery-digests/`
+1. 把 `digests/` 软链/同步到 GitHub Pages 项目的 `projects/artvee-gallery-digests/` 目录
 2. HTML 已经是自包含静态；Markdown 可借助 MkDocs / pandoc 转 HTML
 3. `digests.json` 可以加进 GitHub Pages 主页的 `projects/data.json`，作为新 entry：
  ```json

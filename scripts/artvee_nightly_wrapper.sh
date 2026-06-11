@@ -4,9 +4,16 @@ set -euo pipefail
 # Artvee Nightly Wrapper
 # 支持三种模式: refill | batch | test
 # 执行后自动发送 Telegram 汇报（通过 OpenClaw Gateway 后台发送）
+#
+# 路径策略：BASE_DIR 由脚本位置自动推导，PYTHON 默认调用系统 python3。
+# 高级用户可通过环境变量覆盖：
+#   ARTvee_PYTHON=python3 bash scripts/artvee_nightly_wrapper.sh batch
 
-BASE_DIR="$HOME/hermes-agent/project/artvee-library"
-PYTHON="$HOME/hermes-agent/.venv/bin/python"
+# 推导项目根目录（脚本所在目录的父目录），不依赖 $HOME 或任何机器路径
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# 默认使用系统 python3；可被环境变量覆盖
+PYTHON="${ARTVEE_PYTHON:-python3}"
 NOTIFIER="$BASE_DIR/scripts/artvee_telegram_notify.py"
 RUN_TYPE="${1:-batch}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"

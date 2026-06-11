@@ -41,7 +41,7 @@ Public demo 是"对外展示窗口"，全量是"本地完整资产库"。两者�
 ## 3. 如何生成 public demo
 
 ```bash
-cd ~/hermes-agent/project/artvee-library
+cd <project-root>
 
 # 默认：最近 100 张
 python3 scripts/export_artvee_gallery_public_demo.py
@@ -75,7 +75,7 @@ python3 scripts/export_artvee_gallery_public_demo.py --base-url https://cdn.exam
 ## 4. 如何本地预览
 
 ```bash
-cd ~/hermes-agent/project/artvee-library/dist/artvee-gallery-public-demo
+cd <project-root>/dist/artvee-gallery-public-demo
 python3 -m http.server 8890 --bind 127.0.0.1
 # 打开 http://127.0.0.1:8890/
 ```
@@ -95,7 +95,7 @@ P1 与 public demo 的 UI 是**同一份** `app.js`，区别只在于：
 ```bash
 # 1) 在 GitHub 上建一个 repo，例如 conanxin/artvee-gallery-demo
 # 2) 把 dist/artvee-gallery-public-demo/ 的内容推到 gh-pages 分支
-cd ~/hermes-agent/project/artvee-library/dist/artvee-gallery-public-demo
+cd <project-root>/dist/artvee-gallery-public-demo
 git init
 git checkout -b gh-pages
 git add .
@@ -119,7 +119,7 @@ git push -f origin gh-pages
 
 # 方式 B: 直接 wrangler
 npm i -g wrangler
-cd ~/hermes-agent/project/artvee-library/dist/artvee-gallery-public-demo
+cd <project-root>/dist/artvee-gallery-public-demo
 wrangler pages deploy . --project-name artvee-gallery-demo
 ```
 
@@ -131,7 +131,7 @@ wrangler pages deploy . --project-name artvee-gallery-demo
 # 1) 创建 COS bucket：artvee-gallery-demo-125xxxxxx  (北京/上海/广州 区域)
 # 2) 开启静态网站托管：默认索引 = index.html
 # 3) 用 coscli 或控制台上传
-coscli cp -r ~/hermes-agent/project/artvee-library/dist/artvee-gallery-public-demo/ \
+coscli cp -r <project-root>/dist/artvee-gallery-public-demo/ \
   cos://artvee-gallery-demo-125xxxxxx/ --delete
 # 4) 访问 https://artvee-gallery-demo-125xxxxxx.cos-website.ap-guangzhou.myqcloud.com/
 ```

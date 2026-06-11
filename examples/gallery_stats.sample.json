@@ -1,0 +1,28 @@
+{
+  "generated_at": "2026-01-01T00:00:00",
+  "mode": "local",
+  "base_url": "",
+  "counts": {
+    "artworks": 3,
+    "categories": 3,
+    "artists": 3,
+    "thumb_256_total": 3,
+    "thumb_512_total": 3
+  },
+  "thumb_results": {
+    "created": {"256": 3, "512": 3},
+    "skipped": {"256": 0, "512": 0},
+    "errors": {}
+  },
+  "last_downloaded_at": "2026-01-01T00:00:02",
+  "categories": {
+    "japanese-prints": 1,
+    "book-illustrations": 1,
+    "posters-design": 1
+  },
+  "top_artists": {
+    "Sample Artist (Synthetic)": 1,
+    "Sample Illustrator (Synthetic)": 1,
+    "Sample Poster Artist (Synthetic)": 1
+  }
+}
