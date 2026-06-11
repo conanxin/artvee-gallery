@@ -1,0 +1,42 @@
+name: Open Source Readiness
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Open-source readiness check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check Python syntax
+        run: |
+          python3 -m py_compile scripts/build_artvee_gallery.py
+          python3 -m py_compile scripts/export_artvee_gallery_public_demo.py
+          python3 -m py_compile scripts/build_artvee_daily_digest.py
+          python3 -m py_compile scripts/check_open_source_ready.py
+
+      - name: Check shell syntax
+        run: |
+          bash -n scripts/serve_artvee_gallery.sh
+          bash -n scripts/artvee_nightly_wrapper.sh
+
+      - name: Open-source readiness check
+        run: |
+          python3 scripts/check_open_source_ready.py
+
+      - name: Validate sample JSON
+        run: |
+          for f in examples/*.json; do
+            python3 -m json.tool "$f" > /dev/null
+          done
