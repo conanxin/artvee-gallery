@@ -13,6 +13,31 @@ bash scripts/serve_artvee_gallery.sh        # 默认端口 8877
 
 打开 http://127.0.0.1:8877/web/ 即可浏览。
 
+## Daily Digest
+
+每日新增的精选灵感日报，deterministic 本地生成，输出 Markdown + HTML。
+
+```bash
+cd ~/hermes-agent/project/artvee-library
+
+# 生成今日 digest（diverse 策略，5 张精选，候选池 20）
+python3 scripts/build_artvee_daily_digest.py
+
+# 试跑
+python3 scripts/build_artvee_daily_digest.py --dry-run
+
+# 输出
+digests/artvee-digest-YYYY-MM-DD.md
+digests/artvee-digest-YYYY-MM-DD.html
+web/data/digests.json   # 滚动索引（幂等，按 date 倒序）
+```
+
+每张精选包含：标题、艺术家、分类、source URL、512 缩略图、视觉分析（构图 + dominant palette）、用途建议、prompt seed。
+
+**自动触发**：`scripts/artvee_nightly_wrapper.sh` 在 batch 成功后会自动调用 digest 生成；失败用 `|| true` 隔离，不污染主任务状态。
+
+详见 [`docs/GALLERY_DAILY_DIGEST.md`](./GALLERY_DAILY_DIGEST.md)。
+
 ## Public demo export
 
 > P1 是"本机完整图库"（740 张、1.4G），P2 是"对外公开 demo"（精选 100 张、~15MB）。
