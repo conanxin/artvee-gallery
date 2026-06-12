@@ -313,7 +313,14 @@ are gathered under P5+ below.)
   strict integrity PASS. `build_artvee_daily_digest.py` → 5 picks. Candidate
   `confirm_demo_refresh.sh` → Gallery 100/200/5.2M PASS, Digest 5/5/256K PASS.
 
-### P5B · Approved public refresh (optional)
+### P5B · First approved public refresh ✅ PASS (2026-06-12 15:47)
+- User explicitly authorized `--approve` at 15:45 GMT+8
+- Pages commit `019316a` (conanxin.github.io), push `4ae8c32..019316a`
+- 12/12 endpoints HTTP 200 after 60s+30s CDN wait
+- P5A Le_rêve source_url fix is now live on public Gallery
+- See `<workspace>/reports/artvee-gallery-p5b-approved-publish-20260612.md`
+
+### P5C · Legacy orphan cleanup (P5B ✅ done — now safe to do)
 - Run `publish_demo_refresh_candidate.sh --date YYYY-MM-DD --approve` after P5A
   candidate is validated. This is the first real Pages push since P4D.
 - Requires user explicit `--approve` (P4E security model).

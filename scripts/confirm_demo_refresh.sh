@@ -37,6 +37,10 @@ DRY_RUN=0
 NO_TELEGRAM=0
 BASE_DIR=""
 PYTHON_BIN="${ARTVEE_PYTHON:-python3}"
+# PAGES_REPO: only used in user-facing publish instructions in the report.
+# Default is intentionally a placeholder (no path leak) so set -u doesn't
+# trip. Users override this with the actual Pages repo path before publish.
+PAGES_REPO="${PAGES_REPO:-<pages-repo>}"
 
 print_help() {
     cat <<'USAGE'

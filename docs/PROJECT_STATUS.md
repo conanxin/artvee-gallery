@@ -29,6 +29,7 @@
 | **P4D+1** | `confirm_demo_refresh.sh` + 02:30 nightly hook (candidate-only, no auto-push) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4d1-confirm-demo-refresh-hook-20260612.md` |
 | **P4E** | Approved publish helper (`publish_demo_refresh_candidate.sh` with `--approve` + `--dry-run` + `--no-push`) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4e-approved-publish-helper-20260612.md` |
 | **P5A** | Content healing: Le_rêve source_url fix + 4 loser retry + orphan audit | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5a-content-healing-20260612.md` |
+| **P5B** | First approved publish from P5A candidate (Le_rêve source_url fix live on Pages) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5b-approved-publish-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
@@ -249,3 +250,24 @@ refresh is expected on the P4B cut.
 | Legacy orphan audit | 46 files / 19.3 MB (11 images + 11 metadata + 12×2 thumbs) |
 | Orphan cleanup | deferred to P5C |
 | Candidate QA | Gallery 100/200/5.2M PASS, Digest 5/5/256K PASS |
+
+### P5B approved-publish snapshot (2026-06-12 15:47 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| Approve mode | `--approve` (user explicit, 15:45 GMT+8) |
+| Pages commit | `019316a` (conanxin.github.io) |
+| Pages push | `4ae8c32..019316a  main -> main` ✅ |
+| Gallery candidate | 100 records / 5.7M / 0 leaks |
+| Digest candidate | 5 picks / 296K / 0 leaks |
+| Source_url dupe groups | 0 (P5A fix live) |
+| data.json updated | 2 entries (gallery + digest) |
+| Online verification | 12/12 endpoints HTTP 200 (60s CDN wait + 30s extra) |
+| Artvee commit | (this commit, P5B wrap-up) |
+| CI | (this commit, P5B wrap-up) |
+
+**Live Pages:**
+- Gallery: https://conanxin.github.io/projects/artvee-gallery-demo/
+- Digest: https://conanxin.github.io/projects/artvee-gallery-digest/
+- Source_url for `hostdag-bjelland-mandal` now shows `https://artvee.com/dl/hostdag-bjelland-mandal/` (correct, was `le-reve/`-style stale before P5A fix)
+
