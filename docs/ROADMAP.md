@@ -493,3 +493,16 @@ build-script label fix remains.
 - Near-dup cluster mapping loaded from P6C JSON: 23 artwork→cluster mappings (8 clusters, 23 records)
 - Safety: no network, no file modification to source data, no deletion, no GitHub Pages push
 - See `<workspace>/reports/artvee-gallery-p6f-digest-history-20260612.md`
+
+### P6F+1 · Approved publish to GitHub Pages (history-aware digest live) ✅ PASS (2026-06-12 22:26)
+- Pages commit: `f419d31` on `conanxin/conanxin.github.io` (`f972f5a..f419d31`)
+- Gallery: 100 records, 200 thumbs, 5.7M — `https://conanxin.github.io/projects/artvee-gallery-demo/` → 200
+- Digest: 5 picks, 5 thumbs, 256K — `https://conanxin.github.io/projects/artvee-gallery-digest/` → 200
+- Digest artists: Alphonse_Mucha, Amaldus_Nielsen, Anonymous, Utagawa_Hiroshige, Yoshida_Hiroshi (5/5 unique)
+- Digest categories: book-illustrations, japanese-prints, posters-design (3 categories)
+- digests.json includes `picks` array with `near_dup_cluster_id` (1 pick from cluster-006, 4 unique)
+- Public JSON safety: 0 `metadata_path`, 0 abs-path leaks, 0 duplicate `source_url`
+- Online verification: gallery `/`, `data/artworks.json`, `data/gallery_stats.json`, `app.js`, `style.css`, sample thumbs (256+512) all 200
+- Digest online: `/`, `digest.html`, `digest.md`, `data/digests.json`, sample thumb all 200
+- CDN wait 90s + `wait_and_curl()` retry: first-pass 200 on gallery `/`, digest `/`
+- See `<workspace>/reports/artvee-gallery-p6f-approved-publish-20260612.md`

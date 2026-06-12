@@ -101,6 +101,13 @@ rm reports/runtime/digest-history.json
 
 The digest builder itself does not push to GitHub Pages. The public digest page is refreshed through the existing candidate flow (`confirm_demo_refresh.sh` + `publish_demo_refresh_candidate.sh`). The history file is a **local-only runtime artifact**; it does not travel to the public Pages repo.
 
+### P6F+1 Approved publish (2026-06-12)
+
+The first approved publish after P6F shipped at commit `f419d31` on `conanxin.github.io`:
+- Gallery: `https://conanxin.github.io/projects/artvee-gallery-demo/` (100 records, 5.7M)
+- Digest: `https://conanxin.github.io/projects/artvee-gallery-digest/` (5 picks, 5 unique artists, 3 categories)
+- The digest page includes `data/digests.json` with the `picks` array (including `near_dup_cluster_id` for each pick), demonstrating the near-dup awareness is live on the public surface.
+
 ---
 
 *Document version: P6F-1.0*  
