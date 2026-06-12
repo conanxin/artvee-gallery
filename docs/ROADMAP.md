@@ -183,16 +183,30 @@
   P4A+1 § 6.4 build bug; image and title are correct, only
   the URL label is wrong. Leave for P5+ build-script fix.
 
-### P4D · Semi-automatic public demo refresh
-**Target:** `scripts/confirm_demo_refresh.sh` that re-runs the
-6 mandatory gates from `PUBLIC_DEMO_REFRESH_PLAN.md` § 5,
-prints a `git diff` of the planned Pages push, and asks for
-explicit `y/N` confirmation. The nightly wrapper
-(`artvee_nightly_wrapper.sh`) calls it at 02:30 so the user
-sees the prompt daily without remembering to do so. Manual
-`git push` is the only step that needs human action. No
-secrets, no PAT, no webhook — keeps the local-first invariant
-intact.
+### P4D · Semi-automatic public demo refresh ✅ PASS (2026-06-12)
+**Status:** First semi-automatic refresh shipped on 2026-06-12:
+- Exporter gained two new public-safety flags
+  (`--exclude-duplicate-source-url-groups`,
+  `--require-unique-source-url`) and a `metadata_path` field
+  strip — see
+  [`scripts/export_artvee_gallery_public_demo.py`](scripts/export_artvee_gallery_public_demo.py).
+- Gallery (100 records, 5.7M, 205 files) and Digest (5 records,
+  296K, 10 files) rebuilt from post-P4B `web/data/` and rsynced
+  to `conanxin.github.io` at commit `5a8d938`.
+- All online endpoints verified `200` after a 60-second CDN
+  propagation wait; thumb spot-checks pass.
+- The single manual step in the flow is `git push` from
+  the Pages repo (`<artvee-pages-repo>`, e.g.
+  `conanxin.github.io`), which keeps the local-first invariant
+  (no PAT, no webhook, no secret in CI).
+
+**P4D follow-up (still open):** the
+`scripts/confirm_demo_refresh.sh` shell wrapper and the
+nightly 02:30 hook in `artvee_nightly_wrapper.sh` are *not yet
+implemented*. The first refresh was driven by an explicit
+exporter invocation; the prompt-and-confirm wrapper would make
+it run unattended and print a daily `git diff` for human
+review. Tracked in the next open bucket below.
 
 ### P4E · Digest history index page
 - The public digest route currently shows only the latest day.
@@ -228,6 +242,21 @@ intact.
 
 ## 4. Long-term
 
+### P4D+1 · `confirm_demo_refresh.sh` wrapper + nightly hook
+- Wrap the P4D flow into a single script that re-runs the
+  6 mandatory gates from
+  [`docs/PUBLIC_DEMO_REFRESH_PLAN.md`](docs/PUBLIC_DEMO_REFRESH_PLAN.md)
+  § 5, prints a `git diff` of the planned Pages push, and asks
+  for explicit `y/N` confirmation.
+- The nightly wrapper
+  ([`scripts/artvee_nightly_wrapper.sh`](scripts/artvee_nightly_wrapper.sh))
+  calls it at 02:30 so the user sees the prompt daily without
+  remembering to do so. Manual `git push` remains the only
+  step that needs human action. No secrets, no PAT, no
+  webhook — keeps the local-first invariant intact.
+- P4D+1 is a *follow-up*, not a blocker: the first refresh
+  shipped without it (exporter was driven directly).
+
 ### P5+ · Unresolved loser retry
 The 4 losers dropped by P4B (all 30s Playwright timeouts on
 `la-plume-4/` / `le-reve-3/` / `le-reve/` /
@@ -238,6 +267,13 @@ corresponding `source_url`s are permanently retired (added to
 a `KNOWN_RETIRED` set in `artvee_identity.py` and skipped by
 future refills / candidates). P5+ is a meta-bucket for "later
 phases not yet individually scoped".
+
+**Also still open under P5+:** the Le_rêve `source_url` label
+bug (P4A+1 § 6.4) — `image` is correct, but the `source_url`
+string still ends in `/le-reve/` instead of `/le-reve-2/`.
+Mitigated at export time by
+`--exclude-duplicate-source-url-groups`; the underlying
+build-script label fix remains.
 
 ### Object-storage full archive
 - Optional S3 / R2 / OSS mirror of the local `images/` + `metadata/`,

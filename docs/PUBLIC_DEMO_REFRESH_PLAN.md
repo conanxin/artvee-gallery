@@ -205,3 +205,80 @@ Concretely:
 - **Theme bundles**: when / if P4E (themed bundle exporter)
   lands, where do the bundles live in the Pages repo? The
   current `projects/` layout has only the gallery + digest.
+
+## 7. P4D first semi-automatic refresh · 2026-06-12
+
+The first end-to-end run of the refresh path landed on
+2026-06-12. This section records the concrete command, the
+post-push state, and what it proves about the design above.
+
+**Exporter invocation (semi-automatic, no wrapper yet):**
+
+```bash
+cd <artvee-repo>     # e.g. the local clone of conanxin/artvee-gallery
+rm -rf /tmp/artvee-gallery-demo-p4d
+python3 scripts/export_artvee_gallery_public_demo.py \
+    --limit 100 --strategy diverse \
+    --out-dir /tmp/artvee-gallery-demo-p4d --base-url . \
+    --exclude-duplicate-source-url-groups \
+    --require-unique-source-url
+
+rm -rf /tmp/artvee-gallery-digest-p4d
+python3 scripts/build_artvee_daily_digest.py \
+    --strategy diverse --select 5 --candidate-limit 20 \
+    --out-dir digests
+python3 scripts/export_artvee_digest_public_page.py \
+    --out-dir /tmp/artvee-gallery-digest-p4d --base-url .
+```
+
+**Pre-publish gates (§ 5) result on 2026-06-12:**
+
+| Gate | Result |
+| --- | --- |
+| 1. `check_gallery_integrity.py --strict` | PASS (post-P4B: 756 records, 0 dup ids) |
+| 2. `check_open_source_ready.py` | PASS (no tracked runtime data; no leaks) |
+| 3. Gallery /tmp leak grep | PASS (no forbidden substrings) |
+| 4. Digest /tmp leak grep | PASS (no forbidden substrings) |
+| 5. JSON validity | PASS (artworks, stats, digests all parse) |
+| 6. No files >2M | PASS (largest single file is a 512 thumb) |
+| 7. Public-safety guard (duplicate source_url group + uniqueness) | PASS (3 groups / 6 records dropped incl. Le_rêve URL label bug; 100/100 unique ids and unique source_urls) |
+
+**Push + online verification:**
+
+| Surface | Result |
+| --- | --- |
+| `conanxin.github.io` commit | `5a8d938` ("Refresh Artvee Gallery public demos after collision fix") |
+| Gallery URL | <https://conanxin.github.io/projects/artvee-gallery-demo/> → `200` |
+| Gallery `data/artworks.json` | `200`, 100 records |
+| Gallery `data/gallery_stats.json` | `200` |
+| Gallery `app.js`, `style.css` | `200` |
+| Gallery thumbs (sample: 256 + 512) | `200` |
+| Digest URL | <https://conanxin.github.io/projects/artvee-gallery-digest/> → `200` |
+| Digest `digest.html`, `digest.md`, `data/digests.json` | `200` |
+| Digest thumb (sample 512) | `200` |
+
+**What P4D proved:**
+
+- The semi-automatic path works end-to-end. Only the final
+  `git push` to `conanxin.github.io` is human; everything else
+  is script-driven and verifiable before the push.
+- The public-safety flags work: the Le_rêve URL label bug
+  (P4A+1 § 6.4) is not in the public gallery, even though it
+  is still present in `web/data/artworks.json`.
+- The 4 unresolved losers are still in
+  `reports/runtime/p4b-unresolved-losers.json`; the P4D run
+  did not retry them.
+- The full 100-record Gallery stays at ~5.7M and the 5-record
+  Digest stays at ~300K — both well under the GitHub Pages
+  soft cap and CDN-friendly.
+
+**What P4D did *not* prove yet (still open):**
+
+- The `confirm_demo_refresh.sh` wrapper and the nightly
+  02:30 hook in `artvee_nightly_wrapper.sh` are not yet
+  implemented. P4D+1 (added in
+  [ROADMAP.md](../ROADMAP.md) § 2) is the follow-up bucket
+  for full unattended daily prompting.
+- The Le_rêve URL label bug is still present in
+  `web/data/artworks.json`; the build-script fix is deferred
+  to P5+.

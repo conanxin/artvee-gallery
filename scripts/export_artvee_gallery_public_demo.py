@@ -95,10 +95,13 @@ def rewrite_paths(record: dict, base_url: str) -> dict:
     P1 record may have:
       - thumb_256 / thumb_512: "../thumbs/256|512/<basename>.jpg"  (local mode)
       - image_path:             "../images/<category>/<basename>.jpg" (P1 local)
+      - metadata_path:          "../metadata/<basename>.json" (P1 local)
 
     Public demo record (after rewrite):
       - thumb_256 / thumb_512: "<base_url>/assets/thumbs/256|512/<basename>.jpg"
       - image_path:            "<base_url>/assets/thumbs/512/<basename>.jpg"  (fallback to 512)
+      - metadata_path:         DROPPED (the public demo has no metadata/ folder; the
+                               front-end shows "—" if empty, which is the correct UX)
       - source_url:            kept verbatim (https://artvee.com/...)
     """
     base = base_url.rstrip("/") if base_url else "."
@@ -121,13 +124,27 @@ def rewrite_paths(record: dict, base_url: str) -> dict:
         r["image_path"] = _aset(src_image, 512)
     else:
         r["image_path"] = r["thumb_512"]
+    # P4D: drop metadata_path from public export. It points at local
+    # "../metadata/<basename>.json" which (a) leaks the source-machine folder
+    # layout in the public JSON, and (b) the public demo does not actually ship
+    # any metadata/ folder, so the path is dangling. The front-end shows "—"
+    # for a missing metadata_path, which is the correct public-demo UX.
+    r.pop("metadata_path", None)
     # source_url and other fields pass through unchanged
     return r
 
 
 # ---------- main export ----------
 
-def export(out_dir: Path, limit: int, strategy: str, base_url: str, dry_run: bool) -> int:
+def export(
+    out_dir: Path,
+    limit: int,
+    strategy: str,
+    base_url: str,
+    dry_run: bool,
+    exclude_duplicate_source_url_groups: bool = False,
+    require_unique_source_url: bool = False,
+) -> int:
     out_dir = out_dir.resolve()
     if strategy not in STRATEGIES:
         print(f"ERROR: unknown --strategy={strategy}. Choose from: {list(STRATEGIES)}", file=sys.stderr)
@@ -136,11 +153,34 @@ def export(out_dir: Path, limit: int, strategy: str, base_url: str, dry_run: boo
     arts_all = load_json(SRC_DATA / "artworks.json")
     stats_src = load_json(SRC_DATA / "gallery_stats.json")
 
+    # P4D public-safety guard: if requested, drop every record whose source_url
+    # is shared with another record in the *global* web/data. This skips entire
+    # groups so the public demo never publishes a known buggy URL label.
+    if exclude_duplicate_source_url_groups:
+        url_counts: Counter = Counter(a.get("source_url", "") for a in arts_all)
+        duplicated = {url for url, c in url_counts.items() if c > 1 and url}
+        before = len(arts_all)
+        arts_all = [a for a in arts_all if a.get("source_url", "") not in duplicated]
+        after = len(arts_all)
+        print(f"[guard] --exclude-duplicate-source-url-groups: "
+              f"dropped {before - after} record(s) across {len(duplicated)} duplicated source_url group(s)")
+
     selector = STRATEGIES[strategy]
     picked = selector(arts_all, limit)
     if not picked:
-        print("ERROR: selected 0 records (source is empty?)", file=sys.stderr)
+        print("ERROR: selected 0 records (source is empty after guards?)", file=sys.stderr)
         return 2
+
+    # P4D public-safety guard: if requested, after selection, ensure no
+    # source_url appears more than once in the picked set. Otherwise refuse.
+    if require_unique_source_url:
+        picked_urls = Counter(a.get("source_url", "") for a in picked)
+        dupes = {url: c for url, c in picked_urls.items() if c > 1 and url}
+        if dupes:
+            print(f"ERROR: --require-unique-source-url failed: "
+                  f"{len(dupes)} duplicated source_url(s) in selected set. "
+                  f"First 3: {list(dupes.items())[:3]}", file=sys.stderr)
+            return 4
 
     # Verify all needed thumbs exist
     missing: list[tuple[str, int]] = []
@@ -175,13 +215,29 @@ def export(out_dir: Path, limit: int, strategy: str, base_url: str, dry_run: boo
     (out_assets_thumbs / "512").mkdir(parents=True, exist_ok=True)
     (out_dir / "data").mkdir(parents=True, exist_ok=True)
 
-    # Copy web/* (index.html, app.js, style.css)
+    # Copy web/* (index.html, app.js, style.css). For index.html we do a
+    # text-level patch to swap the LOCAL-only subtitle
+    # ("本地图库浏览 · 数据来自 index/artworks.csv + metadata/") for a
+    # public-safe one that does not contain the forbidden substrings
+    # `metadata/` or `images/`.
     for name in ("index.html", "app.js", "style.css"):
         src = SRC_WEB / name
         if not src.exists():
             print(f"ERROR: missing web file: {src}", file=sys.stderr)
             return 2
-        shutil.copy2(src, out_dir / name)
+        if name == "index.html":
+            html = src.read_text(encoding="utf-8")
+            PUBLIC_SUBTITLE = (
+                "Artvee Gallery · Public Demo · "
+                "数据来自 artvee.com 公共领域艺术作品库"
+            )
+            html = html.replace(
+                "本地图库浏览 · 数据来自 index/artworks.csv + metadata/",
+                PUBLIC_SUBTITLE,
+            )
+            (out_dir / name).write_text(html, encoding="utf-8")
+        else:
+            shutil.copy2(src, out_dir / name)
 
     # Copy selected thumbs only
     copied_256 = 0
@@ -239,6 +295,10 @@ def export(out_dir: Path, limit: int, strategy: str, base_url: str, dry_run: boo
     print(f"    └─ assets/thumbs/{{256,512}}/  {copied_256} + {copied_512} files")
     print(f"[i] category distribution: {dict(cats)}")
     print(f"[i] base-url: {base_url!r}")
+    if exclude_duplicate_source_url_groups:
+        print(f"[i] guard: --exclude-duplicate-source-url-groups was active")
+    if require_unique_source_url:
+        print(f"[i] guard: --require-unique-source-url was active (post-check PASS)")
     print(f"[i] preview: cd {out_dir} && python3 -m http.server 8890")
     return 0
 
@@ -246,7 +306,9 @@ def export(out_dir: Path, limit: int, strategy: str, base_url: str, dry_run: boo
 def main():
     p = argparse.ArgumentParser(description="Artvee Public Demo Exporter")
     p.add_argument("--limit", type=int, default=100,
-                   help="Max records to include in the demo (default: 100)")
+                   help="Max records to include in the demo (default: 100). "
+                        "If --exclude-duplicate-source-url-groups is set, the effective "
+                        "limit may be lower because filtered groups reduce the pool.")
     p.add_argument("--out-dir", type=Path, default=DEFAULT_OUT,
                    help=f"Output directory (default: {DEFAULT_OUT})")
     p.add_argument("--base-url", default=".",
@@ -256,9 +318,30 @@ def main():
                    help="Selection strategy: recent (default) | diverse")
     p.add_argument("--dry-run", action="store_true",
                    help="Show what would be exported without writing anything")
+    p.add_argument("--exclude-duplicate-source-url-groups",
+                   action="store_true",
+                   help="Public-safety guard (P4D). Before selection, scan the full "
+                        "web/data/artworks.json for source_url values that map to "
+                        "multiple records, and exclude those entire groups from the "
+                        "export. Useful when the source data has a known build-script "
+                        "label bug (e.g. P4A+1 § 6.4 Le_rêve source_url mismatch) "
+                        "where the *image* is correct but the *source_url label* is "
+                        "wrong. Skipping the whole group keeps the public demo clean "
+                        "until the build bug is fixed (P5+).")
+    p.add_argument("--require-unique-source-url",
+                   action="store_true",
+                   help="Public-safety guard (P4D). After selection, refuse to write "
+                        "the export if the selected records contain any source_url "
+                        "more than once. Exits non-zero. Pairs naturally with "
+                        "--exclude-duplicate-source-url-groups so the export cannot "
+                        "leak the bug by accident.")
     args = p.parse_args()
 
-    return export(args.out_dir, args.limit, args.strategy, args.base_url, args.dry_run)
+    return export(
+        args.out_dir, args.limit, args.strategy, args.base_url, args.dry_run,
+        exclude_duplicate_source_url_groups=args.exclude_duplicate_source_url_groups,
+        require_unique_source_url=args.require_unique_source_url,
+    )
 
 
 if __name__ == "__main__":

@@ -65,6 +65,43 @@ python3 -m json.tool /tmp/artvee-gallery-demo-smoke/data/artworks.json > /dev/nu
 The smoke target lives entirely under `/tmp/` so it never accidentally
 lands in the repo.
 
+### Public-safety flags (P4D, public demo only)
+
+The public demo exporter gained two optional guards that
+*only* affect the public export — runtime `web/data/` is
+untouched. Use both together when publishing to GitHub Pages:
+
+```bash
+# Skip whole source_url groups that map to multiple records
+# (e.g. P4A+1 § 6.4 Le_rêve URL label bug, deferred to P5+),
+# and refuse to write the export if any source_url still
+# appears more than once.
+python3 scripts/export_artvee_gallery_public_demo.py \
+    --limit 100 --strategy diverse \
+    --out-dir /tmp/artvee-gallery-demo-p4d \
+    --base-url . \
+    --exclude-duplicate-source-url-groups \
+    --require-unique-source-url
+```
+
+* `--exclude-duplicate-source-url-groups` — reads the *global*
+  `web/data/artworks.json`, finds `source_url` values that map
+  to multiple records, and drops those *entire groups* before
+  selection. The export then cannot leak a known buggy URL
+  label by accident.
+* `--require-unique-source-url` — post-selection, exits non-zero
+  if any `source_url` appears more than once in the picked set.
+  Pairs naturally with the first flag as a final safety net.
+* The exporter also strips the `metadata_path` field from each
+  record in the public JSON: the public demo has no
+  `metadata/` folder, so the path is dangling in addition to
+  leaking the local source-machine layout.
+* The `index.html` subtitle is rewritten at copy time from the
+  local "数据来自 index/artworks.csv + metadata/" text to a
+  public-safe "数据来自 artvee.com 公共领域艺术作品库" line,
+  so the public page does not advertise the local folder
+  structure.
+
 ## 5. What you should **not** run in dev
 
 These are wired into cron, not into the dev loop. **Do not** trigger

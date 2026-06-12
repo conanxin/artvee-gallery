@@ -25,6 +25,7 @@
 | **P4A+1** | Gallery integrity CI gate (filename-collision / duplicate-id) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4a1-integrity-gate-20260612.md` |
 | **P4B** | Filename collision fix + index/web data migration | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4b-collision-migration-20260612.md` |
 | **P4C** | Post-migration verification + CI Node 24 upgrade + public demo refresh planning | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4c-post-migration-ci-refresh-plan-20260612.md` |
+| **P4D** | Semi-automatic public demo refresh (Gallery + Digest → GitHub Pages) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4d-semi-automatic-public-refresh-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
@@ -44,11 +45,24 @@
 
 | Surface | URL | Refresh cadence |
 | --- | --- | --- |
-| Public demo (curated subset, thumbnails only) | <https://conanxin.github.io/projects/artvee-gallery-demo/> | Manual re-export |
-| Public daily digest (latest 5-pick, 324 KB) | <https://conanxin.github.io/projects/artvee-gallery-digest/> | Manual re-export |
+| Public demo (curated subset, thumbnails only) | <https://conanxin.github.io/projects/artvee-gallery-demo/> | **Semi-automatic** (P4D: `scripts/confirm_demo_refresh.sh` at 02:30 nightly, manual `git push` step) |
+| Public daily digest (latest 5-pick, ~300 KB) | <https://conanxin.github.io/projects/artvee-gallery-digest/> | **Semi-automatic** (P4D: same wrapper) |
 | Public GitHub repository | <https://github.com/conanxin/artvee-gallery> | Per-push (CI gated) |
 | Public release | <https://github.com/conanxin/artvee-gallery/releases/tag/v0.1.0-alpha> | Once per release |
 | Local gallery UI | `bash scripts/serve_artvee_gallery.sh` then `http://localhost:8000/` | On every local rebuild |
+
+### P4D public-refresh snapshot (2026-06-12)
+
+| Field | Value |
+| --- | --- |
+| GitHub Pages commit (conanxin.github.io) | `5a8d938` |
+| Gallery online record count | 100 (4 cats × 25, post-P4B collision fix) |
+| Gallery online size | 5.7M, 205 files |
+| Digest online selected count | 5 (diverse) |
+| Digest online size | 296K, 10 files |
+| Online endpoint status | All `200` for gallery `/`, `data/artworks.json`, `data/gallery_stats.json`, `app.js`, `style.css`, all 5 sample thumbs (gallery 256+512, digest 512); same `200` for digest `/`, `digest.html`, `digest.md`, `data/digests.json` and the digest sample thumb. |
+| Public-safety guards | `--exclude-duplicate-source-url-groups` drops 3 groups (6 records, incl. Le_rêve URL label bug); `--require-unique-source-url` post-check PASS |
+| Safety boundaries | No Artvee download; no refill; no nightly batch; no retry of 4 unresolved losers; no full images / metadata / thumbs in Pages repo; `metadata_path` field stripped from public JSON |
 
 ## Repository readiness (post-P3C, re-validated at P3F)
 
