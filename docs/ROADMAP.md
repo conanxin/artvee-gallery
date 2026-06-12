@@ -320,6 +320,15 @@ are gathered under P5+ below.)
 - P5A Le_rêve source_url fix is now live on public Gallery
 - See `<workspace>/reports/artvee-gallery-p5b-approved-publish-20260612.md`
 
+### P5C · Legacy orphan cleanup ✅ PASS (2026-06-12 16:02)
+- User authorized `--apply` at 16:01 GMT+8
+- New script: `scripts/cleanup_legacy_orphans.py` (--apply / --dry-run / --expected-count / --json-out)
+- Deleted 44 legacy rollback orphan files (P4B safety copies) / 19.33 MB
+- P5A audit reported 46; actual was 44 (P5A audit included 2 .gitkeep in thumbs counts; correctly excluded by cleanup script)
+- Post-cleanup: images 756, metadata 756, thumbs/256 757, thumbs/512 757 — all 3024 web-referenced paths exist
+- Strict integrity PASS, 0 source_url dupe groups
+- See `<workspace>/reports/artvee-gallery-p5c-orphan-cleanup-20260612.md`
+
 ### P5C · Legacy orphan cleanup (P5B ✅ done — now safe to do)
 - Run `publish_demo_refresh_candidate.sh --date YYYY-MM-DD --approve` after P5A
   candidate is validated. This is the first real Pages push since P4D.

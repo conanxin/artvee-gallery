@@ -135,6 +135,27 @@ files, always verify that the key mapped fields (source_url,
 title, artist) in the rebuilt web data match the index, not the
 old metadata.
 
+### 2.8 Audit counts may include .gitkeep placeholders (P5C)
+
+The P5A orphan audit (`reports/runtime/p5a-legacy-orphans-
+report.json`) reported 46 orphan files: 11 images + 11
+metadata + 12 thumbs (256) + 12 thumbs (512). The P5C cleanup
+script correctly excluded 2 `.gitkeep` files (one in
+`thumbs/256/`, one in `thumbs/512/`) because they are not
+image or metadata files. The actual orphan count to delete
+was 44, not 46.
+
+**Fix**: the P5C script uses `IMAGE_EXT` + `META_EXT`
+allowlists (not just "is file") when scanning, so it
+correctly ignores `.gitkeep`. The audit discrepancy is
+benign (saved 2 files from being deleted).
+
+**Rule**: when auditing "files to delete", always apply a
+file-type filter, not just "is_file()". `.gitkeep`,
+`README.md`, and other non-data placeholders are
+intentional directory anchors and must never be removed
+by an orphan-cleanup pass.
+
 ## 3. Phase-by-phase impact analysis
 
 ### P1 · Local Gallery Browser

@@ -458,3 +458,58 @@ for root in ['images', 'metadata', 'thumbs/256', 'thumbs/512']:
     print(f'{root}: {len(orphans)} orphans')
 "
 ```
+
+## 11. P5C orphan cleanup commands
+
+### Audit only (dry-run)
+```bash
+python3 scripts/cleanup_legacy_orphans.py \
+  --dry-run \
+  --expected-count 46 \
+  --json-out reports/runtime/p5c-orphan-cleanup-dry-run.json
+```
+
+### Apply cleanup (user explicit `--apply`)
+```bash
+python3 scripts/cleanup_legacy_orphans.py \
+  --apply \
+  --expected-count 44 \
+  --json-out reports/runtime/p5c-orphan-cleanup-result.json
+```
+
+### Verify post-cleanup
+```bash
+python3 scripts/check_gallery_integrity.py --strict
+python3 scripts/check_open_source_ready.py
+# Custom missing-referenced check (paths in web/data are like ../images/...):
+python3 - <<'PY'
+import json
+from pathlib import Path
+ROOT = Path('.').resolve()
+web = json.loads((ROOT / 'web/data/artworks.json').read_text(encoding='utf-8'))
+missing = []
+for a in web:
+    for key in ['image_path', 'metadata_path', 'thumb_256', 'thumb_512']:
+        rel = a.get(key, '')
+        if not rel: continue
+        rel_from_root = rel[3:] if rel.startswith('../') else rel[2:] if rel.startswith('./') else rel
+        if not (ROOT / rel_from_root).exists():
+            missing.append((a.get('id'), key))
+print(f'missing_referenced_files: {len(missing)}')
+PY
+```
+
+### Disk state expected (post-P5C)
+- `images/`: 756 files
+- `metadata/`: 756 `.json` files
+- `thumbs/256/`: 757 files (756 + 1 `.gitkeep`)
+- `thumbs/512/`: 757 files (756 + 1 `.gitkeep`)
+- Total: 3026 files on disk, 3024 referenced by web/data
+- The 2 difference is the 2 `.gitkeep` files (correctly preserved)
+
+### P5A audit vs actual cleanup
+- P5A audit (`reports/runtime/p5a-legacy-orphans-report.json`): 46 files
+- Cleanup actual: 44 files
+- Reason: P5A audit incorrectly counted 2 `.gitkeep` files in thumbs/256 and thumbs/512 totals
+- The cleanup script correctly filters `.gitkeep` (not an image or metadata file)
+- This is a benign audit over-count, not a data integrity issue

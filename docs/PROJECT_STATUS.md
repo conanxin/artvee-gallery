@@ -30,6 +30,7 @@
 | **P4E** | Approved publish helper (`publish_demo_refresh_candidate.sh` with `--approve` + `--dry-run` + `--no-push`) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4e-approved-publish-helper-20260612.md` |
 | **P5A** | Content healing: Le_rêve source_url fix + 4 loser retry + orphan audit | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5a-content-healing-20260612.md` |
 | **P5B** | First approved publish from P5A candidate (Le_rêve source_url fix live on Pages) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5b-approved-publish-20260612.md` |
+| **P5C** | Legacy rollback orphan cleanup (P4B safety copies removed post-P5B) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5c-orphan-cleanup-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
@@ -270,4 +271,20 @@ refresh is expected on the P4B cut.
 - Gallery: https://conanxin.github.io/projects/artvee-gallery-demo/
 - Digest: https://conanxin.github.io/projects/artvee-gallery-digest/
 - Source_url for `hostdag-bjelland-mandal` now shows `https://artvee.com/dl/hostdag-bjelland-mandal/` (correct, was `le-reve/`-style stale before P5A fix)
+
+### P5C orphan-cleanup snapshot (2026-06-12 16:02 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| Mode | `--apply` (user explicit) |
+| Orphan files deleted | 44 (P5A audit reported 46, 2 were `.gitkeep` correctly excluded) |
+| Total size freed | 19.33 MB (20,271,448 bytes) |
+| P5A audit vs actual | 46 → 44 (P5A audit included 2 .gitkeep in thumbs counts) |
+| Cross-check P5A | `only_in_p5a` = `.gitkeep` (benign) |
+| Missing referenced files (pre + post) | 0 / 0 |
+| Disk state post | images: 756, metadata: 756, thumbs/256: 757 (.gitkeep+756), thumbs/512: 757 (.gitkeep+756) |
+| Strict integrity | PASS (756 records, 0 dupe groups) |
+| Web source_url dupe groups | 0 |
+| Candidate QA | Gallery 100/200/5.2M PASS, Digest 5/5/256K PASS, dry-run publish PASS |
+| New script | `scripts/cleanup_legacy_orphans.py` (450 lines, --apply / --dry-run / --expected-count / --json-out) |
 
