@@ -296,6 +296,66 @@ The samples intentionally use **relative** thumbnail paths
 (`./assets/thumbs/256/sample.jpg`, `./assets/thumbs/512/sample.jpg`)
 so the open-source repo never embeds a real machine path.
 
+## 7.1. Confirming a public demo refresh (P4D+1, manual)
+
+`scripts/confirm_demo_refresh.sh` builds a *candidate* public
+demo bundle into `dist/refresh-candidates/YYYY-MM-DD/` and
+runs inline QA. The 02:30 nightly hook runs it with
+`--no-telegram`; the manual commands below use the same
+script with the full Telegram report.
+
+```bash
+# 1. Dry-run first: walk the pipeline without writing
+#    dist/, logs/, or sending Telegram. Use this to
+#    double-check the wiring after editing the script.
+bash scripts/confirm_demo_refresh.sh --dry-run --no-telegram
+
+# 2. Real run, no Telegram notification. Writes the
+#    candidate to dist/refresh-candidates/<date>/ and the
+#    report to logs/confirm_demo_refresh/report_<date>.md.
+bash scripts/confirm_demo_refresh.sh --no-telegram
+
+# 3. Real run, with Telegram summary. The same pipeline,
+#    plus a pass/fail Telegram message at the end.
+bash scripts/confirm_demo_refresh.sh
+```
+
+Argument reference:
+
+* `--date YYYY-MM-DD` — build the candidate for a specific
+  date (default: today). Useful for backfilling a missed day
+  or testing against a known-good sample.
+* `--dry-run` — print the steps, do not write `dist/` or
+  `logs/`, do not call Telegram. Combined with `--no-telegram`
+  this is the safest "I just want to see what would happen"
+  mode.
+* `--no-telegram` — run the full pipeline but skip the
+  Telegram notifier. The cron hook always uses this.
+* `--help` — print usage.
+
+What the script writes:
+
+* `dist/refresh-candidates/<date>/gallery/` — public Gallery
+  bundle (P4D safety flags on).
+* `dist/refresh-candidates/<date>/digest/` — public Digest
+  bundle.
+* `logs/confirm_demo_refresh/confirm_demo_refresh_<ts>.log` —
+  full run log.
+* `logs/confirm_demo_refresh/report_<date>.md` — the human
+  report (this is the file the user reads to decide whether
+  to publish).
+
+What the script does *not* do, even without `--dry-run`:
+
+* No `git push` to `conanxin.github.io`.
+* No `rsync` to the Pages repo.
+* No modification of `web/data/`, `images/`, `metadata/`.
+* No retry of the 4 unresolved losers.
+* No download / refill / batch re-run.
+
+To publish a candidate, follow the manual publish flow in
+[docs/PUBLIC_DEMO_REFRESH_PLAN.md § 8.3](PUBLIC_DEMO_REFRESH_PLAN.md).
+
 ## 8. Branch model (suggested, not enforced by this repo)
 
 - `main` — always releasable; only merges via PR.

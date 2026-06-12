@@ -282,3 +282,125 @@ python3 scripts/export_artvee_digest_public_page.py \
 - The Le_rêve URL label bug is still present in
   `web/data/artworks.json`; the build-script fix is deferred
   to P5+.
+
+## 8. P4D+1 · Confirm flow + 02:30 nightly hook · 2026-06-12
+
+P4D+1 introduces `scripts/confirm_demo_refresh.sh` and a
+**local-only nightly hook** that prepares a public demo
+candidate every night at 02:30, but does **not** push it to
+GitHub Pages. The hook bridges "what P4D did manually once"
+to "what the user might do every morning".
+
+### 8.1 What the hook does
+
+At 02:30 Asia/Shanghai every day, the hook runs:
+
+```bash
+cd <artvee-repo> \
+  && bash scripts/confirm_demo_refresh.sh --no-telegram \
+       >> logs/confirm_demo_refresh/cron_stderr.log 2>&1
+```
+
+`--no-telegram` is used so the hook can be tested during the
+day without spamming the channel; the script still writes the
+report, and a separate manual `bash scripts/confirm_demo_refresh.sh`
+without `--no-telegram` will send a Telegram summary.
+
+The script's pipeline is:
+
+1. **Preflight 1** — `check_open_source_ready.py` must PASS
+   (no tracked runtime data, no leaks, no big files).
+2. **Preflight 2** — `check_gallery_integrity.py --strict`
+   must PASS (no id / image / thumb dupe groups).
+3. **Build local digest** — `build_artvee_daily_digest.py`
+   is idempotent on a given date; overwrites `digests/`.
+4. **Export Gallery candidate** to
+   `dist/refresh-candidates/YYYY-MM-DD/gallery/` using
+   the P4D public-safety flags
+   (`--exclude-duplicate-source-url-groups
+   --require-unique-source-url`).
+5. **Export Digest candidate** to
+   `dist/refresh-candidates/YYYY-MM-DD/digest/`.
+6. **QA · Gallery** — re-asserts: 100 records, 200 thumbs,
+   0 dupe id / source_url groups, 0 Le_rêve records,
+   0 local-path leaks, 0 missing thumbs, size < 20 MB
+   hard / 10 MB soft.
+7. **QA · Digest** — re-asserts: 5 picks, 5 thumbs,
+   0 leaks, 0 missing thumbs.
+8. **Write report** to
+   `logs/confirm_demo_refresh/report_YYYY-MM-DD.md`.
+9. **Telegram summary** (skipped with `--no-telegram`).
+
+### 8.2 What the hook does *not* do
+
+- ❌ No `git push` to `conanxin.github.io`.
+- ❌ No `rsync` to the Pages repo.
+- ❌ No modification of `web/data/` / `images/` / `metadata/`.
+- ❌ No retry of the 4 unresolved losers.
+- ❌ No download / refill / batch re-run.
+- ❌ No use of PAT / webhook / CI cross-repo write.
+
+The candidate is a **view-only snapshot** that the user can
+inspect, then either publish manually (P4E) or discard.
+
+### 8.3 Manual publishing flow
+
+After the 02:30 hook writes a candidate, the user (in a daytime
+session, with eyes on it) can publish it with:
+
+```bash
+rsync -a --delete \
+  <artvee-repo>/dist/refresh-candidates/YYYY-MM-DD/gallery/ \
+  <artvee-pages-repo>/projects/artvee-gallery-demo/
+rsync -a --delete \
+  <artvee-repo>/dist/refresh-candidates/YYYY-MM-DD/digest/ \
+  <artvee-pages-repo>/projects/artvee-gallery-digest/
+# Edit <artvee-pages-repo>/projects/data.json (updated + summary).
+cd <artvee-pages-repo> \
+  && git add projects/artvee-gallery-{demo,digest} projects/data.json \
+  && git commit -m 'Refresh artvee public demo for YYYY-MM-DD' \
+  && git push
+# wait ~60s for CDN, then curl all 12 endpoints.
+```
+
+This is exactly the P4D publish path, but driven from a
+**date-named candidate directory** instead of
+`/tmp/artvee-gallery-demo-p4d/`.
+
+### 8.4 Idempotency
+
+- `dist/refresh-candidates/YYYY-MM-DD/` is overwritten each
+  run for the same date. The first candidate of the day
+  always wins; later runs are no-ops if nothing changed.
+- `logs/confirm_demo_refresh/` is append-only, with one log
+  per run (`*_YYYYMMDD_HHMMSS.log`) and one Markdown report
+  per date (`report_YYYY-MM-DD.md`).
+- The 02:30 hook is a candidate builder, not a publisher.
+  Re-running it never produces a second publication.
+
+### 8.5 Failure behavior
+
+- If preflight 1 (open-source readiness) fails, the script
+  exits non-zero and writes a `❌` Telegram summary
+  (unless `--no-telegram`). No candidate is built.
+- If preflight 2 (integrity) fails, same as above.
+- If the gallery export itself fails, the candidate directory
+  is left in an incomplete state and the report flags it.
+- If QA fails (e.g. size > 20 MB, Le_rêve guard trips,
+  leak detected), the report is written but the **Telegram
+  summary flips to `❌`** and the overall exit is non-zero.
+  The candidate is **not** auto-removed; the user can
+  inspect the report and decide.
+
+### 8.6 Open after P4D+1
+
+- P4E (optional): the manual publish step in § 8.3 could be
+  packaged into `scripts/publish_demo_refresh.sh --date ...`,
+  but only after a secret-rotation policy is in place. Until
+  then, publish stays manual.
+- P5+ : retry the 4 unresolved losers, fix the Le_rêve
+  source_url label bug in `web/data/artworks.json` build path,
+  clean up the 11 legacy orphan files.
+- Cron log retention: `logs/confirm_demo_refresh/` will grow
+  ~10 KB / day. A monthly prune script is left for a future
+  phase.

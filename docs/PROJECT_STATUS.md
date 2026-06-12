@@ -26,6 +26,7 @@
 | **P4B** | Filename collision fix + index/web data migration | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4b-collision-migration-20260612.md` |
 | **P4C** | Post-migration verification + CI Node 24 upgrade + public demo refresh planning | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4c-post-migration-ci-refresh-plan-20260612.md` |
 | **P4D** | Semi-automatic public demo refresh (Gallery + Digest → GitHub Pages) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4d-semi-automatic-public-refresh-20260612.md` |
+| **P4D+1** | `confirm_demo_refresh.sh` + 02:30 nightly hook (candidate-only, no auto-push) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4d1-confirm-demo-refresh-hook-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
@@ -45,8 +46,8 @@
 
 | Surface | URL | Refresh cadence |
 | --- | --- | --- |
-| Public demo (curated subset, thumbnails only) | <https://conanxin.github.io/projects/artvee-gallery-demo/> | **Semi-automatic** (P4D: `scripts/confirm_demo_refresh.sh` at 02:30 nightly, manual `git push` step) |
-| Public daily digest (latest 5-pick, ~300 KB) | <https://conanxin.github.io/projects/artvee-gallery-digest/> | **Semi-automatic** (P4D: same wrapper) |
+| Public demo (curated subset, thumbnails only) | <https://conanxin.github.io/projects/artvee-gallery-demo/> | **Candidate-daily, publish-manual** (P4D+1: `scripts/confirm_demo_refresh.sh` at 02:30 nightly writes `dist/refresh-candidates/<date>/` + Telegram summary; user inspects report and runs the manual `rsync + commit + push` flow when ready) |
+| Public daily digest (latest 5-pick, ~300 KB) | <https://conanxin.github.io/projects/artvee-gallery-digest/> | **Same as Gallery** (P4D+1 hook builds both candidates in one run) |
 | Public GitHub repository | <https://github.com/conanxin/artvee-gallery> | Per-push (CI gated) |
 | Public release | <https://github.com/conanxin/artvee-gallery/releases/tag/v0.1.0-alpha> | Once per release |
 | Local gallery UI | `bash scripts/serve_artvee_gallery.sh` then `http://localhost:8000/` | On every local rebuild |
@@ -63,6 +64,20 @@
 | Online endpoint status | All `200` for gallery `/`, `data/artworks.json`, `data/gallery_stats.json`, `app.js`, `style.css`, all 5 sample thumbs (gallery 256+512, digest 512); same `200` for digest `/`, `digest.html`, `digest.md`, `data/digests.json` and the digest sample thumb. |
 | Public-safety guards | `--exclude-duplicate-source-url-groups` drops 3 groups (6 records, incl. Le_rêve URL label bug); `--require-unique-source-url` post-check PASS |
 | Safety boundaries | No Artvee download; no refill; no nightly batch; no retry of 4 unresolved losers; no full images / metadata / thumbs in Pages repo; `metadata_path` field stripped from public JSON |
+
+### P4D+1 confirm-hook snapshot (2026-06-12)
+
+| Field | Value |
+| --- | --- |
+| Script | `scripts/confirm_demo_refresh.sh` (executable, ~470 lines, 5 args) |
+| Cron hook | `30 2 * * * cd <artvee-repo> && bash scripts/confirm_demo_refresh.sh --no-telegram >> logs/confirm_demo_refresh/cron_stderr.log 2>&1` |
+| CRON_TZ | `Asia/Shanghai` (re-uses the existing block at the top of the cron file) |
+| Candidate output | `dist/refresh-candidates/YYYY-MM-DD/{gallery,digest}/` (gitignored, overwritable per-date) |
+| Log output | `logs/confirm_demo_refresh/confirm_demo_refresh_YYYYMMDD_HHMMSS.log` (one per run) |
+| Report output | `logs/confirm_demo_refresh/report_YYYY-MM-DD.md` (one per date, regenerable) |
+| Hook scope | Candidate build + QA + report + Telegram summary. **No Pages push, no rsync, no runtime data modification, no download/refill/batch, no retry of unresolved losers.** |
+| Cron backup | `logs/confirm_demo_refresh/cron_backup/crontab_backup_<ts>.txt` (one snapshot taken before installation) |
+| First-run result | Gallery 100 records / 200 thumbs / 5.2M, Digest 5 picks / 5 thumbs / 256K, all QA guards PASS, overall status `PASS`, Telegram skipped (`--no-telegram` for hook) |
 
 ## Repository readiness (post-P3C, re-validated at P3F)
 
@@ -164,12 +179,13 @@
   safety): 11 images + 11 metadata + 11×2 thumbs = 44 files /
   ~1.4 GB. Deliberately kept (P4B used `shutil.copy2` not
   `move`); cleanup is P5+ scope.
-- **Public demo refresh is manual** (post-P4C, pre-P4D):
-  currently `rsync + commit + push` of the Pages repo. P4C
-  drafted three modes (manual / semi-auto / full-auto) in
-  [docs/PUBLIC_DEMO_REFRESH_PLAN.md](PUBLIC_DEMO_REFRESH_PLAN.md).
-  P4D target = semi-auto with explicit approval (no secrets
-  needed). Full-auto (with PAT) is P5+ and requires
+- **Public demo refresh is manual** (post-P4D+1): a 02:30
+  cron hook now builds a daily **candidate** at
+  `dist/refresh-candidates/YYYY-MM-DD/` and writes a
+  Telegram summary. The `git push` of the Pages repo stays
+  manual (local-first invariant). See
+  [docs/PUBLIC_DEMO_REFRESH_PLAN.md § 8](PUBLIC_DEMO_REFRESH_PLAN.md).
+  Full-auto (with PAT) is still P5+ and requires
   `docs/SECRET_ROTATION_POLICY.md` first.
 
 ## Post-migration counts (after P4B, verified by P4C)

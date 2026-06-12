@@ -200,20 +200,69 @@
   `conanxin.github.io`), which keeps the local-first invariant
   (no PAT, no webhook, no secret in CI).
 
-**P4D follow-up (still open):** the
+**P4D follow-up:** the
 `scripts/confirm_demo_refresh.sh` shell wrapper and the
-nightly 02:30 hook in `artvee_nightly_wrapper.sh` are *not yet
-implemented*. The first refresh was driven by an explicit
-exporter invocation; the prompt-and-confirm wrapper would make
-it run unattended and print a daily `git diff` for human
-review. Tracked in the next open bucket below.
+nightly 02:30 hook in `artvee_nightly_wrapper.sh` shipped in
+**P4D+1** (see § 1) on 2026-06-12. The first refresh was
+driven by an explicit exporter invocation; the prompt-and-
+confirm wrapper now runs unattended and writes a daily
+candidate + Telegram summary, with the `git push` step still
+manual by design.
 
-### P4E · Digest history index page
+### P4D+1 · `confirm_demo_refresh.sh` wrapper + 02:30 nightly hook ✅ PASS (2026-06-12)
+- New script
+  [`scripts/confirm_demo_refresh.sh`](scripts/confirm_demo_refresh.sh)
+  (~470 lines, 5 args) wraps the P4D manual flow:
+  preflight (open-source readiness + integrity strict) → build
+  local digest → export Gallery candidate with P4D safety
+  flags → export Digest candidate → QA both bundles → write
+  `logs/confirm_demo_refresh/report_<date>.md` → Telegram
+  summary.
+- Output: `dist/refresh-candidates/YYYY-MM-DD/{gallery,digest}/`
+  (gitignored, overwritable per-date) and
+  `logs/confirm_demo_refresh/confirm_demo_refresh_*.log`.
+- Cron hook installed at `30 2 * * *` in `CRON_TZ=Asia/Shanghai`,
+  immediately after the existing `02:00` nightly batch hook.
+  Hook runs with `--no-telegram` to avoid spam; manual
+  re-runs without `--no-telegram` send the summary.
+- Idempotency: same date re-run overwrites the candidate and
+  regenerates the report. Cross-day runs are independent.
+- Local-first invariant preserved: no `git push`, no `rsync` to
+  the Pages repo, no download/refill/batch, no retry of the 4
+  unresolved losers, no PAT / webhook / secret.
+- Manual publish step remains a 4-line `rsync + commit + push`
+  against the candidate directory, documented in
+  [docs/PUBLIC_DEMO_REFRESH_PLAN.md § 8.3](PUBLIC_DEMO_REFRESH_PLAN.md).
+- First-run result (2026-06-12, `--no-telegram`): Gallery 100
+  records / 200 thumbs / 5.2M, Digest 5 picks / 5 thumbs / 256K,
+  all QA guards PASS, overall status `PASS`.
+
+### P4E · Approved publish helper (or candidate-to-pages helper)
+- The P4D+1 candidate lives in
+  `dist/refresh-candidates/YYYY-MM-DD/`. A P4E helper could
+  automate the **last 4 lines** of the manual publish path
+  (rsync → edit `data.json` → Pages commit → Pages push), but
+  *only* if a secret-rotation policy is in place
+  (`docs/SECRET_ROTATION_POLICY.md`). Until then, the user
+  must inspect the report and run the 4-line flow by hand.
+- A lighter alternative is a **candidate-to-pages helper** that
+  takes a date, prints the planned `rsync` invocations and the
+  resulting `git diff` in the Pages repo, and stops there
+  (no `git push`, no PAT). The user then runs the push in a
+  daytime session with eyes on the diff.
+- P4E is a *quality-of-life* improvement, not a correctness
+  blocker. P4D+1 already gives a daily candidate + Telegram
+  summary, which is the main visibility win.
+
+### P4F · Digest history index page
 - The public digest route currently shows only the latest day.
 - A 30-day rolling index would turn the digest into a
   *publication* rather than a daily log.
+- Easy follow-up to P4D+1: the candidate already contains a
+  date-stamped digest bundle, so the history index is mostly
+  a Pages-side roll-up.
 
-### P4F · Object storage planning
+### P4G · Object storage planning
 - The local archive is 1.4 GB on a single disk. Multi-device
   access, backup, or sharing would put it in object storage
   (S3 / R2 / COS).
@@ -242,20 +291,9 @@ review. Tracked in the next open bucket below.
 
 ## 4. Long-term
 
-### P4D+1 · `confirm_demo_refresh.sh` wrapper + nightly hook
-- Wrap the P4D flow into a single script that re-runs the
-  6 mandatory gates from
-  [`docs/PUBLIC_DEMO_REFRESH_PLAN.md`](docs/PUBLIC_DEMO_REFRESH_PLAN.md)
-  § 5, prints a `git diff` of the planned Pages push, and asks
-  for explicit `y/N` confirmation.
-- The nightly wrapper
-  ([`scripts/artvee_nightly_wrapper.sh`](scripts/artvee_nightly_wrapper.sh))
-  calls it at 02:30 so the user sees the prompt daily without
-  remembering to do so. Manual `git push` remains the only
-  step that needs human action. No secrets, no PAT, no
-  webhook — keeps the local-first invariant intact.
-- P4D+1 is a *follow-up*, not a blocker: the first refresh
-  shipped without it (exporter was driven directly).
+(P4E / P4F / P4G live in § 2 above as "Up next" — they
+are nearer-term candidates. The truly long-term open items
+are gathered under P5+ below.)
 
 ### P5+ · Unresolved loser retry
 The 4 losers dropped by P4B (all 30s Playwright timeouts on
