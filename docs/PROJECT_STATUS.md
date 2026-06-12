@@ -44,6 +44,7 @@
 | **P7A** | Daily automation hardening / phase consolidation | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a-daily-automation-hardening-20260612.md` |
 | **P7A+1** | OpenClaw binary resolution for health check Telegram notify | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a1-openclaw-binary-resolution-20260612.md` |
 | **P7B** | Optional daily health Telegram cron | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7b-daily-health-telegram-cron-20260612.md` |
+| **P7B+1** | Cron MEDIA delivery verification / failure-only fallback | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7b1-cron-media-fallback-20260613.md` |
 
 ### P7A daily-automation-hardening snapshot (2026-06-12 22:30 GMT+8)
 
@@ -447,3 +448,18 @@ refresh is expected on the P4B cut.
 | Safety | atomic write via `.tmp + os.replace`; refuses `--out-*` outside `reports/runtime/`; no shell-out, no subprocess, no network |
 | Candidate / public flow | `confirm_demo_refresh.sh --no-telegram` PASS; `publish_demo_refresh_candidate.sh --dry-run` PASS |
 | Files changed | `scripts/build_artvee_status_report.py` (new), `scripts/confirm_demo_refresh.sh` (status wording), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P6G ✅), `docs/DEVELOPMENT.md` (new § 17) |
+
+### P7B+1 cron-media-fallback snapshot (2026-06-13 04:30 GMT+8)
+
+**Goal** — distinguish health-check internal MEDIA from phase-final MEDIA, expose three independent delivery tracks (text / media / fallback), and verify the cron path actually delivers the report.
+
+| Aspect | Value |
+|--------|-------|
+| Telegram state model | `telegram.{openclaw_status, text_summary, media, fallback}` — each sub-object records `attempted` / `sent` / `message_id` / `error` / `reason`. |
+| Failure-only fallback | Triggered when health=PASS, text=sent, MEDIA=failed. Sent at most once, never recursive, does not flip exit code. |
+| Simulated-failure flag | `--simulate-media-failure` (testing only). Verified: text sent → media fail → fallback sent (message_id captured). |
+| Cron-like env test | `env -i HOME=... PATH=$HOME/.local/bin:... ARTVEE_TELEGRAM_CHAT_ID=...` runs the daily check end-to-end. text + MEDIA both sent, fallback skipped (not needed). Exit 0. |
+| Cron command (P7B+1) | `0 3 * * * export PATH=$HOME/.local/bin:$PATH && export ARTVEE_TELEGRAM_CHAT_ID='<telegram-chat-id>' && cd <artvee-repo> && bash scripts/artvee_daily_health_check.sh --online --media >> ...` |
+| Secret hygiene | Hardcoded `DEFAULT_CHAT_ID = '<digits>'` removed from `artvee_telegram_notify.py`. Resolution is now: `--chat-id` CLI > `ARTVEE_TELEGRAM_CHAT_ID` env > OpenClaw config > hard error. No tokens / chat ids in tracked code. |
+| Health | `records=756, known_retired=4, blocking_unresolved=0, strict_integrity=PASS, readiness=PASS` |
+| Files changed | `scripts/artvee_daily_health_check.py` (nested `telegram` object + fallback + simulate), `scripts/artvee_daily_health_check.sh` (pass-through new flag), `scripts/artvee_telegram_notify.py` (message_id extraction; chat_id from env/config, no hardcoded literal), `scripts/install_daily_health_cron.sh` (PATH + chat_id env, fallback comment, idempotent), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9), `docs/DEVELOPMENT.md` (§ 22), `docs/RETROSPECTIVE.md` (lesson), `docs/ROADMAP.md` (P7B+1 → completed). |

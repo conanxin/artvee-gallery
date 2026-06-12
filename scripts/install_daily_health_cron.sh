@@ -44,11 +44,26 @@ if [[ "${REPO_DIR}" == "${HOME_DIR}"* ]]; then
   REPO_DIR="~${REPO_DIR#${HOME_DIR}}"
 fi
 
+# Resolve chat id from env (P7B+1: no hardcoded ids in the repo).
+# If the installer is run with ARTVEE_TELEGRAM_CHAT_ID set, that value is
+# baked into the cron line. Otherwise, the user must export
+# ARTVEE_TELEGRAM_CHAT_ID in the shell that runs the daily check, or set
+# channels.telegram.defaultChatId in ~/.openclaw/openclaw.json.
+CRON_CHAT_ID="${ARTVEE_TELEGRAM_CHAT_ID:-}"
+if [[ -n "${CRON_CHAT_ID}" ]]; then
+  CRON_CHAT_ID_EXPORT="export ARTVEE_TELEGRAM_CHAT_ID='${CRON_CHAT_ID}' &&"
+else
+  CRON_CHAT_ID_EXPORT=""
+fi
+
 CRON_BLOCK="${MARKER_BEGIN}
-# Artvee Daily Health Check (P7B)
+# Artvee Daily Health Check (P7B / P7B+1)
 # Runs after nightly batch (02:00) + confirm_demo_refresh (02:30)
 # CRON_TZ=Asia/Shanghai is set by the existing Artvee block above
-${CRON_TIME} cd ${REPO_DIR} && bash scripts/artvee_daily_health_check.sh --online --media >> logs/daily-health-cron/daily_health_\$(date +\%Y\%m\%d)_030000.log 2>&1
+# MEDIA failure falls back to a text-only warning; health checks remain authoritative.
+# PATH is exported so cron can resolve the OpenClaw binary (lives under ~/.local/bin).
+# Override with --openclaw-bin <abs-path> if your binary lives elsewhere.
+${CRON_TIME} export PATH="\$HOME/.local/bin:\$PATH" && ${CRON_CHAT_ID_EXPORT} cd ${REPO_DIR} && bash scripts/artvee_daily_health_check.sh --online --media >> logs/daily-health-cron/daily_health_\$(date +\%Y\%m\%d)_030000.log 2>&1
 ${MARKER_END}"
 
 # Read current crontab

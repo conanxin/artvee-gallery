@@ -1,6 +1,6 @@
 # Daily Operating Playbook
 
-> Living document. Last updated: 2026-06-12 (P7B).
+> Living document. Last updated: 2026-06-13 (P7B+1).
 > This is the operational reference for the Artvee Gallery daily workflow.
 
 ---
@@ -212,3 +212,71 @@ common causes are:
 
 Resolution order: `--openclaw-bin` CLI arg > `ARTVEE_OPENCLAW_BIN` env >
 `OPENCLAW_BIN` env > PATH lookup. See `docs/DEVELOPMENT.md` § 20 for full details.
+
+---
+
+## 9. Telegram delivery state model (P7B+1)
+
+The daily health report tracks three independent delivery tracks inside
+`telegram.*` of the JSON output. Inspect
+`reports/runtime/daily-health/artvee-daily-health-YYYY-MM-DD.json` for any
+day's outcome.
+
+| Track | Field | Meaning |
+|-------|-------|---------|
+| Overall request | `telegram.requested` | Whether the run was asked to send. |
+| OpenClaw binary | `telegram.openclaw_status` | `resolved` / `missing` / `skipped`. |
+| Text summary | `telegram.text_summary.{attempted,sent,message_id,error}` | The short ✅/❌ block. |
+| MEDIA attachment | `telegram.media.{requested,staged,staged_path,sent,message_id,error}` | The full Markdown report attachment. |
+| Fallback | `telegram.fallback.{attempted,sent,message_id,reason}` | A short text-only warning if MEDIA failed. |
+
+### Three states you will see in the wild
+
+1. **All green** — `text_summary.sent=true` and `media.sent=true`. No fallback.
+2. **MEDIA failed, fallback sent** — `text_summary.sent=true`, `media.sent=false`,
+   `fallback.sent=true` with `reason=media_failed`. Health is still PASS; only
+   the attachment delivery is broken. Action: inspect `media.error` and
+   `media.staged_path`; check OpenClaw's media allowlist.
+3. **OpenClaw binary missing** — `openclaw_status=missing`. Nothing was
+   sent. The health check itself is still authoritative; this is a notify
+   failure only.
+
+`MEDIA failed` is **not** a health failure. The daily check's verdict is
+`report.checks.*.status`; Telegram is a separate observation channel.
+
+### Cron-like verification (no need to wait for 03:00)
+
+```bash
+cd <artvee-repo>
+mkdir -p logs/daily-health-cron
+env -i \
+  HOME="$HOME" USER="$USER" LOGNAME="$USER" \
+  SHELL=/bin/bash \
+  PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+  ARTVEE_TELEGRAM_CHAT_ID="<telegram-chat-id>" \
+  bash -lc 'cd <artvee-repo> && bash scripts/artvee_daily_health_check.sh --online --media' \
+  >> logs/daily-health-cron/daily_health_cronlike_test.log 2>&1
+echo "exit=$?"
+tail -10 logs/daily-health-cron/daily_health_cronlike_test.log
+# Sanity check: must not print tokens / chat ids / home paths.
+grep -RInE "TOKEN|SECRET|CHAT_ID|bot[0-9]+:" \
+  logs/daily-health-cron/daily_health_cronlike_test.log || echo "OK no secrets"
+```
+
+### Simulate a MEDIA failure to test the fallback chain
+
+```bash
+cd <artvee-repo>
+bash scripts/artvee_daily_health_check.sh --online --media --simulate-media-failure
+```
+
+Expected log lines (in order):
+
+```
+[✓] Telegram text summary sent (message_id=...)
+[warn] MEDIA simulated failure (--simulate-media-failure)
+[✓] Telegram fallback (text-only) sent (message_id=...)
+```
+
+The fallback is sent at most once per run, never recursively, and never
+changes the script's exit code (unless health checks themselves fail).

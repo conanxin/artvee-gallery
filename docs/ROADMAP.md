@@ -527,6 +527,16 @@ build-script label fix remains.
 - Daily cron rhythm: 01:30 refill, 02:00 batch, 02:30 confirm_demo_refresh, 03:00 daily health check
 - See `<workspace>/reports/artvee-gallery-p7b-daily-health-cron-20260612.md`
 
+### P7B+1 · Cron MEDIA delivery verification / failure-only fallback ✅ PASS (2026-06-13 04:30)
+- Refactored `telegram` JSON object: `requested` / `openclaw_status` / `text_summary{attempted,sent,message_id,error}` / `media{requested,staged,staged_path,sent,message_id,error,simulated_failure}` / `fallback{attempted,sent,message_id,reason}`.
+- Failure-only fallback: when health=PASS, text=sent, MEDIA=failed → a short text-only warning is sent (at most once per run, never recursive, does not change exit code).
+- New flag: `--simulate-media-failure` for verifying the fallback chain without breaking the real MEDIA allowlist.
+- Cron command (post-P7B+1): `0 3 * * * export PATH=$HOME/.local/bin:$PATH && export ARTVEE_TELEGRAM_CHAT_ID='<telegram-chat-id>' && cd <artvee-repo> && bash scripts/artvee_daily_health_check.sh --online --media`.
+- Secret hygiene: hardcoded `DEFAULT_CHAT_ID` removed from `artvee_telegram_notify.py`; resolution order is `--chat-id` CLI > `ARTVEE_TELEGRAM_CHAT_ID` env > OpenClaw config > hard error.
+- Cron-like verification: `env -i HOME=... PATH=... ARTVEE_TELEGRAM_CHAT_ID=... bash scripts/artvee_daily_health_check.sh --online --media` runs the full chain; verified text + MEDIA delivery, exit 0, log free of tokens / chat ids.
+- Files: `scripts/artvee_daily_health_check.{py,sh}`, `scripts/artvee_telegram_notify.py`, `scripts/install_daily_health_cron.sh`, `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9), `docs/DEVELOPMENT.md` (§ 22), `docs/RETROSPECTIVE.md` (lesson).
+- See `<workspace>/reports/artvee-gallery-p7b1-cron-media-fallback-20260613.md`.
+
 ### P7C · Automated approved-publish preparation
 - Pre-stage the approved-publish flow so a future `--approve` can be triggered by a scheduled event (e.g., "auto-publish on Sunday if candidate QA PASS").
 - Requires a `SECRET_ROTATION_POLICY.md` for the Pages repo PAT if full-auto is desired.

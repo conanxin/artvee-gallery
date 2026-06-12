@@ -22,23 +22,34 @@ ARTVEE_OPENCLAW_BIN = os.environ.get('ARTVEE_OPENCLAW_BIN', 'openclaw')
 OPENCLAW_BIN = os.environ.get('OPENCLAW_BIN', '')
 
 CFG_PATH = Path.home() / '.openclaw' / 'openclaw.json'
-DEFAULT_CHAT_ID = '1540208324'
+# Chat ID resolution order (P7B+1: no hard-coded ids in the repo):
+#   1. CLI argument --chat-id (most explicit; always wins)
+#   2. ARTVEE_TELEGRAM_CHAT_ID environment variable
+#   3. ~/.openclaw/openclaw.json channels.telegram.defaultChatId
+#   4. ~/.openclaw/openclaw.json channels.telegram.targets[0]
+#   5. Hard error — we never fall back to a literal id in source.
+ARTVEE_TELEGRAM_CHAT_ID = os.environ.get('ARTVEE_TELEGRAM_CHAT_ID', '').strip()
 
 
 def load_chat_id():
-    if not CFG_PATH.is_file():
-        return DEFAULT_CHAT_ID
-    try:
-        cfg = json.loads(CFG_PATH.read_text(encoding='utf-8'))
-        cid = cfg.get('channels', {}).get('telegram', {}).get('defaultChatId')
-        if cid:
-            return str(cid)
-        targets = cfg.get('channels', {}).get('telegram', {}).get('targets', [])
-        if targets:
-            return str(targets[0])
-    except Exception:
-        pass
-    return DEFAULT_CHAT_ID
+    if ARTVEE_TELEGRAM_CHAT_ID:
+        return ARTVEE_TELEGRAM_CHAT_ID
+    if CFG_PATH.is_file():
+        try:
+            cfg = json.loads(CFG_PATH.read_text(encoding='utf-8'))
+            cid = cfg.get('channels', {}).get('telegram', {}).get('defaultChatId')
+            if cid:
+                return str(cid)
+            targets = cfg.get('channels', {}).get('telegram', {}).get('targets', [])
+            if targets:
+                return str(targets[0])
+        except Exception:
+            pass
+    raise RuntimeError(
+        'Telegram chat id not found. Set ARTVEE_TELEGRAM_CHAT_ID in the env, '
+        'or pass --chat-id, or set channels.telegram.defaultChatId in '
+        '~/.openclaw/openclaw.json. See docs/DAILY_OPERATING_PLAYBOOK.md.'
+    )
 
 
 def _resolve_openclaw_bin(cli_path: str = None) -> str:
@@ -85,13 +96,43 @@ def _check_openclaw_bin(cli_path: str = None):
     return True
 
 
+def _extract_message_id(log_path: str) -> str:
+    """Read the OpenClaw send log and try to extract a Telegram message id.
+
+    Looks for common patterns in stdout:
+      - 'Message ID: 12345'
+      - 'message_id: 12345'
+      - 'message_id=12345'
+    Returns the first hit, or None if not found.
+    Safe: only reads the log file, never prints tokens or chat ids.
+    """
+    if not log_path:
+        return None
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
+    except Exception:
+        return None
+    import re
+    patterns = [
+        r'Message ID[:\s]+(\d+)',
+        r'message_id["\s:=]+(\d+)',
+        r'"message_id"\s*:\s*"(\d+)"',
+    ]
+    for pat in patterns:
+        m = re.search(pat, content)
+        if m:
+            return m.group(1)
+    return None
+
+
 def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = None, openclaw_bin: str = None) -> dict:
     resolved = _resolve_openclaw_bin(openclaw_bin)
     if not _check_openclaw_bin(openclaw_bin):
         return {'ok': False, 'error': f'OpenClaw binary missing or not executable. Tried: ARTVEE_OPENCLAW_BIN={ARTVEE_OPENCLAW_BIN!r}, OPENCLAW_BIN={OPENCLAW_BIN!r}, PATH lookup for openclaw, or --openclaw-bin if provided.', 'resolved': resolved}
 
     if chat_id is None:
-        chat_id = load_chat_id()
+        chat_id = load_chat_id()  # raises if not configured
 
     # 构建命令
     cmd = [
@@ -122,12 +163,19 @@ def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = N
             # 等待完成（仅测试用）
             try:
                 proc.wait(timeout=300)
-                return {
-                    'ok': True,
+                rc = proc.returncode
+                message_id = _extract_message_id(log_path)
+                result = {
+                    'ok': rc == 0,
                     'pid': proc.pid,
-                    'returncode': proc.returncode,
+                    'returncode': rc,
                     'log_path': log_path,
                 }
+                if message_id:
+                    result['message_id'] = message_id
+                if rc != 0:
+                    result['error'] = f'openclaw exit {rc}'
+                return result
             except subprocess.TimeoutExpired:
                 return {
                     'ok': False,
@@ -162,7 +210,11 @@ def main():
     try:
         result = send_text(args.text, chat_id=args.chat_id, wait=args.wait, media=args.media, openclaw_bin=args.openclaw_bin)
         if result.get('ok'):
-            print(f'NOTIFY_OK pid={result.get("pid")} log={result.get("log_path")}')
+            # Print NOTIFY_OK on stdout for caller parsing. Never print tokens
+            # or chat_id. Include message_id when --wait captured it.
+            mid = result.get('message_id')
+            mid_part = f' message_id={mid}' if mid else ''
+            print(f'NOTIFY_OK pid={result.get("pid")} log={result.get("log_path")}{mid_part}')
             if args.wait and result.get('returncode') is not None:
                 print(f'RETURN_CODE={result["returncode"]}')
             sys.exit(0)

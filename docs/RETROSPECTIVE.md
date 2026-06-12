@@ -177,6 +177,32 @@ a "visual quality" pass before a record is approved for
 public export. P5A fixes the data; P5D verifies the
 image. Together they enable safe automatic public demos.
 
+### 2.18 (P7B+1) Observability must distinguish text / media / fallback
+
+When a "MEDIA failed" line shows up in a Telegram summary, it
+is **not** the same as a health failure. P7A had a single
+`telegram_notify.sent` flag that conflated three different
+tracks:
+
+- whether the short text summary delivered,
+- whether the Markdown report attached,
+- whether the OpenClaw binary even resolved.
+
+A MEDIA failure inside the daily health check meant a partial
+degradation (you still got the text block), but it was
+indistinguishable from "the whole notification died" — which
+made it impossible to tell what to fix.
+
+**Rule**: any notification path that has more than one
+delivery track must report each track independently, with
+`attempted` / `sent` / `message_id` / `error` for each. The
+JSON key shape is the contract; the on-screen wording is the
+diagnosis aid.
+
+**Operational rule**: if a system can fail in N independent
+ways and only has one health bit, every N≥2 outage looks the
+same. Surface the bits.
+
 ## 3. Phase-by-phase impact analysis
 
 ### P1 · Local Gallery Browser

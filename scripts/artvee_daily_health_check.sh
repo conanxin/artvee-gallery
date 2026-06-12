@@ -11,6 +11,8 @@
 #   bash scripts/artvee_daily_health_check.sh --no-telegram
 #   bash scripts/artvee_daily_health_check.sh --online
 #   bash scripts/artvee_daily_health_check.sh --media
+#   bash scripts/artvee_daily_health_check.sh --simulate-media-failure
+#     (P7B+1; for testing the MEDIA-failure fallback chain; not for cron)
 #
 # Design principles:
 #   - Read-only: never modifies source data, images, or candidates.
@@ -31,6 +33,7 @@ ONLINE=false
 MEDIA=false
 TELEGRAM=true
 OPENCLAW_BIN=""
+SIMULATE_MEDIA_FAILURE=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --date) RUN_DATE="$2"; shift 2 ;;
@@ -38,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --online) ONLINE=true; shift ;;
     --media) MEDIA=true; shift ;;
     --openclaw-bin) OPENCLAW_BIN="$2"; shift 2 ;;
+    --simulate-media-failure) SIMULATE_MEDIA_FAILURE=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -53,7 +57,8 @@ python3 "${BASE_DIR}/scripts/artvee_daily_health_check.py" \
   $([[ "${ONLINE}" == true ]] && echo "--online") \
   $([[ "${TELEGRAM}" == false ]] && echo "--no-telegram") \
   $([[ "${MEDIA}" == true ]] && echo "--media") \
-  $([[ -n "${OPENCLAW_BIN}" ]] && echo "--openclaw-bin ${OPENCLAW_BIN}")
+  $([[ -n "${OPENCLAW_BIN}" ]] && echo "--openclaw-bin ${OPENCLAW_BIN}") \
+  $([[ "${SIMULATE_MEDIA_FAILURE}" == true ]] && echo "--simulate-media-failure")
 
 echo "[✓] Health check report: ${REPORT_JSON} + ${REPORT_MD}"
 echo "===== Daily health check complete ====="

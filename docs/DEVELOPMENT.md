@@ -118,3 +118,111 @@ before appending the new one.
 - It does not trigger downloads, refills, or batches.
 - It backs up the crontab before modification (`logs/daily-health-cron/crontab.before_p7b.*.txt`).
 - It does not print tokens, secrets, or chat IDs.
+
+---
+
+## 22. P7B+1 Telegram delivery state model + failure-only fallback
+
+P7B+1 refactors the daily health check's Telegram reporting so that
+**text summary**, **MEDIA attachment**, and **fallback** are independent
+tracks. A MEDIA failure is observable but no longer silent.
+
+### State model (JSON, in `reports/runtime/daily-health/*.json`)
+
+```json
+{
+  "telegram": {
+    "requested": true,
+    "openclaw_status": "resolved | missing | skipped",
+    "text_summary": {"attempted": true, "sent": true, "message_id": "22811", "error": null},
+    "media": {
+      "requested": true,
+      "staged": true,
+      "staged_path": "$HOME/.openclaw/media/artvee-reports/...",
+      "sent": true,
+      "message_id": "22813",
+      "error": null,
+      "simulated_failure": false
+    },
+    "fallback": {"attempted": false, "sent": false, "message_id": null, "reason": null}
+  }
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `telegram.openclaw_status` | enum | `resolved` if notifier could start; `missing` if binary absent; `skipped` if `--no-telegram`. |
+| `telegram.text_summary.sent` | bool | Whether the short ✅/❌ block was delivered. |
+| `telegram.text_summary.message_id` | str | Telegram message id parsed from the notifier's log. |
+| `telegram.media.staged_path` | str | Absolute path inside the OpenClaw allowlist (default root `$HOME/.openclaw/media/`). |
+| `telegram.media.simulated_failure` | bool | True only when `--simulate-media-failure` was used (testing). |
+| `telegram.fallback.reason` | enum | Currently only `media_failed`. |
+
+### Failure-only fallback
+
+When all of the following hold:
+
+- `checks.integrity.status == "PASS"`
+- `checks.readiness.status == "PASS"`
+- `telegram.text_summary.sent == true`
+- `telegram.media.sent == false` and `telegram.media.error != null`
+
+…a single short text fallback is sent:
+
+```
+⚠️ Artvee Daily Health MEDIA failed
+Date: YYYY-MM-DD
+Health: PASS
+Text summary: sent
+MEDIA: failed
+Report: <report-md-path>
+Action: no data issue; check media delivery
+```
+
+Guarantees:
+
+- Sent at most **once** per run.
+- Never recurses (the fallback path does not call the health check).
+- Does not change the script's exit code unless health itself failed.
+
+### `--simulate-media-failure` (testing only)
+
+To verify the fallback chain without breaking the real MEDIA allowlist:
+
+```bash
+cd <artvee-repo>
+bash scripts/artvee_daily_health_check.sh --online --media --simulate-media-failure
+```
+
+This forces `media.sent=false` with `error=simulated_failure` and triggers
+the fallback. **Do not** use this in cron; it is for one-off testing.
+
+### How to inspect any day's Telegram status
+
+```bash
+# After a run:
+python3 -c "
+import json
+d = json.load(open('reports/runtime/daily-health/artvee-daily-health-2026-06-13.json'))
+print(json.dumps(d['telegram'], indent=2, ensure_ascii=False))
+"
+```
+
+### Chat id resolution (P7B+1: no hardcoded ids in the repo)
+
+`scripts/artvee_telegram_notify.py` resolves the chat id in this order:
+
+1. `--chat-id` CLI argument
+2. `ARTVEE_TELEGRAM_CHAT_ID` environment variable
+3. `channels.telegram.defaultChatId` in `$HOME/.openclaw/openclaw.json`
+4. `channels.telegram.targets[0]` in the same file
+5. Hard error (no fallback to a literal id in source)
+
+The cron installer bakes `ARTVEE_TELEGRAM_CHAT_ID` into the cron block
+when the installer is run with that env var set. To re-install with a
+new chat id, simply re-export and re-run the installer.
+
+```bash
+ARTVEE_TELEGRAM_CHAT_ID="<telegram-chat-id>" \
+  bash scripts/install_daily_health_cron.sh --install
+```
