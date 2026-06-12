@@ -406,3 +406,55 @@ A clean PR should have:
 - [ ] Docs updated for any user-visible change.
 - [ ] No local-machine path is referenced in tracked files
       (other than `BASE_DIR` derivation in the wrapper).
+
+## 10. P5A content-healing commands
+
+### Fix source_url mapping after collision migration
+If metadata files were copied (not regenerated) during P4B winner
+rename, the `url` field inside metadata may be stale. The build
+script now prefers the index's `source_url` over the metadata's
+`url` (fixed in P5A). To verify after any future migration:
+
+```bash
+# Rebuild web data and check for source_url dupe groups
+python3 scripts/build_artvee_gallery.py --mode local
+python3 -c "
+import json
+from collections import Counter
+web = json.load(open('web/data/artworks.json'))
+sus = [a.get('source_url','') for a in web]
+c = Counter(sus)
+dupes = {k:v for k,v in c.items() if v > 1}
+print(f'source_url dupe groups: {len(dupes)}')
+for url, count in dupes.items():
+    print(f'  {url}: {count}')
+"
+```
+
+### Retry unresolved losers (lightweight)
+```bash
+# Check P4B unresolved losers
+python3 scripts/retry_unresolved_losers.py --dry-run
+# Real run (HTTP HEAD only, no browser)
+python3 scripts/retry_unresolved_losers.py
+```
+
+### Audit legacy orphans
+```bash
+python3 -c "
+import json, csv
+from pathlib import Path
+
+index_stems = set()
+with open('index/artworks.csv', 'r', encoding='utf-8', newline='') as f:
+    for row in csv.DictReader(f):
+        for key in ['local_image_path', 'metadata_path']:
+            p = row.get(key, '')
+            if p:
+                index_stems.add(Path(p).stem)
+
+for root in ['images', 'metadata', 'thumbs/256', 'thumbs/512']:
+    orphans = [p for p in Path(root).rglob('*') if p.is_file() and p.stem not in index_stems]
+    print(f'{root}: {len(orphans)} orphans')
+"
+```

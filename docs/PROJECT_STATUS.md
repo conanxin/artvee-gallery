@@ -28,6 +28,7 @@
 | **P4D** | Semi-automatic public demo refresh (Gallery + Digest → GitHub Pages) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4d-semi-automatic-public-refresh-20260612.md` |
 | **P4D+1** | `confirm_demo_refresh.sh` + 02:30 nightly hook (candidate-only, no auto-push) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4d1-confirm-demo-refresh-hook-20260612.md` |
 | **P4E** | Approved publish helper (`publish_demo_refresh_candidate.sh` with `--approve` + `--dry-run` + `--no-push`) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4e-approved-publish-helper-20260612.md` |
+| **P5A** | Content healing: Le_rêve source_url fix + 4 loser retry + orphan audit | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5a-content-healing-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
@@ -232,3 +233,19 @@ refresh is expected on the P4D cut.
 This file is hand-maintained and is updated whenever a new phase
 lands or the nightly snapshot changes meaningfully. The next
 refresh is expected on the P4B cut.
+
+### P5A content-healing snapshot (2026-06-12)
+
+| Field | Value |
+| --- | --- |
+| Le_rêve source_url fix | `build_artvee_gallery.py` now prefers `row.get("source_url")` over `meta.get("url")` — web record source_url matches index, not stale metadata copy |
+| Web source_url dupe groups | 0 (was 3 before fix: two-cranes, affiche-van-de-chambre, hostdag-bjelland-mandal) |
+| Web records | 756 |
+| Web unique ids | 756 |
+| Web unique source_urls | 756 |
+| Strict integrity | PASS (0 dupe groups) |
+| 4 unresolved losers | 0 resolved, 4 still unreachable (HTTP 15s timeout also fails) |
+| P5A loser report | `reports/runtime/p5a-unresolved-losers.json` |
+| Legacy orphan audit | 46 files / 19.3 MB (11 images + 11 metadata + 12×2 thumbs) |
+| Orphan cleanup | deferred to P5C |
+| Candidate QA | Gallery 100/200/5.2M PASS, Digest 5/5/256K PASS |

@@ -115,6 +115,26 @@ boundary between "code" and "everything else". That narrow focus
 is what makes it trustworthy: it will not be flaky, it will not
 be bypassed, and it will not be ignored.
 
+### 2.7 Verify metadata field mapping after any migration (P5A)
+
+P4B fixed the filename collision by renaming winners and copying
+metadata files. We verified that image paths were correct and
+integrity checks passed. But we did **not** verify that the
+`source_url` inside the copied metadata still matched the index
+row's `source_url`. The build script preferred `meta.get("url")`
+over `row.get("source_url")`, so stale metadata copies leaked
+their old URLs into the web data.
+
+**Fix**: swapped priority in `build_artvee_gallery.py` so the
+index (the current state) takes precedence over metadata (which
+may be a stale copy). Also added a post-rebuild source_url dupe
+check to catch this class of bug early.
+
+**Rule**: after any migration that copies or renames metadata
+files, always verify that the key mapped fields (source_url,
+title, artist) in the rebuilt web data match the index, not the
+old metadata.
+
 ## 3. Phase-by-phase impact analysis
 
 ### P1 · Local Gallery Browser

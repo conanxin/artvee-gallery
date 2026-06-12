@@ -12,7 +12,7 @@
 # 摘要：Telegram (--no-telegram 时跳过)
 #
 # Local-first invariant:
-#   - 不读 / 不写 Pages repo (~/conanxin.github.io)
+#   - 不读 / 不写 Pages repo (env PAGES_REPO)
 #   - 不 git push
 #   - 不发请求到 Artvee 站点
 #   - 不修改 runtime data (images / metadata / thumbs / web/data / index)
@@ -666,10 +666,10 @@ if [[ $DRY_RUN -eq 0 ]]; then
         echo
         echo '```bash'
         echo "rsync -a --delete $GALLERY_OUT/ \\"
-        echo "    ~/conanxin.github.io/projects/artvee-gallery-demo/"
+        echo "    $PAGES_REPO/projects/artvee-gallery-demo/"
         echo "rsync -a --delete $DIGEST_OUT/ \\"
-        echo "    ~/conanxin.github.io/projects/artvee-gallery-digest/"
-        echo "cd ~/conanxin.github.io && \\"
+        echo "    $PAGES_REPO/projects/artvee-gallery-digest/"
+        echo "cd \"\\\$PAGES_REPO\" && \\"
         echo "    git add projects/artvee-gallery-{demo,digest} projects/data.json && \\"
         echo "    git commit -m 'Refresh artvee public demo for $DATE' && \\"
         echo "    git push"

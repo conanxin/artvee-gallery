@@ -168,7 +168,7 @@ def build(mode: str, base_url: str | None, limit: int | None) -> int:
             "download_variant": (meta.get("download_variant") or row.get("download_variant") or "standard").strip(),
             "tags": (meta.get("tags") or row.get("tags") or "").strip(),
             "usage_note": (meta.get("usage_note") or row.get("usage_note") or "").strip(),
-            "source_url": (meta.get("url") or row.get("source_url") or "").strip(),
+            "source_url": (row.get("source_url") or meta.get("url") or "").strip(),
             "source": (meta.get("source") or "artvee").strip(),
             "downloaded_at": (meta.get("downloaded_at") or "").strip(),
             "image_path": path_for(img_rel, mode, base_url),

@@ -295,10 +295,39 @@ manual by design.
 are nearer-term candidates. The truly long-term open items
 are gathered under P5+ below.)
 
-### P5+ · Unresolved loser retry
-The 4 losers dropped by P4B (all 30s Playwright timeouts on
-`la-plume-4/` / `le-reve-3/` / `le-reve/` /
-`tetes-byzantines-brunette/`) get retried with an alternative
+### P5A · Content healing: Le_rêve source_url fix + unresolved loser retry + orphan audit ✅ PASS (2026-06-12)
+- **Le_rêve source_url label bug**: root cause was `build_artvee_gallery.py` preferring
+  `meta.get("url")` over `row.get("source_url")`. After P4B winner rename, the metadata
+  file was copied (not regenerated) so it kept the old winner's URL. The fix swaps
+  priority: `row.get("source_url") or meta.get("url")`. This is a general fix, not a
+  Le_rêve hardcode.
+- **Web source_url dupe groups**: dropped from 3 to 0 after rebuild (two-cranes,
+  affiche-van-de-chambre, hostdag-bjelland-mandal were all metadata-copy stale URLs).
+- **Unresolved loser retry**: 4 URLs (la-plume-4, le-reve-3, le-reve,
+  tetes-byzantines-brunette) were checked with HTTP HEAD (15s timeout). All 4 still
+  unreachable (site not responding). Recorded in `p5a-unresolved-losers.json`.
+- **Legacy orphan audit**: 46 files / 19.3 MB (11 images + 11 metadata + 12×2 thumbs)
+  not referenced by `index/artworks.csv`. These are P4B rollback-safety copies.
+  Cleanup deferred to P5C.
+- **Rebuild**: `build_artvee_gallery.py --mode local` → 756 records, 0 dupe groups,
+  strict integrity PASS. `build_artvee_daily_digest.py` → 5 picks. Candidate
+  `confirm_demo_refresh.sh` → Gallery 100/200/5.2M PASS, Digest 5/5/256K PASS.
+
+### P5B · Approved public refresh (optional)
+- Run `publish_demo_refresh_candidate.sh --date YYYY-MM-DD --approve` after P5A
+  candidate is validated. This is the first real Pages push since P4D.
+- Requires user explicit `--approve` (P4E security model).
+
+### P5C · Legacy orphan cleanup
+- Delete the 46 P4B rollback-safety orphan files (11 images + 11 metadata + 24 thumbs)
+  that are not referenced by `index/artworks.csv`. Saves ~19 MB.
+- Should be done AFTER a successful P5B public refresh (so the public surface is
+  stable before touching local disk).
+
+### P5D · Deeper visual/content QA
+- Automated thumbnail quality check (blurry/dark detection).
+- Palette drift monitoring (dominant colors should not all be brown).
+- Category balance check (no category should be >40% or <10% of total).
 downloader (e.g. `requests` + direct CDN URL, or `selenium`
 with longer page-load timeout). If they still fail, the
 corresponding `source_url`s are permanently retired (added to

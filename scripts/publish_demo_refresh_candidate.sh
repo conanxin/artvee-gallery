@@ -21,7 +21,7 @@
 #   bash scripts/publish_demo_refresh_candidate.sh --date 2026-06-12 --dry-run
 #   bash scripts/publish_demo_refresh_candidate.sh --date 2026-06-12 --approve --no-push
 #   bash scripts/publish_demo_refresh_candidate.sh --date 2026-06-12 --approve
-#   bash scripts/publish_demo_refresh_candidate.sh --pages-repo ~/conanxin.github.io --date 2026-06-12 --dry-run
+#   bash scripts/publish_demo_refresh_candidate.sh --pages-repo <pages-repo> --date 2026-06-12 --dry-run
 #
 # 不变量：
 #   - 不触发任何 Artvee 下载 / refill / batch

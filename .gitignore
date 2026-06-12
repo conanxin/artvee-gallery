@@ -56,3 +56,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.iml
+
+# === Runtime reports: regenerable from logs, not source-of-truth ===
+# Allow .md (human-readable plan/summary) but exclude machine data
+reports/runtime/*.json
+reports/runtime/*.log
+reports/runtime/backup/
