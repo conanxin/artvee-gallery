@@ -1,0 +1,262 @@
+# Artvee Gallery · Retrospective
+
+> Phase-by-phase lessons, impact analysis, open questions, and the
+> recommended next phase. This is the working partner to
+> [CASE_STUDY.md](CASE_STUDY.md) — the case study tells the story,
+> the retrospective extracts the lessons.
+
+## 1. What changed
+
+A 5-minute one-off `bash` downloader turned into a 41-file open-source
+project with two public routes, a CI gate, and a daily digest — in
+roughly one working day. The transformation was not just code; it
+was the *vocabulary* of the project. "Scraped data" became "a local
+archive". "Demo" became "two curated public routes". "Cron job"
+became "an observable deterministic pipeline".
+
+The single most useful question we kept asking was: **"what is the
+shape of the smallest thing we can put in front of a stranger that
+still represents this project honestly?"** The answer kept getting
+smaller (1.4 GB → 5.7 MB → 324 KB), and each reduction surfaced a
+new design question.
+
+## 2. Key lessons
+
+### 2.1 先稳定自动化，再做展示层 (Stabilize automation before showcase)
+
+The first iteration of the nightly batch was unstable — random
+network failures, no idempotency, no observability. We briefly
+considered shipping the public demo before fixing the batch. That
+would have been a mistake: a public demo of a broken pipeline is
+worse than no demo at all, because it advertises a promise the
+project cannot keep.
+
+The right order was:
+
+1. Make the batch **idempotent** (re-runs do not duplicate or skip).
+2. Make the batch **observable** (a single log file, a single
+   summary line, a single Telegram post).
+3. Make the batch **deterministic** (a 02:00 run produces the same
+   `digests/` output as a 14:00 run with the same input state).
+4. **Only then** build the public surface on top of it.
+
+### 2.2 通知文案也是系统可靠性的一部分 (Notification copy is part of system reliability)
+
+A Telegram notification that says "20 success" with no context is
+worse than no notification. We had to learn this the hard way: the
+first wrapper post said "20" and we had to look at the log to
+figure out which 20, from which categories, with what failure mode.
+The second iteration added "统计 / 图库 / 灵感" headers and a
+compact, greppable one-liner. After that, the Telegram channel
+became a real signal, not noise.
+
+The lesson generalizes: any human-readable surface in a system is a
+*reliability component*, not a UI afterthought. If the message is
+ambiguous, the operator will eventually misread it and the system
+will fail in a way that is harder to debug because the failure
+happened *in the operator's head*.
+
+### 2.3 大资产项目必须区分 source code 和 generated assets (Big-asset projects must separate code from generated data)
+
+This is the single most important rule. Once the local archive
+crossed 100 MB, the temptation to "just commit the images, it's
+easier" became real. We resisted. The `.gitignore` for
+`images/`, `metadata/`, `thumbs/`, `dist/`, `digests/`, `logs/`,
+`inbox/`, and `web/data/*.json` is not negotiable. The CI gate
+makes it enforceable.
+
+The general rule: **the git repo is the source-of-truth definition
+of the project, and the source-of-truth must be small enough to
+read in one sitting.** A 1.4 GB git repo is not a project; it is
+a database pretending to be a repo.
+
+### 2.4 Public demo 应该先轻量化，而不是直接公开完整数据 (Public demo should be lean first, not a direct dump of full data)
+
+The naïve thing to do with an archive is to publish the archive.
+We did not. The public demo is a curated 100-piece selection; the
+daily digest is a 5-piece selection. The original 1.4 GB is the
+private layer; 5.7 MB is the public gallery; 324 KB is the public
+digest. Three tiers, three audiences:
+
+- **1.4 GB** — the local archive (the maintainer, on one machine).
+- **5.7 MB** — the public gallery (a curious stranger, with no
+  context).
+- **324 KB** — the daily digest (a returning visitor, who wants a
+  small daily dose).
+
+The 100× and 18,000× reductions are not optimizations. They are
+*editing*. They are the answer to "what is this archive actually
+for?".
+
+### 2.5 Digest 让素材库变成内容系统 (Digest turns an archive into a content system)
+
+This was the unlock. Once a day, 5 representative works are
+selected from the archive and rendered as a digest page. The page
+is small enough to read in 30 seconds, has a date in its URL, and
+accumulates over time. After 30 days, the digest archive is a
+*publication*, not a *log*.
+
+The mental model shifts: the project is not "an archive you can
+browse" but "a publication that publishes one issue per day". The
+difference matters because it changes how the maintainer thinks
+about growth — adding 760 more pieces is no longer "more archive";
+it is "more future digest issues".
+
+### 2.6 CI gate 的价值是防止未来误提交 generated data (CI gate's value is preventing future accidental commits of generated data)
+
+The first time the CI gate failed, we had shipped the workflow
+before the full code tree. The fix was trivial. The *value* of
+the failure was not the fix; it was the **proof that the gate
+works**. A gate that never fires is not a gate; it is a comment.
+
+The 4-rule readiness check is intentionally narrow. It does not
+lint, does not type-check, does not test. It only checks the
+boundary between "code" and "everything else". That narrow focus
+is what makes it trustworthy: it will not be flaky, it will not
+be bypassed, and it will not be ignored.
+
+## 3. Phase-by-phase impact analysis
+
+### P1 · Local Gallery Browser
+
+- **修改影响**: introduced the local UI shell, the JSON shape, and
+  the thumbnail pipeline. Established the "code in git, data in
+  folders" convention.
+- **风险控制**: thumbnails are derived, never edited by hand. If
+  the pipeline breaks, the source images are still in `images/`.
+- **未触碰范围**: artvee.com, the public web, the night batch.
+
+### P2 · Public Demo Export
+
+- **修改影响**: added the curated-export step. The first time the
+  project touched the public surface.
+- **风险控制**: 100-piece cap, 256/512 thumb-only, no
+  `images/`, no `metadata/`. The export script is read-only on
+  sources.
+- **未触碰范围**: the public web (publishing was a separate step
+  in P3A), the night batch, the local UI.
+
+### P3A · Public Demo Publish (GitHub Pages)
+
+- **修改影响**: the first public route went live. The Pages repo
+  gained a 5.7 MB static bundle under `projects/artvee-gallery-demo/`.
+- **风险控制**: rsync is one-way (local → Pages repo), Pages repo
+  is its own git history (no risk of contaminating the source
+  repo).
+- **未触碰范围**: the source repo, the night batch, the local UI.
+
+### P3B · Daily Inspiration Digest
+
+- **修改影响**: introduced the deterministic 5-pick digest, the
+  round-robin category strategy, and the digest index in
+  `web/data/digests.json`.
+- **风险控制**: digest generation is pure-function-of-input; the
+  same archive produces the same digest for the same date.
+- **未触碰范围**: the public web, the night batch.
+
+### P3C · Open-Source Readiness
+
+- **修改影响**: the source repo went from "private local project"
+  to "MIT-licensed public repo". 25 tracked files at the end.
+- **风险控制**: the readiness check + a path-leak grep on body
+  text. No generated data in the repo.
+- **未触碰范围**: the local archive, the public web.
+
+### P3D · GitHub Public Repo + CI + Release
+
+- **修改影响**: repo pushed to <https://github.com/conanxin/artvee-gallery>,
+  CI workflow added, `v0.1.0-alpha` tagged + released.
+- **风险控制**: CI gate enforces the boundary on every push. Tag
+  is re-pointable if a future release is found broken.
+- **未触碰范围**: the local archive, the public web route (still
+  in P3A's Pages repo), the night batch logic.
+
+### P3E · Public Daily Digest Page + README Showcase
+
+- **修改影响**: the second public route went live
+  (<https://conanxin.github.io/projects/artvee-gallery-digest/>).
+  README gained badges and screenshots. Pages repo's
+  `projects/data.json` grew from 28 to 29 entries.
+- **风险控制**: 5-thumb cap, 324 KB total, no `images/`, no
+  `metadata/`, no `digests/` history. The export script includes
+  a post-export leak check.
+- **未触碰范围**: the source repo's code (no new tracked code;
+  only docs and screenshots), the local archive, the night batch.
+
+### P3F · Case Study + Retrospective + Methodology (this phase)
+
+- **修改影响**: docs-only. 3 new docs (`CASE_STUDY`,
+  `RETROSPECTIVE`, `LOCAL_FIRST_AGENT_PROJECT_PATTERN`),
+  README + ROADMAP + PROJECT_STATUS lightweight updates.
+- **风险控制**: no code changes, no script changes, no public
+  surface changes. CI is the only verification, and it
+  re-validates everything P3C-P3E established.
+- **未触碰范围**: the local archive, the public web, the night
+  batch, the export scripts, the readiness check.
+
+## 4. Open questions
+
+### 4.1 Manifest vs disk (760 vs 747)
+
+The local manifest records 760 artworks; the disk only has 747
+files. The 13 missing entries are likely duplicates under different
+IDs. This is a *read-only* audit problem (P4A). It does not block
+the public surface because the export scripts use the manifest,
+not the disk, to select picks.
+
+### 4.2 Auto-public-demo refresh
+
+The two public routes are published via manual
+`rsync + commit + push`. Automation is feasible but requires a
+personal access token in cron or a GitHub Actions workflow on
+the Pages repo. Both require a secret-rotation policy first.
+This is a P4B candidate.
+
+### 4.3 Full object storage for the archive
+
+The local archive is 1.4 GB on a single disk. If we ever want
+multi-device access, or backup, or sharing, the natural next
+step is to put the archive in object storage (S3 / R2 / COS).
+This is a P4D candidate and a significant architectural shift
+(local-first → cloud-mirrored).
+
+### 4.4 Visual-model analysis
+
+The digest currently uses hand-coded heuristics (round-robin
+category, recent-pick). A vision model could produce richer
+picks (composition, palette clustering, semantic similarity).
+This is a P4C candidate and depends on the user having local
+or affordable access to a vision model.
+
+### 4.5 README language coverage
+
+The README is English-only. A Chinese mirror would help local
+users. Trivial to produce; the question is whether to
+auto-translate or hand-edit.
+
+## 5. Recommended next phase
+
+**P4A — Manifest duplicate-id audit (read-only)**.
+
+Why this first:
+
+- It is the **only** known correctness issue. The public surface
+  depends on the manifest, and a manifest with 13 phantom
+  entries is technically a bug.
+- It is **read-only**. No new dependencies, no new infrastructure.
+  Just a script that joins the manifest against the disk and
+  reports the delta.
+- It is **bounded**. We know the size of the problem (13 entries)
+  and the answer shape (a Markdown report).
+
+A 1-day P4A followed by P4B (auto-publish) and P4C (digest
+history) gives the project a clean forward path. P4D (object
+storage) is a long-arc architectural shift and should wait
+until the local-first story is fully debugged.
+
+## 6. See also
+
+- [CASE_STUDY.md](CASE_STUDY.md) — the project story
+- [LOCAL_FIRST_AGENT_PROJECT_PATTERN.md](LOCAL_FIRST_AGENT_PROJECT_PATTERN.md) —
+  the reusable methodology extracted from this project
+- [ROADMAP.md](ROADMAP.md) — what's next

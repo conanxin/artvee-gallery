@@ -270,6 +270,26 @@ repository (see [docs/ROADMAP.md](docs/ROADMAP.md) for the publish
 plan). Local forks are welcome; please keep generated data out of
 commits — `scripts/check_open_source_ready.py` is your friend.
 
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — technical deep-dive
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local setup, scripts, conventions
+- [docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md) — what is in / out of this repo
+- [docs/ROADMAP.md](docs/ROADMAP.md) — phase plan and what's next
+- [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) — phase markers and last-known-good
+- [docs/RELEASE_NOTES_v0.1.0-alpha.md](docs/RELEASE_NOTES_v0.1.0-alpha.md) — release notes
+- [docs/GALLERY_LOCAL_USAGE.md](docs/GALLERY_LOCAL_USAGE.md) — local gallery walkthrough
+- [docs/GALLERY_PUBLIC_DEMO.md](docs/GALLERY_PUBLIC_DEMO.md) — public demo walkthrough
+- [docs/GALLERY_DAILY_DIGEST.md](docs/GALLERY_DAILY_DIGEST.md) — daily digest walkthrough
+- [docs/GALLERY_DATA_SCHEMA.md](docs/GALLERY_DATA_SCHEMA.md) — JSON shape reference
+- [docs/GALLERY_PUBLISHING_PLAN.md](docs/GALLERY_PUBLISHING_PLAN.md) — public publishing plan
+
+## Project story
+
+- [docs/CASE_STUDY.md](docs/CASE_STUDY.md) — how a one-off nightly downloader became a public, open-source visual archive
+- [docs/RETROSPECTIVE.md](docs/RETROSPECTIVE.md) — phase-by-phase lessons, impact analysis, and open questions
+- [docs/LOCAL_FIRST_AGENT_PROJECT_PATTERN.md](docs/LOCAL_FIRST_AGENT_PROJECT_PATTERN.md) — the reusable methodology extracted from this project
+
 ## Screenshots
 
 ### Gallery demo
