@@ -27,6 +27,7 @@
 | **P4C** | Post-migration verification + CI Node 24 upgrade + public demo refresh planning | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4c-post-migration-ci-refresh-plan-20260612.md` |
 | **P4D** | Semi-automatic public demo refresh (Gallery + Digest → GitHub Pages) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4d-semi-automatic-public-refresh-20260612.md` |
 | **P4D+1** | `confirm_demo_refresh.sh` + 02:30 nightly hook (candidate-only, no auto-push) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4d1-confirm-demo-refresh-hook-20260612.md` |
+| **P4E** | Approved publish helper (`publish_demo_refresh_candidate.sh` with `--approve` + `--dry-run` + `--no-push`) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4e-approved-publish-helper-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot

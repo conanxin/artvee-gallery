@@ -354,7 +354,34 @@ What the script does *not* do, even without `--dry-run`:
 * No download / refill / batch re-run.
 
 To publish a candidate, follow the manual publish flow in
-[docs/PUBLIC_DEMO_REFRESH_PLAN.md § 8.3](PUBLIC_DEMO_REFRESH_PLAN.md).
+[docs/PUBLIC_DEMO_REFRESH_PLAN.md § 8.3](PUBLIC_DEMO_REFRESH_PLAN.md),
+or use the P4E helper described below.
+
+## 7.2. Publishing a candidate (P4E, manual approval)
+
+After `confirm_demo_refresh.sh` builds a candidate, the user
+inspects the report and then uses the publish helper to push
+it to GitHub Pages. The helper requires explicit `--approve`:
+
+```bash
+# Dry-run: preview the plan without touching Pages
+bash scripts/publish_demo_refresh_candidate.sh \
+    --date 2026-06-12 --dry-run
+
+# Approve: rsync + commit + push + online verify
+bash scripts/publish_demo_refresh_candidate.sh \
+    --date 2026-06-12 --approve
+
+# Commit-only, no push (daytime review before evening push)
+bash scripts/publish_demo_refresh_candidate.sh \
+    --date 2026-06-12 --approve --no-push
+```
+
+The helper does **not** modify the Artvee repo (no `images/`,
+no `metadata/`, no `web/data/`, no `index/`). It only reads
+the candidate from `dist/refresh-candidates/` and writes to the
+Pages repo. Without `--approve` it runs in dry-run mode by
+default, so a mistyped command cannot accidentally publish.
 
 ## 8. Branch model (suggested, not enforced by this repo)
 

@@ -237,22 +237,22 @@ manual by design.
   records / 200 thumbs / 5.2M, Digest 5 picks / 5 thumbs / 256K,
   all QA guards PASS, overall status `PASS`.
 
-### P4E · Approved publish helper (or candidate-to-pages helper)
-- The P4D+1 candidate lives in
-  `dist/refresh-candidates/YYYY-MM-DD/`. A P4E helper could
-  automate the **last 4 lines** of the manual publish path
-  (rsync → edit `data.json` → Pages commit → Pages push), but
-  *only* if a secret-rotation policy is in place
-  (`docs/SECRET_ROTATION_POLICY.md`). Until then, the user
-  must inspect the report and run the 4-line flow by hand.
-- A lighter alternative is a **candidate-to-pages helper** that
-  takes a date, prints the planned `rsync` invocations and the
-  resulting `git diff` in the Pages repo, and stops there
-  (no `git push`, no PAT). The user then runs the push in a
-  daytime session with eyes on the diff.
-- P4E is a *quality-of-life* improvement, not a correctness
-  blocker. P4D+1 already gives a daily candidate + Telegram
-  summary, which is the main visibility win.
+### P4E · Approved publish helper ✅ PASS (2026-06-12)
+- New script `scripts/publish_demo_refresh_candidate.sh` (~600
+  lines, 5 args) implements the **candidate-to-pages** flow with
+  an explicit `--approve` gate.
+- Security model: no `--approve` = dry-run only (no rsync / commit
+  / push); `--approve --no-push` = rsync + commit, no push;
+  `--approve` = full publish + online verification.
+- Pipeline: candidate QA (Gallery + Digest) → Pages repo dirty
+  check → `data.json` entry validation → plan preview → `rsync -a
+  --delete` → `data.json` update → `git commit` (with no-change
+  skip) → `git push` (optional) → online `curl` verification (9
+  endpoints + 1 sample thumb, 60s CDN wait + one retry).
+- First run (2026-06-12, `--dry-run`): all QA PASS, plan preview
+  correct, no Pages repo touched. Real `--approve` was **not**
+  executed in this phase (per user instruction: no real publish
+  without explicit re-authorization).
 
 ### P4F · Digest history index page
 - The public digest route currently shows only the latest day.
