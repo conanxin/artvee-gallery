@@ -81,7 +81,7 @@ in the form `vMAJOR.MINOR.PATCH-stage` (pre-1.0).
 ### Fixed
 - The P7B daily health cron was running with `openclaw_status:
   missing` because the cron env did not include
-  `~/.local/bin` in `PATH`. P7B+1 adds the `export PATH=...`
+  `$HOME/.local/bin` in `PATH`. P7B+1 adds the `export PATH=...`
   line to the cron command and re-installs the block.
 - The P7A+1 cron probe used `--wait` on the notifier, which
   blocked the script for 2-3 minutes even when the binary was
@@ -105,7 +105,7 @@ in the form `vMAJOR.MINOR.PATCH-stage` (pre-1.0).
 
 ### Security / boundaries
 - No tokens, chat ids, or bot tokens in tracked code or docs.
-- Real local paths (`~/hermes-agent/...`) in docs are replaced
+- Real local paths (`<artvee-repo>`) in docs are replaced
   with `<artvee-repo>`; system paths (`$HOME/.openclaw/...`) are
   kept because they are public OpenClaw config locations.
 - `check_open_source_ready.py` is run by CI on every push and
