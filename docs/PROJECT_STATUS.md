@@ -43,7 +43,7 @@
 | **P6F** | Digest history 30-day + near-dup-aware selection | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6f-digest-history-20260612.md` |
 | **P7A** | Daily automation hardening / phase consolidation | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a-daily-automation-hardening-20260612.md` |
 | **P7A+1** | OpenClaw binary resolution for health check Telegram notify | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a1-openclaw-binary-resolution-20260612.md` |
-| **P7B** | Optional daily health Telegram cron | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7b-daily-health-cron-20260612.md` |
+| **P7B** | Optional daily health Telegram cron | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7b-daily-health-telegram-cron-20260612.md` |
 
 ### P7A daily-automation-hardening snapshot (2026-06-12 22:30 GMT+8)
 
