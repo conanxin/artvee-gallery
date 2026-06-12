@@ -387,3 +387,30 @@ next phase should not just *document* the concern — it should
 **wire the concern into the selection pipeline** so the issue
 cannot recur. A contact-sheet is for humans; a CLI flag is for
 the next build.
+
+### 2.11 After bounded retries, retire unavailable sources rather than retry indefinitely (P6B)
+
+P4B surfaced 4 URLs that timed out at 30s. P5A retried
+them with a lightweight HTTP HEAD probe — all 4 still
+unreachable. Rather than continue retrying every run, P6B
+formalized a `KNOWN_RETIRED` set:
+
+- 4 records marked `status=known_retired`, `should_retry=False`
+- Schema versioned (`marker_version=1.0.0`) for forward compat
+- Runtime artifact under `reports/runtime/`, sample schema
+  tracked in `examples/known_retired_urls.sample.json`
+- Public surface unaffected — losers never made it into
+  `web/data/artworks.json` so the gallery / demo / digest
+  are unchanged
+
+**Rule**: when a source has been probed N times (here N=2:
+P4B page.goto + P5A HTTP HEAD) and remains unreachable,
+**stop retrying** and mark the source as audited-but-retired
+rather than letting it occupy attention in every status
+review. A future phase that needs the URL can
+`--unretire <url>` explicitly; silent revival is not
+allowed because it would corrupt the audit trail.
+
+The "known_retired=N, blocking_unresolved=M" split is the
+operational expression of this rule: N is bounded
+historical state, M is what needs attention.

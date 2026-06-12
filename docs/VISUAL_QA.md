@@ -232,3 +232,39 @@ All four P5E curation rules are wired into the export pipeline
 - **Hash collisions at 8×8** — common across many small thumbs.
   A near-dup group of 5+ is usually a real cluster, not a
   false positive.
+
+## 10. KNOWN_RETIRED URLs and visual QA (P6B)
+
+The 4 P5A unresolved-loser URLs
+(`la-plume-4`, `le-reve`, `le-reve-3`,
+`tetes-byzantines-brunette`) are explicitly
+marked `KNOWN_RETIRED` in
+`reports/runtime/p6b-known-retired-urls.json`.
+They:
+
+- Do **not** appear in `web/data/artworks.json` — they
+  never made it past download, so the visual QA
+  pipeline never saw them.
+- Are **excluded by construction** from
+  `analyze_gallery_visual_quality.py` outputs
+  (it iterates `web/data/artworks.json`).
+- Do **not** count toward the gallery total
+  (756 records, 100% risk=none, unchanged).
+- Do **not** count toward digest or public-demo
+  selection (5/5 unique artist, 100/100 risk=none,
+  unchanged).
+- Are **never retried** by `analyze_gallery_visual_quality.py`
+  or by `publish_demo_refresh_candidate.sh`.
+
+Future state changes:
+
+- If a KNOWN_RETIRED URL ever becomes reachable, the
+  right move is to add it to `index/artworks.csv` as a
+  *new* record. It will then naturally be excluded from
+  the retired manifest (which is regenerated from the
+  canonical unresolved report).
+- The retired manifest is a runtime artifact under
+  `reports/runtime/`, NOT in git. Re-running
+  `python3 scripts/mark_known_retired_urls.py --apply`
+  regenerates it from the canonical unresolved report
+  (P5A primary, P4B fallback).
