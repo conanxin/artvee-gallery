@@ -513,3 +513,63 @@ PY
 - Reason: P5A audit incorrectly counted 2 `.gitkeep` files in thumbs/256 and thumbs/512 totals
 - The cleanup script correctly filters `.gitkeep` (not an image or metadata file)
 - This is a benign audit over-count, not a data integrity issue
+
+## 12. P5D visual QA commands
+
+### Full gallery QA
+```bash
+python3 scripts/analyze_gallery_visual_quality.py \
+  --out reports/runtime/p5d-visual-qa-full.json
+```
+(756 records, ~30s; produces JSON only, no contact sheet)
+
+### Sample QA with contact sheet
+```bash
+python3 scripts/analyze_gallery_visual_quality.py \
+  --sample 100 \
+  --out reports/runtime/p5d-visual-qa-sample.json \
+  --contact-sheet reports/runtime/p5d-contact-sheet.html
+```
+
+### Public demo candidate QA
+```bash
+# First ensure candidate exists:
+bash scripts/confirm_demo_refresh.sh --no-telegram
+
+# Then analyze:
+python3 scripts/analyze_gallery_visual_quality.py \
+  --public-candidate dist/refresh-candidates/$(date +%F)/gallery \
+  --out reports/runtime/p5d-public-demo-visual-qa.json \
+  --contact-sheet reports/runtime/p5d-public-demo-contact-sheet.html
+```
+
+### Digest candidate QA
+```bash
+python3 scripts/analyze_gallery_visual_quality.py \
+  --digest-candidate dist/refresh-candidates/$(date +%F)/digest \
+  --out reports/runtime/p5d-digest-visual-qa.json \
+  --contact-sheet reports/runtime/p5d-digest-contact-sheet.html
+```
+
+### Pillow fallback
+The script auto-detects Pillow. If missing, only file-size and
+metadata checks run; report shows `pillow_available: false`.
+
+### View contact sheet
+Open in browser (use repo-relative paths only, no `--` flags):
+```bash
+xdg-open reports/runtime/p5d-contact-sheet.html
+# or just navigate to: file://.../reports/runtime/p5d-contact-sheet.html
+```
+
+### Inspect JSON output
+```bash
+python3 -c "
+import json
+d = json.load(open('reports/runtime/p5d-visual-qa-full.json'))
+print('total:', d['summary']['total_records'])
+print('risks:', d['summary']['risk_counts'])
+print('near-dup groups:', len(d['summary']['near_duplicate_groups']))
+print('aspect buckets:', d['summary']['aspect_ratio_buckets'])
+"
+```

@@ -31,6 +31,7 @@
 | **P5A** | Content healing: Le_rêve source_url fix + 4 loser retry + orphan audit | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5a-content-healing-20260612.md` |
 | **P5B** | First approved publish from P5A candidate (Le_rêve source_url fix live on Pages) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5b-approved-publish-20260612.md` |
 | **P5C** | Legacy rollback orphan cleanup (P4B safety copies removed post-P5B) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5c-orphan-cleanup-20260612.md` |
+| **P5D** | Deeper visual QA (thumbnail / palette / category / digest / near-dup) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5d-visual-qa-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
@@ -287,4 +288,21 @@ refresh is expected on the P4B cut.
 | Web source_url dupe groups | 0 |
 | Candidate QA | Gallery 100/200/5.2M PASS, Digest 5/5/256K PASS, dry-run publish PASS |
 | New script | `scripts/cleanup_legacy_orphans.py` (450 lines, --apply / --dry-run / --expected-count / --json-out) |
+
+### P5D visual-QA snapshot (2026-06-12 17:11 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| Pillow available | ✅ 12.1.1 |
+| Sample 100 records | 100/100 risk=none, 0 issues, 0 near-dup |
+| Full gallery (756) | 756/756 risk=none, 0 issues, **8 near-dup groups** |
+| Public demo (100) | 100/100 risk=none, 0 issues, 0 near-dup, aspect ratio 1.0–3.0 only |
+| Digest picks (5) | 5/5 risk=none, 0 issues, 0 near-dup |
+| Strict integrity | PASS (756 records, 0 dupe groups) |
+| New script | `scripts/analyze_gallery_visual_quality.py` (570 lines, --sample / --out / --contact-sheet / --public-candidate / --digest-candidate) |
+| New doc | `docs/VISUAL_QA.md` (visual quality rules + curation playbook) |
+| Contact sheets | 3 HTML files in `reports/runtime/p5d-*-contact-sheet.html` (gitignored) |
+| Notable findings | Digest 2026-06-12 has 2× Yoshida_Hiroshi + 2× Anonymous (curation flag) |
+| 8 near-dup groups | 3 are P4B collision remnants (expected); 5 are real clusters (Edmund Dulac ×4, Amaldus Nielsen ×3, etc.) |
+| Runtime data NOT committed | ✅ all 6 p5d-*.json / p5d-*.html in `reports/runtime/` (gitignored) |
 

@@ -156,6 +156,27 @@ file-type filter, not just "is_file()". `.gitkeep`,
 intentional directory anchors and must never be removed
 by an orphan-cleanup pass.
 
+### 2.9 Data correctness is necessary but not sufficient (P5D)
+
+After P5A (content healing) fixed the Le_rêve source_url
+mislabelling, every record's `source_url` was technically
+correct. But "data correct" ≠ "visually good". A 1×1 white
+pixel, a corrupt 0-byte JPEG, a 4:1 banner, or a near-mono
+gradient all have valid metadata but should not appear in a
+public gallery.
+
+P5D introduced visual quality checks (perceptual aHash,
+average brightness, color entropy, dimensions) to flag
+these "data is fine, image is bad" cases. The current
+gallery is clean (756/756 risk=none), but the script is
+now in place to surface problems as the gallery grows
+(P5E: curation filters, P6: automation).
+
+**Rule**: any "data correctness" pass must be paired with
+a "visual quality" pass before a record is approved for
+public export. P5A fixes the data; P5D verifies the
+image. Together they enable safe automatic public demos.
+
 ## 3. Phase-by-phase impact analysis
 
 ### P1 · Local Gallery Browser
