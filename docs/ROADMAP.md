@@ -157,19 +157,46 @@
   later phase**; the P4B commit only updates code + docs in
   the open-source repo, no runtime data.
 
-### P4C · Automatic public demo refresh
+### P4C · Post-migration verification + CI Node 24 upgrade + public demo refresh planning
+**Status:** ✅ PASS (2026-06-12)
+- **Verification** (read-only, no destructive ops):
+  - integrity check 3 modes (default / `--allow-known-duplicates` / `--strict`) all exit 0
+  - index / web 100% consistent (756 ↔ 756)
+  - 0 referenced-but-missing files
+  - 11 image / metadata / thumbs orphans per size = P4B's deliberately-kept legacy winner files (rollback safety)
+  - 3 source_url dupe groups remain (P4A+1 § 6.4 build bug: build script takes first source_url per id; winner's URL got collapsed to loser's URL for the 3 Le_rêve siblings)
+  - public demo exporter dry-run + full-export-to-tmp verified; real `dist/` untouched
+- **CI Node 24 upgrade**: opted into Node.js 24 via
+  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` job-level env var.
+  Removes the `actions/checkout@v4` / `actions/setup-python@v5`
+  Node 20 deprecation warning without bumping action pins. Safer
+  than pinning v5/v6 in case they don't exist yet.
+- **Public demo refresh planning** (design only, not executed):
+  - 3 candidate designs sketched (cron + rsync, GitHub Actions on
+    artvee-gallery repo with cross-repo write, GitHub Actions on
+    Pages repo triggered by webhook)
+  - Each needs a secret-rotation policy first
+  - Deferred to P4D (no actual publish in P4C)
+- **Unresolved losers 复核** (4 from P4B, no retry):
+  - `la-plume-4/`, `le-reve-3/`, `le-reve/`, `tetes-byzantines-brunette/`
+  - All `Page.goto: Timeout 30000ms exceeded`
+  - Left for P5+ (or P4D with a different downloader)
+
+### P4D · Automatic public demo refresh
 - Both public routes are published via manual
   `rsync + commit + push`. Acceptable for now.
 - Automation requires a personal access token in cron or a
   GitHub Actions workflow on the Pages repo, both of which
   require a secret-rotation policy first.
+- P4C sketched 3 candidate designs; P4D should pick one and
+  implement the secret-rotation policy first.
 
-### P4D · Digest history index page
+### P4E · Digest history index page
 - The public digest route currently shows only the latest day.
 - A 30-day rolling index would turn the digest into a
   *publication* rather than a daily log.
 
-### P4E · Object storage planning
+### P4F · Object storage planning
 - The local archive is 1.4 GB on a single disk. Multi-device
   access, backup, or sharing would put it in object storage
   (S3 / R2 / COS).

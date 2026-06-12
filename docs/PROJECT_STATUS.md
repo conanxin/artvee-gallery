@@ -24,6 +24,7 @@
 | **P4A** | Manifest duplicate-id read-only audit | ✅ PASS (audit only) | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4a-manifest-duplicate-audit-20260612.md` |
 | **P4A+1** | Gallery integrity CI gate (filename-collision / duplicate-id) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4a1-integrity-gate-20260612.md` |
 | **P4B** | Filename collision fix + index/web data migration | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4b-collision-migration-20260612.md` |
+| **P4C** | Post-migration verification + CI Node 24 upgrade + public demo refresh planning | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4c-post-migration-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
@@ -63,17 +64,18 @@
 | Local-machine paths in tracked non-source files | ❌ (none) |
 | Hardcoded wrapper paths (`$HOME/...`) | ❌ (replaced with `BASE_DIR` derivation) |
 
-## CI gate (post-P4B)
+## CI gate (post-P4C)
 
 | Check | Result |
 | --- | --- |
 | Workflow present | ✅ `.github/workflows/open-source-ready.yml` |
 | Latest run on `main` | ✅ success |
-| Workflow runs `py_compile` × 6 (added `export_artvee_digest_public_page.py` + `check_gallery_integrity.py`) | ✅ |
+| Workflow runs `py_compile` × 11 (added `artvee_identity.py` + `plan_*.py` + `execute_*.py` + `run_artvee_nightly_batch.py` + `download_artvee_selected.py`) | ✅ |
 | Workflow runs `bash -n` × 2 | ✅ |
 | Workflow runs readiness check | ✅ |
-| Workflow runs **gallery integrity check** (`--allow-known-duplicates`, runtime-aware) | ✅ |
+| Workflow runs **gallery integrity check** (`--strict`, runtime-aware; `--allow-known-duplicates` is an alias since the P4A fingerprint is empty after P4B) | ✅ |
 | Workflow validates `examples/*.sample.json` shape | ✅ |
+| Workflow opts into Node.js 24 via `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` (P4C) | ✅ |
 
 ## Gallery integrity fingerprint (post-P4A, frozen)
 
