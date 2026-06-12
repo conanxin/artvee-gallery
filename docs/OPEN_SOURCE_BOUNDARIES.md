@@ -145,3 +145,10 @@ fresh public repository:
    surface area; do not copy the `images/`, `metadata/`, `thumbs/`,
    `dist/`, `digests/`, `logs/`, `inbox/`, `index/`, `backups/`
    directories across.
+
+### P6A · Staged Telegram MEDIA reports
+Telegram MEDIA attachments for Artvee reports are first copied to
+`<openclaw-media>/artvee-reports/`. These copies are **runtime
+artifacts**: not tracked, not committed, not part of the repo. The
+gitignore covers the upstream `<workspace-reports>/` and the helper
+writes outside any project directory.

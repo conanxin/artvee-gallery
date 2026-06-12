@@ -118,6 +118,14 @@ python3 scripts/add_artvee_candidates.py
 # Telegram-bridge side effects:
 python3 scripts/artvee_telegram_notify.py --text "..."
 
+# Telegram MEDIA attachment (P6A) — reports under <workspace-reports>/ are
+# NOT in the OpenClaw MEDIA allowlist; stage to <openclaw-media>/artvee-reports/
+# first, then attach the staged path:
+STAGED=$(python3 scripts/stage_report_for_telegram_media.py \
+  --report <workspace-reports>/<your-report>.md)
+python3 scripts/artvee_telegram_notify.py \
+  --text "Summary" --media "$STAGED" --wait
+
 # Full nightly chain (this is what 02:00 cron runs):
 bash scripts/artvee_nightly_wrapper.sh batch
 bash scripts/artvee_nightly_wrapper.sh refill
@@ -640,3 +648,48 @@ python3 scripts/build_artvee_daily_digest.py \
   analysis: if either is empty, a deterministic fallback is applied
   (no external API call). The build log reports `prompt-field
   backfills=N`. For 2026-06-12, N=0.
+
+## 14. P6A Telegram MEDIA staging
+
+The OpenClaw Telegram gateway accepts local media only from a small
+allowlist of system directories (`<openclaw-media>/`,
+`<openclaw-workspace-media>/`, `<openclaw-workspace-tmp>/`, etc.).
+Reports under `<workspace-reports>/` are **not** in the allowlist, so
+attaching them directly via `--media` produces::
+
+    LocalMediaAccessError: Local media path is not under an allowed directory
+
+P6A introduces a **staging helper** instead of expanding the
+allowlist — the smaller-surface fix:
+
+1. Stage the report into `<openclaw-media>/artvee-reports/`
+   (or a project-namespaced subdir of any allowed media root):
+
+   ```bash
+   STAGED=$(python3 scripts/stage_report_for_telegram_media.py \
+     --report <workspace-reports>/<your-report>.md)
+   ```
+
+2. Send via the existing notifier with `--media "$STAGED"`:
+
+   ```bash
+   python3 scripts/artvee_telegram_notify.py \
+     --text "P6A test" --media "$STAGED" --wait
+   ```
+
+Verified: 2026-06-12 19:45 GMT+8 — `Message ID: 22623` delivered
+with the staged report attached.
+
+Override the media root with `--media-root <path>` or the
+`ARTVEE_MEDIA_ROOT` env var; the helper always appends
+`artvee-reports/` so multiple local projects don't collide.
+
+Design constraints (by intent, not accident):
+
+- We do NOT touch the OpenClaw allowlist — staging is the smallest
+  possible change and keeps the security boundary intact.
+- Staged files are NOT in the Artvee repo and are NOT tracked by any
+  project. They are runtime artifacts.
+- Refuses symlinks / directories / zero-byte / size-mismatch files.
+- The helper never prints tokens, env vars, or `<openclaw-config>`
+  contents.

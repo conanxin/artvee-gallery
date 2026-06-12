@@ -432,3 +432,11 @@ build-script label fix remains.
   touching the source files directly.
 - Stay local-first; the interface is a read-only API over
   `web/data/*.json`, not a separate database.
+
+### P6A · Telegram MEDIA staging fix ✅ PASS (2026-06-12 19:46)
+- Root cause: OpenClaw MEDIA allowlist does not include the user-workspace reports dir
+- Fix: stage reports into the OpenClaw-allowed media dir under `artvee-reports/`, then attach
+- New helper: `scripts/stage_report_for_telegram_media.py` (stdlib, ~146 lines)
+- Notifier: `scripts/artvee_telegram_notify.py` +`--media` flag
+- Test: 2026-06-12 19:45 → Telegram `Message ID: 22623` delivered with MEDIA
+- See `<workspace>/reports/artvee-gallery-p6a-telegram-media-staging-20260612.md`

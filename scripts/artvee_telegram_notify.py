@@ -50,7 +50,7 @@ def _check_openclaw_bin():
     return True
 
 
-def send_text(text: str, chat_id: str = None, wait: bool = False) -> dict:
+def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = None) -> dict:
     if not _check_openclaw_bin():
         return {'ok': False, 'error': f'OpenClaw binary missing or not executable: {ARTVEE_OPENCLAW_BIN}'}
 
@@ -64,6 +64,8 @@ def send_text(text: str, chat_id: str = None, wait: bool = False) -> dict:
         '--target', chat_id,
         '--message', text,
     ]
+    if media:
+        cmd += ['--media', str(media)]
 
     # 日志文件路径
     ts = time.strftime('%Y%m%d_%H%M%S')
@@ -116,11 +118,12 @@ def main():
     parser = argparse.ArgumentParser(description='Send Telegram text notification for Artvee via OpenClaw Gateway')
     parser.add_argument('--text', required=True, help='Message text to send')
     parser.add_argument('--chat-id', default=None, help='Override chat_id')
+    parser.add_argument('--media', default=None, help='Optional media path (must be in OpenClaw allowed dirs)')
     parser.add_argument('--wait', action='store_true', help='Wait for send to complete (slow, 120-180s)')
     args = parser.parse_args()
 
     try:
-        result = send_text(args.text, chat_id=args.chat_id, wait=args.wait)
+        result = send_text(args.text, chat_id=args.chat_id, wait=args.wait, media=args.media)
         if result.get('ok'):
             print(f'NOTIFY_OK pid={result.get("pid")} log={result.get("log_path")}')
             if args.wait and result.get('returncode') is not None:

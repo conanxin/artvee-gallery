@@ -336,3 +336,16 @@ refresh is expected on the P4B cut.
 | Files changed | `scripts/export_artvee_gallery_public_demo.py`, `scripts/build_artvee_daily_digest.py`, `scripts/confirm_demo_refresh.sh`, `docs/VISUAL_QA.md` (new P5E § 8), `docs/PROJECT_STATUS.md`, `docs/ROADMAP.md`, `docs/DEVELOPMENT.md`, `docs/RETROSPECTIVE.md` (§ 2.10) |
 | Files NOT changed | images / metadata / thumbs / web/data / index / dist / digests (only `dist/refresh-candidates/2026-06-12/` regenerated) |
 
+
+### P6A telegram-media-staging snapshot (2026-06-12 19:46 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| Root cause | OpenClaw MEDIA allowlist includes `<openclaw-media>/`, `<openclaw-workspace-media>/`, `<openclaw-workspace-tmp>/`; `<workspace-reports>/` is NOT in allowlist → `LocalMediaAccessError` |
+| Fix strategy | Staging helper (NOT allowlist expansion) — copy report into project-namespaced subdir of an allowed media root, then send via `--media` |
+| New helper | `scripts/stage_report_for_telegram_media.py` (146 lines, stdlib) — refuses symlinks/dirs/zero-byte/size-mismatch |
+| Notifier change | `scripts/artvee_telegram_notify.py` +`--media` arg; minimal additive change, no breaking change |
+| Staged dir | `<openclaw-media>/artvee-reports/<basename>` (override via `--media-root` or `ARTVEE_MEDIA_ROOT`) |
+| Test result | Stage + send → Telegram `Message ID: 22623` ✅ |
+| Files changed | `scripts/stage_report_for_telegram_media.py` (new), `scripts/artvee_telegram_notify.py` (+`--media`), `docs/DEVELOPMENT.md` (§ 14 + section 5 snippet), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P6A ✅), `docs/OPEN_SOURCE_BOUNDARIES.md` (staged reports are runtime artifacts) |
+| Staged reports | NOT in Artvee repo, NOT in OpenClaw config; living under `<openclaw-media>/artvee-reports/` (runtime cache) |
