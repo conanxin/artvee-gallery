@@ -144,6 +144,9 @@ def export(
     dry_run: bool,
     exclude_duplicate_source_url_groups: bool = False,
     require_unique_source_url: bool = False,
+    exclude_risk: str | None = None,
+    visual_qa_path: Path | None = None,
+    require_prompt_fields: bool = False,
 ) -> int:
     out_dir = out_dir.resolve()
     if strategy not in STRATEGIES:
@@ -181,6 +184,78 @@ def export(
                   f"{len(dupes)} duplicated source_url(s) in selected set. "
                   f"First 3: {list(dupes.items())[:3]}", file=sys.stderr)
             return 4
+
+    # P5E visual-QA risk guard. If a visual-QA JSON is provided and
+    # --exclude-risk is set, look up the risk_level for each picked record
+    # and drop any that meet the threshold. Records without a risk_level
+    # in the QA output pass through (defensive: do not punish records that
+    # have not been audited yet).
+    if exclude_risk and visual_qa_path:
+        qa_path = visual_qa_path.resolve()
+        if not qa_path.exists():
+            print(f"WARN: --exclude-risk {exclude_risk} requested but "
+                  f"visual QA file not found: {qa_path}. Proceeding without filter.",
+                  file=sys.stderr)
+        else:
+            qa = json.loads(qa_path.read_text(encoding="utf-8"))
+            qa_by_id: dict[str, str] = {}
+            for rec in qa.get("records", []):
+                rid = rec.get("id", "")
+                lvl = rec.get("risk_level", "none")
+                if rid:
+                    qa_by_id[rid] = lvl
+            risk_rank = {"none": 0, "low": 1, "medium": 2, "high": 3}
+            threshold = risk_rank.get(exclude_risk, 3)
+            before = len(picked)
+            kept: list[dict] = []
+            dropped_ids: list[str] = []
+            for a in picked:
+                rid = a.get("id", "")
+                lvl = qa_by_id.get(rid, "none")
+                if risk_rank.get(lvl, 0) >= threshold:
+                    dropped_ids.append(f"{rid}({lvl})")
+                else:
+                    kept.append(a)
+            picked = kept
+            print(f"[guard] --exclude-risk {exclude_risk}: dropped "
+                  f"{before - len(picked)} record(s); kept {len(picked)}. "
+                  f"Dropped: {dropped_ids[:5]}{'...' if len(dropped_ids) > 5 else ''}")
+            if not picked:
+                print("ERROR: --exclude-risk removed all candidates; cannot export.",
+                      file=sys.stderr)
+                return 5
+
+    # P5E prompt-fields guard. If --require-prompt-fields is set, drop
+    # any record that has *any* of the optional prompt fields
+    # (prompt_seed, use_cases, visual_notes) but leaves one of them
+    # empty. Records with none of these fields pass through
+    # (defensive: the public demo gallery JSON is not required to
+    # surface prompt metadata; the digest is).
+    if require_prompt_fields:
+        PROMPT_FIELDS = ("prompt_seed", "use_cases", "visual_notes")
+        before = len(picked)
+        kept: list[dict] = []
+        dropped: list[str] = []
+        for a in picked:
+            present = [f for f in PROMPT_FIELDS if f in a]
+            if not present:
+                kept.append(a)
+                continue
+            empty = [f for f in present if not a.get(f)]
+            if isinstance(a.get("use_cases"), list) and len(a["use_cases"]) == 0:
+                empty.append("use_cases")
+            if empty:
+                dropped.append(f"{a.get('id')}({','.join(empty)})")
+            else:
+                kept.append(a)
+        picked = kept
+        print(f"[guard] --require-prompt-fields: dropped "
+              f"{before - len(picked)} record(s); kept {len(picked)}. "
+              f"Dropped: {dropped[:5]}{'...' if len(dropped) > 5 else ''}")
+        if not picked:
+            print("ERROR: --require-prompt-fields removed all candidates; cannot export.",
+                  file=sys.stderr)
+            return 6
 
     # Verify all needed thumbs exist
     missing: list[tuple[str, int]] = []
@@ -299,6 +374,10 @@ def export(
         print(f"[i] guard: --exclude-duplicate-source-url-groups was active")
     if require_unique_source_url:
         print(f"[i] guard: --require-unique-source-url was active (post-check PASS)")
+    if exclude_risk:
+        print(f"[i] guard: --exclude-risk {exclude_risk} was active (visual QA: {visual_qa_path})")
+    if require_prompt_fields:
+        print(f"[i] guard: --require-prompt-fields was active")
     print(f"[i] preview: cd {out_dir} && python3 -m http.server 8890")
     return 0
 
@@ -335,12 +414,38 @@ def main():
                         "more than once. Exits non-zero. Pairs naturally with "
                         "--exclude-duplicate-source-url-groups so the export cannot "
                         "leak the bug by accident.")
+    p.add_argument("--exclude-risk", choices=("low", "medium", "high"),
+                   default=None,
+                   help="Visual-QA guard (P5E). After selection, drop every record "
+                        "whose risk_level in the visual-QA JSON is at or above the "
+                        "given threshold. Requires --visual-qa. Records with no "
+                        "risk_level (not yet audited) pass through. Use 'high' to "
+                        "only exclude clearly broken images; 'medium' also demotes "
+                        "tiny files / near-monochrome / extreme-aspect records.")
+    p.add_argument("--visual-qa", type=Path, default=None,
+                   help="Path to a P5D visual-QA JSON (records[].risk_level). "
+                        "Required when --exclude-risk is set. "
+                        "Default: reports/runtime/p5d-visual-qa-full.json")
+    p.add_argument("--require-prompt-fields", action="store_true",
+                   help="P5E curation guard. Drop any record that has at least "
+                        "one of (prompt_seed, use_cases, visual_notes) and leaves "
+                        "any of those empty. Records with none of these fields "
+                        "pass through (defensive — the public demo JSON is not "
+                        "required to surface prompt metadata).")
     args = p.parse_args()
+
+    # Default --visual-qa path if --exclude-risk is set and no explicit path
+    if args.exclude_risk and not args.visual_qa:
+        default_qa = (BASE_DIR / "reports" / "runtime" / "p5d-visual-qa-full.json").resolve()
+        args.visual_qa = default_qa
 
     return export(
         args.out_dir, args.limit, args.strategy, args.base_url, args.dry_run,
         exclude_duplicate_source_url_groups=args.exclude_duplicate_source_url_groups,
         require_unique_source_url=args.require_unique_source_url,
+        exclude_risk=args.exclude_risk,
+        visual_qa_path=args.visual_qa,
+        require_prompt_fields=args.require_prompt_fields,
     )
 
 

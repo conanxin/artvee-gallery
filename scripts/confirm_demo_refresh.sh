@@ -268,6 +268,8 @@ if [[ $DRY_RUN -eq 0 ]]; then
             --base-url . \
             --exclude-duplicate-source-url-groups \
             --require-unique-source-url \
+            --exclude-risk high \
+            --visual-qa "$BASE_DIR/reports/runtime/p5d-visual-qa-full.json" \
             --out-dir "$GALLERY_OUT" >> "$RUN_LOG" 2>&1; then
         _record_fail "gallery export failed; see $RUN_LOG"
         _finalize_and_exit 1

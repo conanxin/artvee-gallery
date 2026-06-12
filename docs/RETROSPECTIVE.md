@@ -361,3 +361,29 @@ until the local-first story is fully debugged.
 - [LOCAL_FIRST_AGENT_PROJECT_PATTERN.md](LOCAL_FIRST_AGENT_PROJECT_PATTERN.md) —
   the reusable methodology extracted from this project
 - [ROADMAP.md](ROADMAP.md) — what's next
+
+### 2.10 Visual QA findings should become automated curation rules (P5E)
+
+The P5D visual-QA pass surfaced a curation flag: the 2026-06-12
+digest had 2× Yoshida_Hiroshi and 2× Anonymous picks (4/5
+repeats). A human reader would notice; a deterministic selector
+would not.
+
+P5E turns the P5D findings into **automated curation rules**:
+- Public demo exporter: `--exclude-risk high` (reads P5D
+  visual-QA JSON, drops records that meet the threshold)
+- Digest builder: `--max-per-artist 1` default (strict cap,
+  Anonymous normalized to the same bucket)
+- Both: prompt-field non-empty validation with deterministic
+  fallback (no external AI)
+
+The re-run digest now ships 5/5 unique artists
+(Alphonse_Mucha, Amaldus_Nielsen, Anonymous, Utagawa_Hiroshige,
+Yoshida_Hiroshi), and the public-demo candidate is filtered
+defensively even though P5D reports 0 high-risk records today.
+
+**Rule**: when a visual-QA pass surfaces a quality concern, the
+next phase should not just *document* the concern — it should
+**wire the concern into the selection pipeline** so the issue
+cannot recur. A contact-sheet is for humans; a CLI flag is for
+the next build.

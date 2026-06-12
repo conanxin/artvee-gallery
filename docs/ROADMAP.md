@@ -329,6 +329,29 @@ are gathered under P5+ below.)
 - Strict integrity PASS, 0 source_url dupe groups
 - See `<workspace>/reports/artvee-gallery-p5c-orphan-cleanup-20260612.md`
 
+### P5D · Deeper visual/content QA ✅ PASS (2026-06-12 17:11)
+- Pillow-optional analyzer with 4 modes: full / sample / public-candidate / digest-candidate
+- 100/756/100/5 all risk=none, 0 issues
+- 8 aHash near-dup groups surfaced (3 P4B remnants + 5 real artist clusters)
+- Recommended curation filters (now implemented in P5E)
+- See `<workspace>/reports/artvee-gallery-p5d-visual-qa-20260612.md`
+
+### P5E · Curation filters ✅ PASS (2026-06-12 17:27)
+- Public demo exporter: `--exclude-risk high` (reads P5D visual-QA JSON) +
+  `--require-prompt-fields` (defensive)
+- Digest builder: `--max-per-artist 1` default (strict; `--allow-repeat-artist` opt-out)
+  + deterministic prompt-field backfill (no external AI)
+- 2026-06-12 digest 5/5 unique artists (was 4/5 repeats)
+- `confirm_demo_refresh.sh` wired to pass `--exclude-risk high` automatically
+- See `<workspace>/reports/artvee-gallery-p5e-curation-filters-20260612.md`
+
+### P5E · Curation filters (P5D ✅ done — now safe to do)
+- Public demo: exclude `risk_level=high` records from the candidate
+- Digest: cap picks at 1 per artist (Anonymous normalized to "Anonymous")
+- Both: ensure `use_cases` / `prompt_seed` are non-empty (deterministic fallback)
+- Re-run `confirm_demo_refresh.sh --no-telegram` to verify the new candidate
+
+
 ### P5C · Legacy orphan cleanup (P5B ✅ done — now safe to do)
 - Run `publish_demo_refresh_candidate.sh --date YYYY-MM-DD --approve` after P5A
   candidate is validated. This is the first real Pages push since P4D.

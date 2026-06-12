@@ -136,7 +136,74 @@ When the visual QA flags a record:
 4. For drop: tag in the record (e.g., add `"excluded": "low_quality"` field)
 5. For replace: add to manual_replace set in P5E config
 
-## 8. Known limitations
+## 8. P5E curation filters
+
+P5E turns the visual-QA findings into **automated curation rules**
+for the public demo exporter and the daily digest builder.
+
+### 8.1 Public demo exporter — `--exclude-risk high`
+
+The exporter now reads a visual-QA JSON and drops any record whose
+`risk_level` is at or above the supplied threshold. Records with no
+`risk_level` (not yet audited) pass through defensively.
+
+```
+python3 scripts/export_artvee_gallery_public_demo.py \
+    --limit 100 \
+    --exclude-duplicate-source-url-groups \
+    --require-unique-source-url \
+    --exclude-risk high \
+    --visual-qa reports/runtime/p5d-visual-qa-full.json
+```
+
+Risk rank: `none (0) < low (1) < medium (2) < high (3)`. The default
+`--exclude-risk high` only blocks clearly broken images. Use
+`--exclude-risk medium` to also demote tiny files / near-monochrome
+/ extreme-aspect records.
+
+### 8.2 Public demo exporter — `--require-prompt-fields`
+
+If a record has any of `prompt_seed` / `use_cases` / `visual_notes`
+and leaves one of them empty, the record is dropped. Records with
+none of these fields pass through (the public gallery JSON is not
+required to surface prompt metadata; the digest is).
+
+### 8.3 Daily digest — `--max-per-artist 1` (default)
+
+The digest builder now enforces a strict cap of one pick per artist
+per digest. Anonymous artists are normalized to the literal string
+`"Anonymous"` so the cap is enforced across them too. The
+`--allow-repeat-artist` flag disables the cap.
+
+```
+python3 scripts/build_artvee_daily_digest.py \
+    --strategy diverse \
+    --select 5 \
+    --candidate-limit 20 \
+    --max-per-artist 1
+```
+
+If the candidate pool is too small to satisfy the cap, the digest
+build still returns up to `--select` picks and logs a `WARN` line
+listing which artists had to repeat. (For 5 picks from a 20-candidate
+pool this has never triggered in practice.)
+
+### 8.4 Daily digest — non-empty prompt fields
+
+After visual analysis, the digest builder validates that
+`prompt_seed` and `use_cases` are non-empty for every pick. If a
+field is empty (e.g. Pillow unavailable and category hint missing),
+a deterministic fallback is applied:
+
+- `prompt_seed` → `"vintage art print, <id>, public domain"`
+- `use_cases` → `["灵感参考", "设计素材", "印刷品参考"]`
+
+The backfill count is reported in the build log; backfilled
+digests are not flagged in the index (the on-disk content is
+identical to a fully-analyzed digest from the consumer's point of
+view).
+
+## 9. Known limitations
 
 - **Perceptual aHash is 64-bit** — fast but not state-of-the-art.
   Two visually similar images with different crops may not collide.

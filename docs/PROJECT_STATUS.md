@@ -32,6 +32,7 @@
 | **P5B** | First approved publish from P5A candidate (Le_rêve source_url fix live on Pages) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5b-approved-publish-20260612.md` |
 | **P5C** | Legacy rollback orphan cleanup (P4B safety copies removed post-P5B) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5c-orphan-cleanup-20260612.md` |
 | **P5D** | Deeper visual QA (thumbnail / palette / category / digest / near-dup) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5d-visual-qa-20260612.md` |
+| **P5E** | Curation filters: public demo `--exclude-risk high` + digest `--max-per-artist 1` (default) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5e-curation-filters-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
@@ -305,4 +306,18 @@ refresh is expected on the P4B cut.
 | Notable findings | Digest 2026-06-12 has 2× Yoshida_Hiroshi + 2× Anonymous (curation flag) |
 | 8 near-dup groups | 3 are P4B collision remnants (expected); 5 are real clusters (Edmund Dulac ×4, Amaldus Nielsen ×3, etc.) |
 | Runtime data NOT committed | ✅ all 6 p5d-*.json / p5d-*.html in `reports/runtime/` (gitignored) |
+
+### P5E curation-filters snapshot (2026-06-12 17:27 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| Public demo `--exclude-risk high` | wired in `scripts/export_artvee_gallery_public_demo.py` (reads `reports/runtime/p5d-visual-qa-full.json`); 0 records dropped (P5D confirms 0 high-risk) |
+| Public demo `--require-prompt-fields` | optional, not enabled in `confirm_demo_refresh.sh` (gallery JSON is not required to surface prompt metadata) |
+| Digest `--max-per-artist 1` (default) | wired in `scripts/build_artvee_daily_digest.py`; new digest 5/5 unique artists (was 4/5 repeats) |
+| Digest prompt-field backfills | 0 (analyzer always populates both fields) |
+| Public demo candidate | 100/100 risk=none, 0 issues, 0 near-dup, 0 metadata_path leaks, 0 abs-path leaks |
+| Digest candidate | 5/5 risk=none, 0 issues, 0 near-dup, 5 unique artists (5 categories covered) |
+| Strict integrity | PASS (756 records, 0 dupe groups) |
+| Files changed | `scripts/export_artvee_gallery_public_demo.py`, `scripts/build_artvee_daily_digest.py`, `scripts/confirm_demo_refresh.sh`, `docs/VISUAL_QA.md` (new P5E § 8), `docs/PROJECT_STATUS.md`, `docs/ROADMAP.md`, `docs/DEVELOPMENT.md`, `docs/RETROSPECTIVE.md` (§ 2.10) |
+| Files NOT changed | images / metadata / thumbs / web/data / index / dist / digests (only `dist/refresh-candidates/2026-06-12/` regenerated) |
 

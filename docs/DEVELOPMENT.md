@@ -573,3 +573,70 @@ print('near-dup groups:', len(d['summary']['near_duplicate_groups']))
 print('aspect buckets:', d['summary']['aspect_ratio_buckets'])
 "
 ```
+
+## 13. P5E curation filters commands
+
+### Public demo exporter — visual-QA risk guard
+
+```bash
+python3 scripts/export_artvee_gallery_public_demo.py \
+  --limit 100 \
+  --strategy diverse \
+  --base-url . \
+  --exclude-duplicate-source-url-groups \
+  --require-unique-source-url \
+  --exclude-risk high \
+  --visual-qa reports/runtime/p5d-visual-qa-full.json \
+  --out-dir dist/refresh-candidates/$(date +%F)/gallery
+```
+
+- `--exclude-risk {low,medium,high}`: drop records whose visual-QA
+  `risk_level` is at or above the threshold. Default visual-QA path
+  is `reports/runtime/p5d-visual-qa-full.json` (auto-resolved).
+- Records with no `risk_level` (not yet audited) pass through.
+- For 2026-06-12, P5D reports 0 high-risk records so the guard is a
+  no-op in practice — it is wired in for future-proofing.
+
+### Public demo exporter — prompt-fields guard (optional)
+
+```bash
+python3 scripts/export_artvee_gallery_public_demo.py \
+  --limit 100 \
+  --require-prompt-fields \
+  --out-dir dist/refresh-candidates/$(date +%F)/gallery
+```
+
+- Drops any record that has *any* of `prompt_seed` / `use_cases` /
+  `visual_notes` but leaves one of them empty.
+- Records with none of those fields pass through (the public gallery
+  JSON does not surface prompt metadata; the digest does).
+- Currently NOT enabled in `confirm_demo_refresh.sh` — add if
+  prompt-fields are required in the gallery JSON.
+
+### Daily digest — `--max-per-artist 1` (default)
+
+```bash
+python3 scripts/build_artvee_daily_digest.py \
+  --strategy diverse \
+  --select 5 \
+  --candidate-limit 20 \
+  --max-per-artist 1 \
+  --out-dir digests
+```
+
+- Strict cap of 1 pick per artist per digest. Anonymous is
+  normalized to `"Anonymous"` and counts toward the same cap.
+- `--allow-repeat-artist` short-circuits to no cap.
+- If the cap rejects an item, the build logs the rejection and
+  continues (no crash). For 5 picks from a 20-candidate pool this
+  has never triggered a fallback.
+- The CLI echo prints `P5E: artist diversity OK (all unique)` when
+  the cap is satisfied.
+
+### Daily digest — prompt-field backfill (no AI)
+
+- The visual analyzer always populates `prompt_seed` and `use_cases`.
+- `_ensure_prompt_fields()` is a defensive validator that runs after
+  analysis: if either is empty, a deterministic fallback is applied
+  (no external API call). The build log reports `prompt-field
+  backfills=N`. For 2026-06-12, N=0.

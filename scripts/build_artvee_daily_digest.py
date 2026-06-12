@@ -89,16 +89,50 @@ def parse_iso(s: str | None) -> datetime | None:
 
 
 # ---------- selection strategies ----------
-def select_recent(candidates: list[dict], select: int) -> list[dict]:
-    return sorted(
+def select_recent(candidates: list[dict], select: int, max_per_artist: int = 1) -> list[dict]:
+    """Sort by downloaded_at desc; ties broken by id for stability.
+
+    P5E: when --max-per-artist is set, the cap is enforced even for
+    the recent strategy (otherwise the digest would degenerate to
+    "5 newest, possibly all by the same artist"). If the cap rejects
+    a candidate, we fall through to the next-newest.
+    """
+    def _artist_key(a: dict) -> str:
+        art = (a.get("artist") or "").strip()
+        return art or "Anonymous"
+
+    sorted_cands = sorted(
         candidates,
         key=lambda a: (a.get("downloaded_at") or "", a.get("id") or ""),
         reverse=True,
-    )[:select]
+    )
+    picked: list[dict] = []
+    artist_counts: Counter = Counter()
+    for c in sorted_cands:
+        ak = _artist_key(c)
+        if max_per_artist and artist_counts[ak] >= max_per_artist:
+            continue
+        picked.append(c)
+        artist_counts[ak] += 1
+        if len(picked) >= select:
+            break
+    return picked
 
 
-def select_diverse(candidates: list[dict], select: int) -> list[dict]:
-    """Round-robin by category, prefer newer within each cat, avoid artist repeat when possible."""
+def select_diverse(candidates: list[dict], select: int, max_per_artist: int = 1) -> list[dict]:
+    """Round-robin by category, prefer newer within each cat, avoid artist repeat.
+
+    P5E: --max-per-artist defaults to 1 (strict cap within a single
+    digest). When a category's queue runs dry, we re-queue the
+    over-cap item and continue; the cap is enforced across the whole
+    run, not just consecutive picks. Anonymous artists are normalized
+    to the literal string "Anonymous" so the cap is enforced across
+    them as well.
+    """
+    def _artist_key(a: dict) -> str:
+        art = (a.get("artist") or "").strip()
+        return art or "Anonymous"
+
     by_cat: dict[str, list[dict]] = {}
     for a in candidates:
         cat = a.get("category") or "uncategorized"
@@ -112,7 +146,10 @@ def select_diverse(candidates: list[dict], select: int) -> list[dict]:
     queues = {cat: deque(items) for cat, items in by_cat.items()}
     order = sorted(queues.keys())
     picked: list[dict] = []
+    artist_counts: Counter = Counter()
     last_artist = None
+    cap_relaxed = 0
+    max_relax = select * 4
     while queues and len(picked) < select:
         progress = False
         for cat in order:
@@ -123,13 +160,22 @@ def select_diverse(candidates: list[dict], select: int) -> list[dict]:
             if (
                 last_artist is not None
                 and len(queues[cat]) > 1
-                and (queues[cat][0].get("artist") or "") == last_artist
+                and _artist_key(queues[cat][0]) == last_artist
             ):
                 chosen_idx = 1
             item = queues[cat][chosen_idx]
             del queues[cat][chosen_idx]
+            ak = _artist_key(item)
+            if max_per_artist and artist_counts[ak] >= max_per_artist:
+                cap_relaxed += 1
+                if cap_relaxed <= max_relax:
+                    # re-queue at the end; we'll try other categories first
+                    queues[cat].append(item)
+                    continue
+                # else: emergency pick
             picked.append(item)
-            last_artist = item.get("artist") or None
+            artist_counts[ak] += 1
+            last_artist = ak
             progress = True
             if len(picked) >= select:
                 break
@@ -237,6 +283,32 @@ def analyze_visual(record: dict) -> dict:
         "use_cases": use_cases,
         "prompt_seed": prompt_seed,
     }
+
+
+# ---------- P5E: prompt-field non-empty validator ----------
+def _ensure_prompt_fields(analysis: dict, fallback_id: str) -> tuple[dict, bool]:
+    """Defensive: guarantee prompt_seed + use_cases are non-empty.
+
+    P5E curation contract: every digest pick must surface a usable
+    prompt_seed and a non-empty use_cases list. The deterministic
+    analyzer already produces both, but this validator backfills any
+    empty fields with category-aware defaults so downstream
+    consumers (HTML, public page) never render a blank prompt.
+    Returns (analysis, did_backfill).
+    """
+    did = False
+    if not analysis.get("prompt_seed") or not str(analysis["prompt_seed"]).strip():
+        analysis["prompt_seed"] = (
+            f"vintage art print, {fallback_id}, public domain"
+        )
+        did = True
+    if not analysis.get("use_cases"):
+        analysis["use_cases"] = ["灵感参考", "设计素材", "印刷品参考"]
+        did = True
+    elif isinstance(analysis["use_cases"], list) and len(analysis["use_cases"]) == 0:
+        analysis["use_cases"] = ["灵感参考", "设计素材", "印刷品参考"]
+        did = True
+    return analysis, did
 
 
 def _quantize_palette(im, k: int = 5) -> list[str]:
@@ -601,6 +673,12 @@ def main() -> int:
                    help="Base URL prefix (reserved for future public deploy)")
     p.add_argument("--dry-run", action="store_true",
                    help="Plan-only: print selection and exit before writing")
+    p.add_argument("--max-per-artist", type=int, default=1,
+                   help="P5E curation filter. Maximum picks per artist within "
+                        "one digest. Default 1 (strict). Set 0 to disable.")
+    p.add_argument("--allow-repeat-artist", action="store_true",
+                   help="P5E. If set, equivalent to --max-per-artist 0 "
+                        "(no cap). Default behaviour is max 1 per artist.")
     args = p.parse_args()
 
     if args.strategy not in STRATEGIES:
@@ -622,22 +700,42 @@ def main() -> int:
     candidates = pool[: args.candidate_limit]
 
     selector = STRATEGIES[args.strategy]
-    selected = selector(candidates, args.select)
+    # P5E: --allow-repeat-artist short-circuits to no cap
+    max_per_artist = 0 if args.allow_repeat_artist else args.max_per_artist
+    selected = selector(candidates, args.select, max_per_artist=max_per_artist)
     if not selected:
         print("ERROR: nothing selected (empty source?)", file=sys.stderr)
         return EXIT_SOURCE_MISSING
 
     if args.dry_run:
         print(f"[dry-run] date={digest_date.isoformat()} strategy={args.strategy}")
+        print(f"[dry-run] max-per-artist={max_per_artist} (0=no cap)")
         print(f"[dry-run] candidate pool size={len(candidates)} (fallback={bool(fallback_reason)})")
         if fallback_reason:
             print(f"[dry-run] {fallback_reason}")
         print(f"[dry-run] selected={len(selected)}:")
         for a in selected:
             print(f"  - {a.get('id')} | {a.get('category')} | {a.get('artist')}")
+        artists = [a.get('artist') or 'Anonymous' for a in selected]
+        from collections import Counter as _C
+        artist_counts = _C(artists)
+        repeats = {k: v for k, v in artist_counts.items() if v > 1}
+        if repeats:
+            print(f"[dry-run] WARN: artist repeats: {repeats}")
+        else:
+            print(f"[dry-run] artist diversity OK (all unique)")
         return EXIT_OK
 
     analyses = [analyze_visual(a) for a in selected]
+    # P5E: defensive non-empty check on prompt fields. The analyzer
+    # already populates both, but this backfills any empty field
+    # deterministically (no external AI) so the digest never ships
+    # a blank prompt_seed or use_cases list.
+    p5e_backfilled = 0
+    for a, ana in zip(selected, analyses):
+        ana, did = _ensure_prompt_fields(ana, a.get("id", "unknown"))
+        if did:
+            p5e_backfilled += 1
 
     out_dir = args.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -679,6 +777,19 @@ def main() -> int:
           f"candidates={len(candidates)}")
     print(f"    Pillow={'on' if HAS_PIL else 'off (heuristic only)'}")
     print(f"    index updated: {INDEX_FILE}")
+    print(f"    P5E: max_per_artist={max_per_artist}, "
+          f"prompt-field backfills={p5e_backfilled}")
+    # P5E: enforce artist cap. Print distribution so failures are
+    # visible in the log (the same info goes into the markdown footer
+    # via the candidate_pool_size line; this is a CLI echo).
+    from collections import Counter as _C2
+    _arts = [a.get('artist') or 'Anonymous' for a in selected]
+    _arts_c = _C2(_arts)
+    _repeats = {k: v for k, v in _arts_c.items() if v > 1}
+    if _repeats:
+        print(f"    P5E: WARN artist repeats: {_repeats}")
+    else:
+        print(f"    P5E: artist diversity OK (all unique)")
     if fallback_reason:
         print(f"    [note] {fallback_reason}")
     return EXIT_OK
