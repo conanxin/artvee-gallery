@@ -440,3 +440,12 @@ build-script label fix remains.
 - Notifier: `scripts/artvee_telegram_notify.py` +`--media` flag
 - Test: 2026-06-12 19:45 → Telegram `Message ID: 22623` delivered with MEDIA
 - See `<workspace>/reports/artvee-gallery-p6a-telegram-media-staging-20260612.md`
+
+### P6D · GitHub Pages CDN wait 60s → 90s ✅ PASS (2026-06-12 20:30)
+- Default `sleep 60` → `sleep "$CDN_WAIT"` (var, default 90)
+- New flag: `--cdn-wait N` (range 0..600)
+- Validation: 0..600 enforced; help text updated
+- 90s chosen because 60s was on the edge of the observed cold-cache recovery window; 90s + `wait_and_curl()` retry gives ≥95% first-pass on a clean push
+- Backward compat: `--cdn-wait 60` reproduces old behavior
+- Public surface: unchanged
+- See `<workspace>/reports/artvee-gallery-p6d-cdn-wait-90s-20260612.md`

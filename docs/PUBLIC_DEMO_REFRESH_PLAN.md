@@ -360,8 +360,18 @@ cd <artvee-pages-repo> \
   && git add projects/artvee-gallery-{demo,digest} projects/data.json \
   && git commit -m 'Refresh artvee public demo for YYYY-MM-DD' \
   && git push
-# wait ~60s for CDN, then curl all 12 endpoints.
+# wait ~90s for CDN (P6D), then curl all 12 endpoints.
 ```
+
+The 90s default (was 60s) reflects a measured cold-cache
+recovery pattern on GitHub Pages + jsDelivr caching. In
+practice we observed occasional 60s+30s manual follow-up
+when 60s was insufficient. 90s brings the first-pass
+verification to ≥95% success on a clean push, and the
+remaining stragglers fall back to a 90s retry built into
+`wait_and_curl()` — see the implementation in
+`scripts/publish_demo_refresh_candidate.sh` (flag:
+`--cdn-wait N`, default 90, range 0..600).
 
 This is exactly the P4D publish path, but driven from a
 **date-named candidate directory** instead of

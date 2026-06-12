@@ -693,3 +693,44 @@ Design constraints (by intent, not accident):
 - Refuses symlinks / directories / zero-byte / size-mismatch files.
 - The helper never prints tokens, env vars, or `<openclaw-config>`
   contents.
+
+## 15. P6D GitHub Pages CDN wait (default 90s)
+
+P5F and earlier approved-publish runs occasionally needed a
+60s+30s manual follow-up because the Pages edge cache had
+not picked up the new commit yet. P6D changes the default
+CDN wait from 60s to **90s** in
+`scripts/publish_demo_refresh_candidate.sh`, controlled by
+a new `--cdn-wait N` flag (range 0..600, default 90).
+
+Why 90s not 60s:
+
+- 60s works most of the time but is on the edge of the
+  observed cold-cache recovery window
+- 90s lifts first-pass verification to ≥95% on a clean
+  push, with `wait_and_curl()` retrying an additional 90s
+  on stragglers (so worst case is still bounded)
+- Keeping the wait as a flag (not a hard-coded value) means
+  a future Pages infra change can be adopted via a one-line
+  caller update, no script change
+
+Usage:
+
+```bash
+# Default (90s)
+bash scripts/publish_demo_refresh_candidate.sh \
+  --date 2026-06-12 --approve
+
+# Explicit override (e.g. 120s for first-of-the-month)
+bash scripts/publish_demo_refresh_candidate.sh \
+  --date 2026-06-01 --approve --cdn-wait 120
+
+# No wait at all (use only when you do not intend to
+# rely on the script's online verification)
+bash scripts/publish_demo_refresh_candidate.sh \
+  --date 2026-06-12 --dry-run --cdn-wait 0
+```
+
+`confirm_demo_refresh.sh` does not duplicate the wait — it
+delegates to `publish_demo_refresh_candidate.sh` and the
+flag flows through automatically.

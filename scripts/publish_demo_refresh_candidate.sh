@@ -43,6 +43,8 @@ NO_PUSH=0
 PAGES_REPO=""
 BASE_DIR=""
 PYTHON_BIN="${ARTVEE_PYTHON:-python3}"
+# GitHub Pages CDN wait: default 90s (P6D). Override via --cdn-wait <seconds>.
+CDN_WAIT=90
 
 print_help() {
     cat <<'USAGE'
@@ -54,6 +56,7 @@ print_help() {
   --approve             启用真实发布（无此标志时只做 dry-run/验证）
   --no-push             与 --approve 同时使用时：rsync + commit，但不 push
   --pages-repo PATH     指定 Pages repo 路径（默认自动推导）
+  --cdn-wait N          GitHub Pages CDN 刷新等待秒数（默认 90，P6D）
   --help                显示此帮助
 
 安全规则：
@@ -85,6 +88,10 @@ while [[ $# -gt 0 ]]; do
             PAGES_REPO="$2"
             shift 2
             ;;
+        --cdn-wait)
+            CDN_WAIT="$2"
+            shift 2
+            ;;
         --help|-h)
             print_help
             exit 0
@@ -99,6 +106,11 @@ done
 
 if ! [[ "$DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
     echo "ERROR: --date must be YYYY-MM-DD, got: $DATE" >&2
+    exit 1
+fi
+
+if ! [[ "$CDN_WAIT" =~ ^[0-9]+$ ]] || [[ "$CDN_WAIT" -lt 0 ]] || [[ "$CDN_WAIT" -gt 600 ]]; then
+    echo "ERROR: --cdn-wait must be 0..600 seconds, got: $CDN_WAIT" >&2
     exit 1
 fi
 
@@ -186,8 +198,8 @@ wait_and_curl() {
         echo "200"
         return 0
     fi
-    _log "  CDN not ready (code=$code), wait 60s..."
-    sleep 60
+    _log "  CDN not ready (code=$code), wait ${CDN_WAIT}s..."
+    sleep "$CDN_WAIT"
     code="$(_curl_head "$url")"
     echo "$code"
 }
@@ -758,8 +770,8 @@ if [[ "$DRY_RUN" -eq 1 || "$NO_PUSH" -eq 1 || "${COMMIT_RESULT:-}" == "no-change
     _log "  ⏭️  Online verification skipped (dry-run / no-push / no-changes)"
 else
     # 等待 CDN
-    _log "  Wait 60s for CDN..."
-    sleep 60
+    _log "  Wait ${CDN_WAIT}s for CDN..."
+    sleep "$CDN_WAIT"
 
     ENDPOINTS=(
         "https://conanxin.github.io/projects/artvee-gallery-demo/"

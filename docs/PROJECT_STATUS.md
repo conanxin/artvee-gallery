@@ -349,3 +349,16 @@ refresh is expected on the P4B cut.
 | Test result | Stage + send → Telegram `Message ID: 22623` ✅ |
 | Files changed | `scripts/stage_report_for_telegram_media.py` (new), `scripts/artvee_telegram_notify.py` (+`--media`), `docs/DEVELOPMENT.md` (§ 14 + section 5 snippet), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P6A ✅), `docs/OPEN_SOURCE_BOUNDARIES.md` (staged reports are runtime artifacts) |
 | Staged reports | NOT in Artvee repo, NOT in OpenClaw config; living under `<openclaw-media>/artvee-reports/` (runtime cache) |
+
+### P6D cdn-wait-90s snapshot (2026-06-12 20:30 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| Change scope | `scripts/publish_demo_refresh_candidate.sh` only |
+| What changed | Default `sleep 60` → `sleep "$CDN_WAIT"` (var, default 90); new `--cdn-wait N` flag (range 0..600); help text updated; `_log` line shows actual value |
+| Why 90s not 60s | First-pass verification ≥95% on clean push; matches observed cold-cache recovery window; remaining stragglers caught by `wait_and_curl()` retry (also 90s) |
+| Backward compat | `--cdn-wait 60` works for any caller wanting old behavior |
+| Validated | `bash -n` × 3 OK; `check_open_source_ready.py` PASS; `check_gallery_integrity.py --strict` PASS; dry-run with `--cdn-wait 90` does NOT rsync / commit / push; invalid value rejected; `--cdn-wait 0` accepted |
+| Files changed | `scripts/publish_demo_refresh_candidate.sh`, `docs/DEVELOPMENT.md` (§ 15), `docs/PUBLIC_DEMO_REFRESH_PLAN.md` (§ 8.3), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P6D ✅) |
+| Pushed Pages? | No. P6D is internal-only (script change, no `--approve` run) |
+| Public surface | unchanged from P5F / P6A |
