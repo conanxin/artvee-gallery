@@ -196,13 +196,27 @@ be bypassed, and it will not be ignored.
 
 ## 4. Open questions
 
-### 4.1 Manifest vs disk (760 vs 747)
+### 4.1 Manifest vs disk (760 vs 747) — RESOLVED in P4A, GATED in P4A+1
 
-The local manifest records 760 artworks; the disk only has 747
-files. The 13 missing entries are likely duplicates under different
-IDs. This is a *read-only* audit problem (P4A). It does not block
-the public surface because the export scripts use the manifest,
-not the disk, to select picks.
+**Resolution.** P4A found that the manifest holds 760 *unique* URLs
+(0 duplicates). The 13 missing entries are not double-downloads;
+they are 13 *index/web* records that share a local filename with a
+sibling record, and last-write-wins silently overwrote 11 source
+images. The 13 records now point to a sibling's image while keeping
+their own metadata. The 760 manifest entries are 760 *real* artvee
+URLs; the disk has 747 *unique basenames*; the gap is fully
+explained by 11 filename collisions. See the P4A audit report.
+
+**Gate.** P4A+1 froze the 11/13 fingerprint inside
+`scripts/check_gallery_integrity.py` and wired it into the CI
+workflow. Any new pattern fails the gate immediately; the 13
+historical extras are tolerated. The CI step is runtime-aware
+(SKIP on the open-source repo with no runtime data).
+
+**Lesson.** Build scripts that derive filenames from human-readable
+strings are a footgun: distinct source URLs can resolve to the
+same filename and silently overwrite each other. Always derive
+filenames from the URL slug (globally unique by construction).
 
 ### 4.2 Auto-public-demo refresh
 

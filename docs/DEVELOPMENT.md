@@ -123,6 +123,46 @@ ln -s ../../scripts/check_open_source_ready.py .git/hooks/pre-commit
 
 Or as a CI step on every PR.
 
+## 6.1. Gallery integrity check (P4A+1)
+
+The P4A audit found a historical 11-group filename collision
+pattern in the local index/web data (13 extra rows). To prevent
+the *next* duplicate from sneaking in, a second read-only check
+is wired in:
+
+```bash
+# CI / open-source-repo mode: tolerate the 13 known history
+# duplicates but fail on any new pattern. Exits 0 on PASS or SKIP.
+python3 scripts/check_gallery_integrity.py --allow-known-duplicates
+
+# Strict: fail on any duplicate / collision. Useful in dev.
+python3 scripts/check_gallery_integrity.py --strict
+
+# Machine-readable output (combine with any of the above):
+python3 scripts/check_gallery_integrity.py --strict --json
+```
+
+The check inspects three runtime data sources when they exist:
+
+| Source | What it checks |
+| --- | --- |
+| `inbox/manifest.csv` | `status=downloaded` URL is unique; no double-download. |
+| `index/artworks.csv`  | `local_image_path` basename is unique; one basename never maps to many `source_url`. |
+| `web/data/artworks.json` | `id` is unique; `image_path` / `metadata_path` / `thumb_256` / `thumb_512` is unique. |
+
+Behaviour on the open-source / CI environment (no runtime data):
+
+```
+[1/3] inbox/manifest.csv   SKIP
+[2/3] index/artworks.csv   SKIP
+[3/3] web/data/artworks.json   SKIP
+Overall: SKIP
+```
+
+So the gate is safe to run on every PR. The historical P4A
+fingerprint (11 groups, 13 extra rows) is frozen inside the
+script. Any *new* duplicate pattern fails the gate immediately.
+
 ## 7. Sample-data roundtrip
 
 The synthetic data under `examples/` is the canonical shape for
@@ -151,6 +191,8 @@ A clean PR should have:
 
 - [ ] All `py_compile` and `bash -n` checks pass.
 - [ ] `python3 scripts/check_open_source_ready.py` exits 0.
+- [ ] `python3 scripts/check_gallery_integrity.py --allow-known-duplicates` exits 0
+      (or SKIP on the open-source repo with no runtime data).
 - [ ] Sample JSON under `examples/` is valid.
 - [ ] Any new tracked file is **not** in a gitignored path.
 - [ ] Docs updated for any user-visible change.

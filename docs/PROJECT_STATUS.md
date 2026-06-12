@@ -21,6 +21,8 @@
 | **P3D** | GitHub Public Repo + CI + Release | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p3d-github-public-repo-20260612.md` |
 | **P3E** | Public Daily Digest Page + README showcase | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p3e-daily-digest-public-page-20260612.md` |
 | **P3F** | Final Case Study and Project Retrospective | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p3f-case-study-retrospective-20260612.md` |
+| **P4A** | Manifest duplicate-id read-only audit | ✅ PASS (audit only) | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4a-manifest-duplicate-audit-20260612.md` |
+| **P4A+1** | Gallery integrity CI gate (filename-collision / duplicate-id) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4a1-integrity-gate-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
@@ -32,7 +34,7 @@
 | `pending` | 530 |
 | `not_selected` (a.k.a. `skipped` in wrapper stats) | 1271 |
 | Batch size | 20 (all SUCCESS) |
-| Wall time | ~5 minutes |
+| Wall time | about 5 minutes |
 | Cron entry | `0 2 * * * bash scripts/artvee_nightly_wrapper.sh batch` |
 | Time zone | `CRON_TZ=Asia/Shanghai` |
 
@@ -60,29 +62,59 @@
 | Local-machine paths in tracked non-source files | ❌ (none) |
 | Hardcoded wrapper paths (`$HOME/...`) | ❌ (replaced with `BASE_DIR` derivation) |
 
-## CI gate (post-P3D)
+## CI gate (post-P4A+1)
 
 | Check | Result |
 | --- | --- |
 | Workflow present | ✅ `.github/workflows/open-source-ready.yml` |
 | Latest run on `main` | ✅ success |
-| Workflow runs `py_compile` × 4 | ✅ |
+| Workflow runs `py_compile` × 6 (added `export_artvee_digest_public_page.py` + `check_gallery_integrity.py`) | ✅ |
 | Workflow runs `bash -n` × 2 | ✅ |
 | Workflow runs readiness check | ✅ |
+| Workflow runs **gallery integrity check** (`--allow-known-duplicates`, runtime-aware) | ✅ |
 | Workflow validates `examples/*.sample.json` shape | ✅ |
 
-## Open issues (post-P3F)
+## Gallery integrity fingerprint (post-P4A, frozen)
 
-- **Manifest vs disk drift**: 760 manifest entries, 747 files on
-  disk. Likely duplicate IDs under different `id` values. See
+> The P4A audit discovered a historical filename-collision pattern
+> in the local index/web data: 11 dupe groups, 13 extra rows. The
+> 760 manifest URLs are unique; the dupe is in the *index / web*
+> layer. The collision is **frozen** as a known fingerprint inside
+> `scripts/check_gallery_integrity.py`. Any new pattern fails the
+> CI gate immediately.
+
+| Field | Frozen value |
+| --- | --- |
+| manifest downloaded rows | 760 |
+| manifest unique URLs | 760 |
+| index rows | 760 |
+| index unique `local_image_path` basenames | 747 |
+| index dupe groups | 11 |
+| index dupe extra rows | 13 |
+| web records | 760 |
+| web unique ids | 747 |
+| web dupe id groups | 11 |
+| web dupe extra rows | 13 |
+| disk images | 747 |
+| disk metadata | 747 |
+| disk thumbs 256 | 747 |
+| disk thumbs 512 | 747 |
+
+## Open issues (post-P4A+1)
+
+- **Historical 11 filename collisions**: 13 winner/loser records
+  in index/web show a sibling image (winner) with their own
+  metadata (loser). The 13 dupe rows are frozen; the 11 underlying
+  original images were silently overwritten and need re-download
+  if the user wants full recovery. See
   [docs/RETROSPECTIVE.md](docs/RETROSPECTIVE.md) § 4.1 and the
-  P4A entry in [docs/ROADMAP.md](docs/ROADMAP.md).
+  P4B entry in [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Public demo refresh is manual**: requires `rsync + commit +
-  push` of the Pages repo. Auto-publish deferred to P4B pending a
-  secret-rotation policy.
+  push` of the Pages repo. Auto-publish deferred to P4B-or-later
+  pending a secret-rotation policy.
 
 ## How to refresh this file
 
 This file is hand-maintained and is updated whenever a new phase
 lands or the nightly snapshot changes meaningfully. The next
-refresh is expected on the P4A cut.
+refresh is expected on the P4B cut.

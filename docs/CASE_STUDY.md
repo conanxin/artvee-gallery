@@ -198,10 +198,18 @@ Total tracked: 41 files at the end of P3F (was 37 at end of P3D; +4 docs
 A few things we noticed in retrospect that future iterations should
 fix:
 
-- **Manifest vs disk: 760 vs 747**. The local manifest records 760
-  artworks, but the disk only has 747 files. The 13 missing entries
-  are likely duplicates under different IDs (a known issue with the
-  artvee seed scraper). A read-only audit is the first item in P4.
+- **Manifest vs disk: 760 vs 747** *(resolved in P4A, gated in
+  P4A+1)*. The 13-row gap turned out to be **filename
+  collisions**: the build script derived local filenames from
+  human-readable title strings, so distinct artvee URLs with the
+  same parsed title silently overwrote each other. 11 source
+  images were lost; 13 index/web records now display a sibling's
+  image with their own metadata. The P4A audit documented the
+  exact 11/13 fingerprint; P4A+1 froze it inside
+  `scripts/check_gallery_integrity.py` and wired a CI gate so
+  any *new* collision fails the PR check. The full recovery
+  (re-download + build-script fix + re-export) is deferred to
+  P4B.
 - **Path-leak rule is fuzzy in the docs**. The grep currently
   tolerates a small number of "descriptive" mentions in body docs,
   but the tolerance is implicit. Future work: make the rule explicit

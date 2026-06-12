@@ -54,7 +54,7 @@
 ### Nightly E2E Cron Verification
 **Status:** ✅ PASS (verified 2026-06-12)
 - `artvee_nightly_wrapper.sh batch` runs at 02:00 Asia/Shanghai
-  cron, completes in ~5 minutes, posts a Telegram summary.
+  cron, completes in about 5 minutes, posts a Telegram summary.
 - All post-batch steps (gallery rebuild, digest build, notify) run
   on the same trigger.
 - Last-known-good snapshot: 760 downloaded, 0 failed, 530 pending.
@@ -91,28 +91,63 @@
 - README, ROADMAP, and PROJECT_STATUS updated to surface the
   new documentation.
 
+### P4A · Manifest duplicate-id audit (read-only)
+**Status:** ✅ PASS
+- Joined the manifest (`inbox/manifest.csv`), the index
+  (`index/artworks.csv`), and the web data
+  (`web/data/artworks.json`) against the disk.
+- Found: manifest has 760 *unique* URLs (no double-download).
+  The 11 dupe groups / 13 extra rows live in the *index* and
+  *web data* layers, caused by **filename collisions** when
+  different artvee pages with the same parsed title land on
+  the same local file. Last-write-wins overwrote 11 source
+  images; 13 index/web records now point to a sibling image.
+- Output: a Markdown audit report (no data changes).
+
+### P4A+1 · Gallery integrity CI gate
+**Status:** ✅ PASS
+- New `scripts/check_gallery_integrity.py` (pure stdlib).
+  Inspects `inbox/manifest.csv` (URL uniqueness), `index/artworks.csv`
+  (basename uniqueness, one-id-to-many-`source_url`),
+  `web/data/artworks.json` (id / `image_path` / `metadata_path` /
+  `thumb_256` / `thumb_512` uniqueness).
+- The historical 11/13 fingerprint is frozen inside the script.
+- Modes:
+  - `--allow-known-duplicates` (CI default): tolerates the
+    P4A-known 11/13 fingerprint; fails on any new pattern.
+  - `--strict`: fails on any duplicate / collision.
+  - SKIP-on-missing-data: on the open-source repo with no
+    runtime data, exits 0 (gate is safe to run on every PR).
+- Wired into `.github/workflows/open-source-ready.yml` as a
+  new step. The `docs/DEVELOPMENT.md` pre-commit checklist
+  includes the new gate.
+
 ## 2. Up next
 
-### P4A · Manifest duplicate-id audit (read-only)
-- Manifest records 760 entries; disk has 747 files. The 13
-  missing entries are likely duplicates under different IDs.
-- Read-only audit: join the manifest against the disk and
-  report the delta. No new dependencies; no new infrastructure.
-- A 1-day scoped phase; output is a Markdown report.
+### P4B · Index/web data deduplication + build script fix
+- Recover the 11 silently-overwritten source images by
+  re-downloading with a build-script patch (filename derived
+  from URL slug instead of human-readable title).
+- Re-emit `index/artworks.csv` and `web/data/artworks.json`
+  with the 13 dupe rows removed.
+- Re-export the public demo and the daily digest, re-publish
+  to the Pages repo.
+- Touches data + public surface; needs a fresh plan and
+  backup step.
 
-### P4B · Automatic public demo refresh
+### P4C · Automatic public demo refresh
 - Both public routes are published via manual
   `rsync + commit + push`. Acceptable for now.
 - Automation requires a personal access token in cron or a
   GitHub Actions workflow on the Pages repo, both of which
   require a secret-rotation policy first.
 
-### P4C · Digest history index page
+### P4D · Digest history index page
 - The public digest route currently shows only the latest day.
 - A 30-day rolling index would turn the digest into a
   *publication* rather than a daily log.
 
-### P4D · Object storage planning
+### P4E · Object storage planning
 - The local archive is 1.4 GB on a single disk. Multi-device
   access, backup, or sharing would put it in object storage
   (S3 / R2 / COS).
