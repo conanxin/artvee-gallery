@@ -199,17 +199,20 @@ A few things we noticed in retrospect that future iterations should
 fix:
 
 - **Manifest vs disk: 760 vs 747** *(resolved in P4A, gated in
-  P4A+1)*. The 13-row gap turned out to be **filename
-  collisions**: the build script derived local filenames from
-  human-readable title strings, so distinct artvee URLs with the
-  same parsed title silently overwrote each other. 11 source
-  images were lost; 13 index/web records now display a sibling's
-  image with their own metadata. The P4A audit documented the
-  exact 11/13 fingerprint; P4A+1 froze it inside
-  `scripts/check_gallery_integrity.py` and wired a CI gate so
-  any *new* collision fails the PR check. The full recovery
-  (re-download + build-script fix + re-export) is deferred to
-  P4B.
+  P4A+1, fully fixed in P4B)*. The 13-row gap turned out to be
+  **filename collisions**: the build script derived local
+  filenames from human-readable title strings, so distinct
+  artvee URLs with the same parsed title silently overwrote
+  each other. 11 source images were lost; 13 index/web records
+  displayed a sibling's image with their own metadata. P4A
+  documented the exact 11/13 fingerprint; P4A+1 froze it as a
+  CI gate. P4B (2026-06-12) healed the underlying bug:
+  filenames are now derived from a source-url hash via
+  `scripts/artvee_identity.py`, 11 winners were renamed to
+  stable ids, 9 of the 13 losers re-downloaded via playwright,
+  and 4 unresolvable losers dropped from the index/web. The
+  fingerprint is now empty and all three integrity check modes
+  exit 0.
 - **Path-leak rule is fuzzy in the docs**. The grep currently
   tolerates a small number of "descriptive" mentions in body docs,
   but the tolerance is implicit. Future work: make the rule explicit

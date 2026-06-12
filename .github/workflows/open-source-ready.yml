@@ -27,6 +27,11 @@ jobs:
           python3 -m py_compile scripts/export_artvee_digest_public_page.py
           python3 -m py_compile scripts/check_open_source_ready.py
           python3 -m py_compile scripts/check_gallery_integrity.py
+          python3 -m py_compile scripts/artvee_identity.py
+          python3 -m py_compile scripts/plan_gallery_collision_migration.py
+          python3 -m py_compile scripts/execute_gallery_collision_migration.py
+          python3 -m py_compile scripts/run_artvee_nightly_batch.py
+          python3 -m py_compile scripts/download_artvee_selected.py
 
       - name: Check shell syntax
         run: |
@@ -37,9 +42,9 @@ jobs:
         run: |
           python3 scripts/check_open_source_ready.py
 
-      - name: Gallery integrity check (P4A+1, runtime-aware, allow-known)
+      - name: Gallery integrity check (P4B, runtime-aware, strict)
         run: |
-          python3 scripts/check_gallery_integrity.py --allow-known-duplicates
+          python3 scripts/check_gallery_integrity.py --strict
 
       - name: Validate sample JSON
         run: |

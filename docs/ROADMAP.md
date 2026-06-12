@@ -124,16 +124,38 @@
 
 ## 2. Up next
 
-### P4B · Index/web data deduplication + build script fix
-- Recover the 11 silently-overwritten source images by
-  re-downloading with a build-script patch (filename derived
-  from URL slug instead of human-readable title).
-- Re-emit `index/artworks.csv` and `web/data/artworks.json`
-  with the 13 dupe rows removed.
-- Re-export the public demo and the daily digest, re-publish
-  to the Pages repo.
-- Touches data + public surface; needs a fresh plan and
-  backup step.
+### P4B · Filename collision fix + index/web data migration
+**Status:** ✅ PASS (2026-06-12)
+- Replaced the human-readable `Artist_Title_Cat_Variant` filename
+  rule with a **source-url-hashed stable id**
+  (`<slug_artist>_<slug_title>_<category>_<variant>_<sha1(url)[:8]>`)
+  via the new `scripts/artvee_identity.py` helper.
+- Patched `scripts/run_artvee_nightly_batch.py` and
+  `scripts/download_artvee_selected.py` to use the new helper.
+  `scripts/build_artvee_gallery.py` needs no change because it
+  derives the record `id` from the basename stem of
+  `local_image_path`.
+- Built `scripts/plan_gallery_collision_migration.py` (read-only
+  dry-run planner) and `scripts/execute_gallery_collision_migration.py`
+  (write executor). The executor is **bounded**: at most 13
+  re-downloads, all in the 11 collision groups, with a
+  `reports/runtime/p4b-unresolved-losers.json` graceful-degrade
+  path for any failure.
+- Ran the executor: 11 winners renamed via `shutil.copy2` (so
+  source files are still on disk for recovery); 9/13 losers
+  re-downloaded; 4 losers dropped from the index (Playwright
+  `Page.goto` 30s timeout on pages artvee no longer serves
+  consistently).
+- Re-emitted `index/artworks.csv` (756 rows) and rebuilt
+  `web/data/artworks.json` (756 records) via
+  `scripts/build_artvee_gallery.py --mode local`.
+- Emptied `KNOWN_DUPE_FINGERPRINT` inside
+  `scripts/check_gallery_integrity.py` (P4A fingerprint is no
+  longer needed). All three modes — default,
+  `--allow-known-duplicates`, `--strict` — exit 0.
+- Public demo and Pages re-publication are **deferred to a
+  later phase**; the P4B commit only updates code + docs in
+  the open-source repo, no runtime data.
 
 ### P4C · Automatic public demo refresh
 - Both public routes are published via manual

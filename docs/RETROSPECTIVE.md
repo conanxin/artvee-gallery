@@ -196,27 +196,52 @@ be bypassed, and it will not be ignored.
 
 ## 4. Open questions
 
-### 4.1 Manifest vs disk (760 vs 747) — RESOLVED in P4A, GATED in P4A+1
+### 4.1 Manifest vs disk (760 vs 747) — RESOLVED in P4A, GATED in P4A+1, FIXED in P4B
 
-**Resolution.** P4A found that the manifest holds 760 *unique* URLs
-(0 duplicates). The 13 missing entries are not double-downloads;
-they are 13 *index/web* records that share a local filename with a
-sibling record, and last-write-wins silently overwrote 11 source
-images. The 13 records now point to a sibling's image while keeping
-their own metadata. The 760 manifest entries are 760 *real* artvee
-URLs; the disk has 747 *unique basenames*; the gap is fully
-explained by 11 filename collisions. See the P4A audit report.
+**Resolution (P4A).** P4A found that the manifest holds 760
+*unique* URLs (0 duplicates). The 13 missing entries are not
+double-downloads; they are 13 *index/web* records that share a
+local filename with a sibling record, and last-write-wins
+silently overwrote 11 source images. The 13 records now point
+to a sibling's image while keeping their own metadata. The 760
+manifest entries are 760 *real* artvee URLs; the disk has 747
+*unique basenames*; the gap is fully explained by 11 filename
+collisions. See the P4A audit report.
 
-**Gate.** P4A+1 froze the 11/13 fingerprint inside
+**Gate (P4A+1).** P4A+1 froze the 11/13 fingerprint inside
 `scripts/check_gallery_integrity.py` and wired it into the CI
 workflow. Any new pattern fails the gate immediately; the 13
 historical extras are tolerated. The CI step is runtime-aware
 (SKIP on the open-source repo with no runtime data).
 
-**Lesson.** Build scripts that derive filenames from human-readable
-strings are a footgun: distinct source URLs can resolve to the
-same filename and silently overwrite each other. Always derive
-filenames from the URL slug (globally unique by construction).
+**Fix (P4B, 2026-06-12).** P4B is the **healing** step: it
+replaces the human-readable `Artist_Title_Cat_Variant`
+filename rule with a source-url-hashed stable id
+(`<slug_artist>_<slug_title>_<category>_<variant>_<sha1(url)[:8]>`).
+The new helper lives in `scripts/artvee_identity.py` and is
+re-used by `run_artvee_nightly_batch.py` and
+`download_artvee_selected.py`. `build_artvee_gallery.py`
+derives the record `id` from the basename stem of
+`local_image_path`, so it needed no change. The executor
+(`scripts/execute_gallery_collision_migration.py`) renamed
+11 winners via `shutil.copy2` (source kept for recovery),
+re-downloaded 9 of the 13 losers via playwright, and dropped
+the 4 unresolvable losers from the index/web data
+(Playwright `Page.goto` 30s timeouts on the 4 URLs). The
+fingerprint is now empty and all three integrity modes
+(default / `--allow-known-duplicates` / `--strict`) exit 0.
+The 736 non-collision files keep the legacy basename format
+(mixed naming is documented and accepted for the P4B
+commit; new downloads always use the new format).
+
+**Lesson.** Build scripts that derive filenames from
+human-readable strings are a footgun: distinct source URLs can
+resolve to the same filename and silently overwrite each
+other. Always derive filenames from a content-addressable
+hash of the *source URL* (globally unique by construction);
+keep the slugified title for readability only. The same
+lesson applies to any local-archive project where the data
+sources are identified by a stable remote URL.
 
 ### 4.2 Auto-public-demo refresh
 

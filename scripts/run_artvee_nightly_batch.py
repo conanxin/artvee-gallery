@@ -18,6 +18,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import download_artvee_selected as dav
+import artvee_identity as ai_mod
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 INBOX_CSV = BASE_DIR / "inbox" / "manifest.csv"
@@ -227,23 +228,33 @@ def run_batch(dry_run=False, limit=20):
                 row["last_error"] = err_msg
                 continue
 
-            # 文件名
+            # 文件名 — 使用 source_url hash 后缀的稳定 id (P4B 起)
+            # 旧逻辑 (P4B 之前) 用 base_name = artist_title_cat_variant，
+            # 这会在不同 artvee URL 解析出相同 title 时发生 filename
+            # collision。新逻辑见 scripts/artvee_identity.py：把
+            # source_url 的 sha1 前 8 位作为后缀，保证唯一性。
+            # 为了与历史 metadata 结构兼容，metadata 里仍然记录
+            # normalized_artist / normalized_title (旧 slugify 风格)。
             norm_artist = dav.normalize_artist_or_title(artist)
             norm_title = dav.normalize_artist_or_title(title)
-            norm_cat = dav.normalize_category(category)
-            base_name = f"{norm_artist}_{norm_title}_{norm_cat}_{download_variant.lower()}"
-
+            stable_id = ai_mod.make_stable_artwork_id(
+                artist=artist,
+                title=title,
+                category=category,
+                source_url=url,
+                variant=download_variant,
+            )
             ext = ".jpg"
             if ".png" in dl_url.lower():
                 ext = ".png"
             elif ".jpeg" in dl_url.lower():
                 ext = ".jpeg"
 
-            image_filename = base_name + ext
+            image_filename = ai_mod.make_image_basename(stable_id, ext)
             image_path = IMAGES_DIR / category / image_filename
             image_path.parent.mkdir(parents=True, exist_ok=True)
 
-            meta_filename = base_name + ".json"
+            meta_filename = ai_mod.make_metadata_basename(stable_id)
             meta_path = METADATA_DIR / meta_filename
 
             try:

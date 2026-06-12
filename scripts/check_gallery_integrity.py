@@ -21,10 +21,11 @@ Modes
     Run on every available source, including local runtime data. Exit
     non-zero on any duplicate / collision.
 * ``--allow-known-duplicates``:
-    Same scan as ``--strict`` but emits a KNOWN-DUPLICATES PASS if the
-    only issues are the historically-known 11 dupe groups / 13 extra rows
-    documented in the P4A audit report. Exits 0 in that case; still exits
-    non-zero on *new* duplicate patterns.
+    Same scan as ``--strict``. The P4A-frozen fingerprint (11 dupe
+    groups / 13 extra rows) was **resolved** by P4B (2026-06-12) so
+    this flag is now effectively an alias for ``--strict`` and
+    ``KNOWN_DUPE_FINGERPRINT`` is empty. The flag is kept for
+    backward compatibility with existing CI workflows.
 * ``--json``:
     Emit a machine-readable JSON summary (in addition to the human
     report).
@@ -53,36 +54,19 @@ INDEX_PATH = REPO_ROOT / "index" / "artworks.csv"
 WEB_JSON_PATH = REPO_ROOT / "web" / "data" / "artworks.json"
 
 # Known duplicate set discovered in P4A audit (2026-06-12).
-# This is a frozen fingerprint of *historical* 13 extra rows; it is the
-# ONLY fingerprint the --allow-known-duplicates flag will tolerate.
-KNOWN_DUPE_FINGERPRINT = {
-    "index": {
-        # stem (basename without extension) -> set of source_url basenames
-        "Alphonse_Mucha_Abstract_design_based_on_arabesques_posters-design_standard": 2,
-        "Alphonse_Mucha_La_Plume_posters-design_standard": 2,
-        "Alphonse_Mucha_Le_rêve_posters-design_standard": 3,
-        "Alphonse_Mucha_Têtes_Byzantines_posters-design_standard": 2,
-        "Amaldus_Nielsen_Høstdag._Bjelland_Mandal_book-illustrations_standard": 2,
-        "Anonymous_Affiche_van_de_Chambre_Syndicale_des_Éditeurs_et_Marchands_dEstampes_et_Dessins_Anciens_et_Modernes_te_Parijs_posters-design_standard": 3,
-        "Ohara_Koson_Sandpipers_at_sickle_moon_japanese-prints_standard": 2,
-        "Ohara_Koson_Two_cranes_japanese-prints_standard": 2,
-        "Utagawa_Hiroshige_Yoshida_japanese-prints_standard": 2,
-        "Yoshida_Hiroshi_High_Gate_in_Ajmer_japanese-prints_standard": 2,
-        "Yoshida_Hiroshi_Jaipuuru_no_Ajumeru_mon_japanese-prints_standard": 2,
-    },
-    "web": {
-        "Alphonse_Mucha_Abstract_design_based_on_arabesques_posters-design_standard": 2,
-        "Alphonse_Mucha_La_Plume_posters-design_standard": 2,
-        "Alphonse_Mucha_Le_rêve_posters-design_standard": 3,
-        "Alphonse_Mucha_Têtes_Byzantines_posters-design_standard": 2,
-        "Amaldus_Nielsen_Høstdag._Bjelland_Mandal_book-illustrations_standard": 2,
-        "Anonymous_Affiche_van_de_Chambre_Syndicale_des_Éditeurs_et_Marchands_dEstampes_et_Dessins_Anciens_et_Modernes_te_Parijs_posters-design_standard": 3,
-        "Ohara_Koson_Sandpipers_at_sickle_moon_japanese-prints_standard": 2,
-        "Ohara_Koson_Two_cranes_japanese-prints_standard": 2,
-        "Utagawa_Hiroshige_Yoshida_japanese-prints_standard": 2,
-        "Yoshida_Hiroshi_High_Gate_in_Ajmer_japanese-prints_standard": 2,
-        "Yoshida_Hiroshi_Jaipuuru_no_Ajumeru_mon_japanese-prints_standard": 2,
-    },
+# Frozen P4A fingerprint of 11 dupe groups / 13 extra rows was
+# RESOLVED by P4B (2026-06-12) via filename-collision migration to
+# stable source_url hash-suffixed ids. The set is now empty and
+# ``--allow-known-duplicates`` has degenerated to a no-op alias
+# for ``--strict``.
+#
+# If a future phase ever needs to freeze a NEW historical duplicate
+# set (e.g. after another batch run), populate the dicts below in
+# the same shape and the integrity checker will resume comparing
+# against that fingerprint.
+KNOWN_DUPE_FINGERPRINT: dict[str, dict[str, int]] = {
+    "index": {},
+    "web": {},
 }
 
 
@@ -261,10 +245,10 @@ def _is_known_fingerprint(
             f"{index_report.get('duplicate_groups')} vs known "
             f"{len(KNOWN_DUPE_FINGERPRINT['index'])}"
         )
-    if index_report.get("duplicate_extra_rows") != 13:
+    if index_report.get("duplicate_extra_rows") != 0:
         notes.append(
             f"index duplicate extra rows changed: "
-            f"{index_report.get('duplicate_extra_rows')} vs known 13"
+            f"{index_report.get('duplicate_extra_rows')} vs known 0"
         )
     if web_report.get("duplicate_id_groups") != len(KNOWN_DUPE_FINGERPRINT["web"]):
         notes.append(
@@ -272,10 +256,10 @@ def _is_known_fingerprint(
             f"{web_report.get('duplicate_id_groups')} vs known "
             f"{len(KNOWN_DUPE_FINGERPRINT['web'])}"
         )
-    if web_report.get("duplicate_extra_rows") != 13:
+    if web_report.get("duplicate_extra_rows") != 0:
         notes.append(
             f"web duplicate extra rows changed: "
-            f"{web_report.get('duplicate_extra_rows')} vs known 13"
+            f"{web_report.get('duplicate_extra_rows')} vs known 0"
         )
 
     if new_in_index:
@@ -295,9 +279,9 @@ def _is_known_fingerprint(
         not new_in_index
         and not new_in_web
         and index_report.get("duplicate_groups") == len(KNOWN_DUPE_FINGERPRINT["index"])
-        and index_report.get("duplicate_extra_rows") == 13
+        and index_report.get("duplicate_extra_rows") == 0
         and web_report.get("duplicate_id_groups") == len(KNOWN_DUPE_FINGERPRINT["web"])
-        and web_report.get("duplicate_extra_rows") == 13
+        and web_report.get("duplicate_extra_rows") == 0
     )
     return matches, notes
 
@@ -405,18 +389,32 @@ def render_text(
         return "\n".join(lines), 0
 
     if not strict and not allow_known:
-        # default mode = tolerate known history but fail on new patterns
+        # default mode = no known fingerprint (P4B resolved P4A's
+        # 11/13), so it behaves like strict. Kept distinct in code so
+        # a future fingerprint can re-enable soft-fail semantics.
         if is_known:
             headline = "PASS   (no new duplicates beyond P4A fingerprint)"
         else:
             headline = "FAIL   (new duplicates beyond P4A fingerprint)"
             exit_code = 1
     elif allow_known:
-        if is_known:
-            headline = "KNOWN-DUPLICATES PASS   (matches P4A 11/13 fingerprint exactly)"
-        else:
-            headline = "FAIL   (duplicates changed vs P4A fingerprint)"
+        # --allow-known-duplicates: alias for --strict since P4B
+        # (P4A fingerprint is empty)
+        any_dupes = (
+            (manifest.get("duplicate_url_groups", 0) > 0)
+            or (index.get("duplicate_groups", 0) > 0)
+            or (web.get("duplicate_id_groups", 0) > 0)
+        )
+        if any_dupes:
+            headline = (
+                f"FAIL   (allow-known mode: "
+                f"manifest_dupes={manifest.get('duplicate_url_groups', 0)}, "
+                f"index_dupes={index.get('duplicate_groups', 0)}, "
+                f"web_dupes={web.get('duplicate_id_groups', 0)})"
+            )
             exit_code = 1
+        else:
+            headline = "PASS   (allow-known: P4A fingerprint is empty after P4B, no dupes)"
     elif strict:
         # strict: any dupe => fail
         any_dupes = (
@@ -448,19 +446,21 @@ def render_text(
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Gallery integrity check (P4A+1, read-only)"
+        description="Gallery integrity check (P4B, read-only)"
     )
     p.add_argument(
         "--strict",
         action="store_true",
-        help="Fail on any duplicate / collision (including the historical 13).",
+        help="Fail on any duplicate / collision.",
     )
     p.add_argument(
         "--allow-known-duplicates",
         action="store_true",
         help=(
-            "Tolerate the 11 dupe groups / 13 extra rows from the P4A audit. "
-            "Fail only on new patterns."
+            "Tolerate the historical 11 dupe groups / 13 extra rows from "
+            "the P4A audit. Since P4B (2026-06-12) the P4A fingerprint "
+            "is empty, so this flag is now an alias for --strict. Kept "
+            "for backward compatibility with existing CI workflows."
         ),
     )
     p.add_argument(

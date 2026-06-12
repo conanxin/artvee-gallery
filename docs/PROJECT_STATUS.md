@@ -23,6 +23,7 @@
 | **P3F** | Final Case Study and Project Retrospective | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p3f-case-study-retrospective-20260612.md` |
 | **P4A** | Manifest duplicate-id read-only audit | ✅ PASS (audit only) | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4a-manifest-duplicate-audit-20260612.md` |
 | **P4A+1** | Gallery integrity CI gate (filename-collision / duplicate-id) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4a1-integrity-gate-20260612.md` |
+| **P4B** | Filename collision fix + index/web data migration | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p4b-collision-migration-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
 
 ## Last-known-good nightly snapshot
@@ -62,7 +63,7 @@
 | Local-machine paths in tracked non-source files | ❌ (none) |
 | Hardcoded wrapper paths (`$HOME/...`) | ❌ (replaced with `BASE_DIR` derivation) |
 
-## CI gate (post-P4A+1)
+## CI gate (post-P4B)
 
 | Check | Result |
 | --- | --- |
@@ -100,15 +101,24 @@
 | disk thumbs 256 | 747 |
 | disk thumbs 512 | 747 |
 
-## Open issues (post-P4A+1)
+## Open issues (post-P4B)
 
-- **Historical 11 filename collisions**: 13 winner/loser records
-  in index/web show a sibling image (winner) with their own
-  metadata (loser). The 13 dupe rows are frozen; the 11 underlying
-  original images were silently overwritten and need re-download
-  if the user wants full recovery. See
+- **Historical 11 filename collisions are RESOLVED.** P4B renamed
+  11 winner images to source-url-hashed stable ids, re-downloaded
+  9 of the 13 losers via playwright, dropped the 4 failed-loser
+  rows from the index (and from `web/data/artworks.json` after
+  rebuild), and emptied `KNOWN_DUPE_FINGERPRINT`. Strict / allow-
+  known / default integrity check all exit 0. The 4 unresolvable
+  loser URLs (Playwright `Page.goto` timeout) are recorded in
+  `reports/runtime/p4b-unresolved-losers.json`. See
   [docs/RETROSPECTIVE.md](docs/RETROSPECTIVE.md) § 4.1 and the
   P4B entry in [docs/ROADMAP.md](docs/ROADMAP.md).
+- **Mixed filename format**: the 736 non-collision files keep the
+  legacy `Alphonse_Mucha_..._standard` basename format; the 11
+  winners + 9 successful losers use the new
+  `alphonse_mucha_czech_1860-1939_..._<hash8>` format. Both
+  formats are valid going forward; new downloads always use the
+  new format.
 - **Public demo refresh is manual**: requires `rsync + commit +
   push` of the Pages repo. Auto-publish deferred to P4B-or-later
   pending a secret-rotation policy.

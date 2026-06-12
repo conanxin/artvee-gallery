@@ -123,16 +123,20 @@ ln -s ../../scripts/check_open_source_ready.py .git/hooks/pre-commit
 
 Or as a CI step on every PR.
 
-## 6.1. Gallery integrity check (P4A+1)
+## 6.1. Gallery integrity check (P4B)
 
-The P4A audit found a historical 11-group filename collision
-pattern in the local index/web data (13 extra rows). To prevent
-the *next* duplicate from sneaking in, a second read-only check
-is wired in:
+P4A discovered a historical 11-group filename collision pattern
+(13 extra rows) and P4A+1 froze that as a known fingerprint. P4B
+(2026-06-12) **healed** the underlying collision: filenames are
+now derived from a source-url hash, the 11 winners have been
+renamed to stable ids, 9 of the 13 losers re-downloaded, and
+4 unresolvable losers dropped from the index/web data. The
+`KNOWN_DUPE_FINGERPRINT` is now empty. All three modes
+(`--strict`, `--allow-known-duplicates`, default) exit 0 on a
+clean tree.
 
 ```bash
-# CI / open-source-repo mode: tolerate the 13 known history
-# duplicates but fail on any new pattern. Exits 0 on PASS or SKIP.
+# CI default: alias for --strict (P4A fingerprint is empty after P4B).
 python3 scripts/check_gallery_integrity.py --allow-known-duplicates
 
 # Strict: fail on any duplicate / collision. Useful in dev.
@@ -192,7 +196,9 @@ A clean PR should have:
 - [ ] All `py_compile` and `bash -n` checks pass.
 - [ ] `python3 scripts/check_open_source_ready.py` exits 0.
 - [ ] `python3 scripts/check_gallery_integrity.py --allow-known-duplicates` exits 0
-      (or SKIP on the open-source repo with no runtime data).
+      (or SKIP on the open-source repo with no runtime data). P4B
+      emptied the known fingerprint, so this is now equivalent to
+      `--strict`.
 - [ ] Sample JSON under `examples/` is valid.
 - [ ] Any new tracked file is **not** in a gitignored path.
 - [ ] Docs updated for any user-visible change.
