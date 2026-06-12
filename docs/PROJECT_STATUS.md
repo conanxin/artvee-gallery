@@ -362,3 +362,18 @@ refresh is expected on the P4B cut.
 | Files changed | `scripts/publish_demo_refresh_candidate.sh`, `docs/DEVELOPMENT.md` (§ 15), `docs/PUBLIC_DEMO_REFRESH_PLAN.md` (§ 8.3), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P6D ✅) |
 | Pushed Pages? | No. P6D is internal-only (script change, no `--approve` run) |
 | Public surface | unchanged from P5F / P6A |
+
+### P6B known-retired-urls snapshot (2026-06-12 21:05 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| New script | `scripts/mark_known_retired_urls.py` (236 lines, stdlib) — no network, dry-run default |
+| New sample | `examples/known_retired_urls.sample.json` (tracked; documents schema; synthetic URLs only) |
+| New runtime artifact | `reports/runtime/p6b-known-retired-urls.json` (NOT tracked; regenerable) |
+| Retired count | 4 (P5A: la-plume-4 / le-reve-3 / le-reve / tetes-byzantines-brunette) |
+| All records | `status=known_retired`, `should_retry=False` |
+| Schema | source_url, title/artist/category/stable_id (best-effort from web/data), retired_reason, first_seen_phase, last_checked_phase, status, should_retry, marked_at, marker_version |
+| Safety | refuses overwrite (use --force); refuses --out outside `reports/runtime/`; fallback to P4B if P5A missing; never touches manifest/index/web_data; never reads network |
+| Candidate / public flow | `confirm_demo_refresh.sh --no-telegram` PASS; `publish_demo_refresh_candidate.sh --dry-run` PASS |
+| Strict integrity | PASS (P6B does NOT change strict integrity; 4 losers are not in web/data so they're already excluded) |
+| Files changed | `scripts/mark_known_retired_urls.py` (new), `examples/known_retired_urls.sample.json` (new), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P6B ✅) |

@@ -734,3 +734,58 @@ bash scripts/publish_demo_refresh_candidate.sh \
 `confirm_demo_refresh.sh` does not duplicate the wait — it
 delegates to `publish_demo_refresh_candidate.sh` and the
 flag flows through automatically.
+
+## 16. P6B KNOWN_RETIRED URL management
+
+P4B / P5A surfaced 4 URLs that are unreachable from the
+local network (HTTP HEAD / page.goto timeouts, 30s).
+They are not blocking gallery / public demo / digest —
+they never made it into `web/data/artworks.json` so
+the public surface is unaffected. But they show up in
+runtime reports as "unresolved" and tend to cause
+confusion in status reviews.
+
+P6B introduces an explicit `KNOWN_RETIRED` set so
+future reports can split:
+
+- `known_retired = N` (audited, not blocking)
+- `blocking_unresolved = M` (need attention)
+
+Usage:
+
+```bash
+# Generate or refresh reports/runtime/p6b-known-retired-urls.json
+python3 scripts/mark_known_retired_urls.py --apply
+
+# Dry-run (default — does not write)
+python3 scripts/mark_known_retired_urls.py
+
+# Override input / output
+python3 scripts/mark_known_retired_urls.py \
+  --input reports/runtime/p4b-unresolved-losers.json \
+  --out reports/runtime/p6b-known-retired-urls.json \
+  --apply --force
+```
+
+Properties:
+
+- **No network.** Pure local read/write. Never retries a URL.
+- **Default dry-run.** Use `--apply` to write.
+- **Refuses overwrite** without `--force`.
+- **Refuses `--out` outside `reports/runtime/`** — even if the
+  caller tries a tricky path, the script exits with code 2.
+- **Falls back to P4B** if the P5A report is missing.
+- **Enriches records** by looking up URLs in
+  `web/data/artworks.json` (best-effort title / artist /
+  category / stable_id); the script still works for
+  fully-unknown losers.
+- **Runtime artifact, NOT in git.** The real output file
+  is regenerated from the canonical unresolved report.
+  `examples/known_retired_urls.sample.json` documents
+  the schema with synthetic URLs and IS tracked.
+
+Cross-cutting rule: the 4 KNOWN_RETIRED URLs do not appear
+in `web/data/artworks.json` and do not affect
+`check_gallery_integrity.py --strict` (which only checks
+duplicates and source_url conflicts). They are also
+excluded from the public demo and digest by construction.

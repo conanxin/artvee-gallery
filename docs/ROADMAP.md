@@ -449,3 +449,14 @@ build-script label fix remains.
 - Backward compat: `--cdn-wait 60` reproduces old behavior
 - Public surface: unchanged
 - See `<workspace>/reports/artvee-gallery-p6d-cdn-wait-90s-20260612.md`
+
+### P6B · Mark unresolved losers as KNOWN_RETIRED ✅ PASS (2026-06-12 21:05)
+- 4 unreachable URLs (la-plume-4, le-reve, le-reve-3, tetes-byzantines-brunette) explicitly marked
+- New: `scripts/mark_known_retired_urls.py` (no network, dry-run default, --force to overwrite)
+- New: `examples/known_retired_urls.sample.json` (schema doc, synthetic URLs)
+- New runtime artifact: `reports/runtime/p6b-known-retired-urls.json` (NOT tracked)
+- Each record: status=known_retired, should_retry=False, with best-effort title/artist from web/data
+- Safety: refuses --out outside reports/runtime/, falls back to P4B if P5A missing
+- Does NOT modify strict integrity (losers not in web/data → already excluded)
+- Future reports should split: `known_retired=N, blocking_unresolved=M`
+- See `<workspace>/reports/artvee-gallery-p6b-known-retired-urls-20260612.md`

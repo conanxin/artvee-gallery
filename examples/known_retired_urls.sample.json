@@ -1,0 +1,49 @@
+{
+  "_comment": [
+    "Sample shape for reports/runtime/p6b-known-retired-urls.json (P6B).",
+    "The real file is a runtime artifact under reports/runtime/ and is",
+    "NOT tracked in git. This file documents the schema only.",
+    "All URLs are SYNTHETIC / fictional — do not substitute real local",
+    "paths or real upstream URLs. The shape mirrors scripts/mark_known_retired_urls.py",
+    "output. Regenerate the real manifest any time via:",
+    "  python3 scripts/mark_known_retired_urls.py --apply"
+  ],
+  "generated_by": "scripts/mark_known_retired_urls.py",
+  "version": "1.0.0",
+  "generated_at": "2026-06-12T13:04:00+00:00",
+  "input_path": "reports/runtime/p5a-unresolved-losers.json",
+  "input_fallback_used": false,
+  "input_count": 2,
+  "output_count": 2,
+  "phase": "P5A",
+  "records": [
+    {
+      "source_url": "https://example.invalid/dl/synthetic-loser-1/",
+      "title": "Synthetic example retired record (placeholder)",
+      "artist": "Example Artist",
+      "category": "example",
+      "stable_id": "example-0001",
+      "retired_reason": "Multiple probe failures; first-line error: synthetic timeout",
+      "first_seen_phase": "P5A",
+      "last_checked_phase": "P5A",
+      "status": "known_retired",
+      "should_retry": false,
+      "marked_at": "2026-06-12T13:04:00+00:00",
+      "marker_version": "1.0.0"
+    },
+    {
+      "source_url": "https://example.invalid/dl/synthetic-loser-2/",
+      "title": null,
+      "artist": null,
+      "category": null,
+      "stable_id": null,
+      "retired_reason": "Unreachable after multiple probes (P5A HTTP HEAD, P4B page.goto)",
+      "first_seen_phase": "P4B",
+      "last_checked_phase": "P5A",
+      "status": "known_retired",
+      "should_retry": false,
+      "marked_at": "2026-06-12T13:04:00+00:00",
+      "marker_version": "1.0.0"
+    }
+  ]
+}
