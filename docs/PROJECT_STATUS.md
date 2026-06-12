@@ -43,6 +43,7 @@
 | **P6F** | Digest history 30-day + near-dup-aware selection | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6f-digest-history-20260612.md` |
 | **P7A** | Daily automation hardening / phase consolidation | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a-daily-automation-hardening-20260612.md` |
 | **P7A+1** | OpenClaw binary resolution for health check Telegram notify | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a1-openclaw-binary-resolution-20260612.md` |
+| **P7B** | Optional daily health Telegram cron | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7b-daily-health-cron-20260612.md` |
 
 ### P7A daily-automation-hardening snapshot (2026-06-12 22:30 GMT+8)
 
@@ -73,6 +74,21 @@
 | Test result | Message ID 22727 delivered successfully via interactive shell |
 | MEDIA test | Message with report attachment delivered successfully |
 | Files changed | `scripts/artvee_telegram_notify.py` (resolver + `--openclaw-bin`), `scripts/artvee_daily_health_check.sh` (pass-through), `scripts/artvee_daily_health_check.py` (pass-through + JSON field), `docs/DEVELOPMENT.md` (§ 20), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 8), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P7A+1 ✅) |
+
+### P7B daily-health-cron snapshot (2026-06-12 23:25 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| New script | `scripts/install_daily_health_cron.sh` — idempotent P7B cron installer |
+| Cron time | `0 3 * * *` (Asia/Shanghai, after 02:30 confirm_demo_refresh) |
+| Command | `cd <artvee-repo> && bash scripts/artvee_daily_health_check.sh --online --media` |
+| Log | `logs/daily-health-cron/daily_health_YYYYMMDD_030000.log` |
+| Marker | `# >>> Artvee P7B daily health check BEGIN` / `END` |
+| Idempotency | Replaces existing block on re-install; `--remove` deletes the block |
+| Backup | `logs/daily-health-cron/crontab.before_p7b.*.txt` |
+| Manual test | ✅ PASS — Telegram summary + MEDIA delivered, log contains no secrets |
+| Daily cron rhythm | 01:30 refill, 02:00 batch, 02:30 confirm_demo_refresh, 03:00 daily health check |
+| Files changed | `scripts/install_daily_health_cron.sh` (new), `docs/DAILY_OPERATING_PLAYBOOK.md` (timeline + commands + log path), `docs/DEVELOPMENT.md` (§ 21), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P7B ✅) |
 
 ## Last-known-good nightly snapshot
 

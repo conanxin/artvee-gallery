@@ -162,3 +162,13 @@ environment variable, `OPENCLAW_BIN` environment variable, and finally
 location depends on the local installation method (npm global, local
 node_modules, system package, etc.) and is therefore outside the scope
 of the open-source repository.
+
+### P7B · Daily health cron
+The P7B daily health check cron is **local runtime configuration**, not
+part of the open-source repository. The installer script
+(`scripts/install_daily_health_cron.sh`) modifies the user's system
+crontab, not the git tree. The cron entry, the log files under
+`logs/daily-health-cron/`, and the backup snapshots are all runtime
+artifacts and are covered by `.gitignore`. The installer itself is
+tracked code, but it generates no runtime data on its own — it only
+manipulates the system crontab.

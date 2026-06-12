@@ -72,3 +72,49 @@ returns it in stdout, not structured JSON)
 - The `--openclaw-bin` argument is forwarded through the shell wrapper
 to the Python script to the notifier, keeping the resolution logic in
 one place (`artvee_telegram_notify.py`).
+
+---
+
+## 21. P7B Daily health cron
+
+P7B installs the daily health check as a cron job that runs at 03:00
+Asia/Shanghai, after the nightly batch (02:00) and candidate refresh
+(02:30). The cron is idempotent and marker-based.
+
+### Install the cron
+
+```bash
+bash scripts/install_daily_health_cron.sh --install
+```
+
+This adds a marker-delimited block to the user's crontab:
+
+```
+# >>> Artvee P7B daily health check BEGIN
+# Artvee Daily Health Check (P7B)
+0 3 * * * cd <repo-dir> && bash scripts/artvee_daily_health_check.sh --online --media >> logs/daily-health-cron/daily_health_$(date +\%Y\%m\%d)_030000.log 2>&1
+# <<< Artvee P7B daily health check END
+```
+
+### Remove or modify the cron
+
+```bash
+# Remove the P7B block
+bash scripts/install_daily_health_cron.sh --remove
+
+# Change the time (e.g., to 09:00)
+bash scripts/install_daily_health_cron.sh --install --time "0 9 * * *"
+```
+
+### Idempotency
+
+Running `--install` twice replaces the existing block rather than
+adding a duplicate. The script uses `sed` to remove the old block
+before appending the new one.
+
+### Safety
+
+- The installer does not modify the Artvee repo (no data changes).
+- It does not trigger downloads, refills, or batches.
+- It backs up the crontab before modification (`logs/daily-health-cron/crontab.before_p7b.*.txt`).
+- It does not print tokens, secrets, or chat IDs.

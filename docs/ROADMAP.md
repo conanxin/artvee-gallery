@@ -516,10 +516,16 @@ build-script label fix remains.
 - No hardcoded paths, no secrets in error messages
 - See `<workspace>/reports/artvee-gallery-p7a1-openclaw-binary-resolution-20260612.md`
 
-### P7B · Optional daily health Telegram cron
-- Add a cron hook (e.g., `0 9 * * *`) that runs `artvee_daily_health_check.sh --online --media` and sends a Telegram summary.
-- The cron should be optional and user-configurable (not installed by default).
-- Scope: daily health check only, no publish, no download.
+### P7B · Optional daily health Telegram cron ✅ PASS (2026-06-12 23:25)
+- New script: `scripts/install_daily_health_cron.sh` — idempotent P7B cron installer with marker-based block management
+- Cron time: `0 3 * * *` (Asia/Shanghai, after 02:30 confirm_demo_refresh)
+- Command: `cd <artvee-repo> && bash scripts/artvee_daily_health_check.sh --online --media`
+- Log: `logs/daily-health-cron/daily_health_YYYYMMDD_030000.log`
+- Idempotency: `--install` replaces existing block; `--remove` deletes it; `--time` changes schedule
+- Backup: `logs/daily-health-cron/crontab.before_p7b.*.txt`
+- Manual test: ✅ PASS — Telegram summary + MEDIA delivered, log contains no secrets
+- Daily cron rhythm: 01:30 refill, 02:00 batch, 02:30 confirm_demo_refresh, 03:00 daily health check
+- See `<workspace>/reports/artvee-gallery-p7b-daily-health-cron-20260612.md`
 
 ### P7C · Automated approved-publish preparation
 - Pre-stage the approved-publish flow so a future `--approve` can be triggered by a scheduled event (e.g., "auto-publish on Sunday if candidate QA PASS").

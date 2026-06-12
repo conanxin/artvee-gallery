@@ -1,6 +1,6 @@
 # Daily Operating Playbook
 
-> Living document. Last updated: 2026-06-12 (P7A).
+> Living document. Last updated: 2026-06-12 (P7B).
 > This is the operational reference for the Artvee Gallery daily workflow.
 
 ---
@@ -11,13 +11,14 @@
 01:30  refill_artvee_pending.py     → 补满种子池
 02:00  run_artvee_nightly_batch.py  → 下载新 artwork
 02:30  confirm_demo_refresh.sh      → 构建 public demo 候选包
-03:00  (optional) publish approved candidate  → 推送到 GitHub Pages
+03:00  artvee_daily_health_check.sh → 日常健康检查 + Telegram 摘要
+       (optional) publish approved candidate  → 推送到 GitHub Pages
 ```
 
 - **Refill** and **Batch** are fully automated via cron.
 - **Candidate refresh** is automated via cron (`--no-telegram` mode).
+- **Daily health check** is automated via cron at 03:00 (P7B).
 - **Approved publish** remains **manual** — requires `--approve` flag.
-- **Daily health check** is manual or via cron (P7B pending).
 
 ---
 
@@ -53,6 +54,19 @@ bash scripts/artvee_daily_health_check.sh --online --media
 
 ```bash
 bash scripts/artvee_daily_health_check.sh --no-telegram
+```
+
+### Daily health cron (install / remove / modify)
+
+```bash
+# Install P7B daily health cron at 03:00
+bash scripts/install_daily_health_cron.sh --install
+
+# Remove the P7B cron block
+bash scripts/install_daily_health_cron.sh --remove
+
+# Change time (e.g., to 09:00)
+bash scripts/install_daily_health_cron.sh --install --time "0 9 * * *"
 ```
 
 ### Generate candidate manually
@@ -160,6 +174,7 @@ python3 scripts/check_gallery_integrity.py --strict
 |--------|------|
 | Daily health (JSON) | `reports/runtime/daily-health/artvee-daily-health-YYYY-MM-DD.json` |
 | Daily health (MD) | `reports/runtime/daily-health/artvee-daily-health-YYYY-MM-DD.md` |
+| Daily health (cron log) | `logs/daily-health-cron/daily_health_YYYYMMDD_030000.log` |
 | Status report | `reports/runtime/artvee-status-report.json` / `.md` |
 | Candidate QA | `logs/confirm_demo_refresh/report_YYYY-MM-DD.md` |
 | Nightly batch | `logs/nightly_summary/nightly_summary_YYYY-MM-DD_HHMMSS.csv` |
