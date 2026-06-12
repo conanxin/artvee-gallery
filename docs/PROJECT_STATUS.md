@@ -307,6 +307,21 @@ refresh is expected on the P4B cut.
 | 8 near-dup groups | 3 are P4B collision remnants (expected); 5 are real clusters (Edmund Dulac ×4, Amaldus Nielsen ×3, etc.) |
 | Runtime data NOT committed | ✅ all 6 p5d-*.json / p5d-*.html in `reports/runtime/` (gitignored) |
 
+### P5F approved-publish-after-curation snapshot (2026-06-12 19:06 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| Pages commit (refresh) | `f972f5a` on `conanxin/conanxin.github.io` (was `019316a` from P5B) |
+| Pages commit range | `019316a..f972f5a` |
+| Publish script | `bash scripts/publish_demo_refresh_candidate.sh --date 2026-06-12 --approve` |
+| Canonical endpoint check | 9/9 endpoints 200 + 2/2 sample thumbs (256 + 512) |
+| User-expanded 12 endpoint check | 11/12 200 (digest `/app.js` 404 is expected: digest is static HTML, not an SPA) |
+| Public gallery curation live | 100 records / 100 unique ids / 100 unique source_url / 0 `metadata_path` / 0 abs-path leaks |
+| Public digest curation live | 5/5 unique artists, 0 repeats (was 2× Yoshida_Hiroshi + 2× Anonymous in pre-P5E digest) |
+| Public digest categories | `book-illustrations`, `japanese-prints`, `posters-design` (3 distinct) |
+| Artvee repo commit | **pending** (this P5F docs update: `PROJECT_STATUS.md` + `ROADMAP.md` + `VISUAL_QA.md`) |
+| CI check | `open-source-ready.yml` will run after push |
+
 ### P5E curation-filters snapshot (2026-06-12 17:27 GMT+8)
 
 | Field | Value |

@@ -345,6 +345,17 @@ are gathered under P5+ below.)
 - `confirm_demo_refresh.sh` wired to pass `--exclude-risk high` automatically
 - See `<workspace>/reports/artvee-gallery-p5e-curation-filters-20260612.md`
 
+### P5F · Approved publish after curation filters ✅ PASS (2026-06-12 19:06)
+- First Pages refresh since P5B (`019316a`) that carries P5E-curation
+  rules live: digest 5/5 unique artists, public demo risk-filter active
+- Pages commit: `f972f5a` on `conanxin/conanxin.github.io` (`019316a..f972f5a`)
+- Online verification: 9/9 canonical endpoints + 2/2 sample thumbs (256/512)
+  + 11/12 user-expanded (digest `/app.js` 404 expected — digest is static HTML)
+- Public JSON safety: 0 `metadata_path`, 0 abs-path leaks, 0 duplicate `source_url`
+- Live digest artists: `Alphonse_Mucha` · `Amaldus_Nielsen` · `Anonymous` ·
+  `Utagawa_Hiroshige` · `Yoshida_Hiroshi` (5 unique)
+- See `<workspace>/reports/artvee-gallery-p5f-approved-publish-after-curation-20260612.md`
+
 ### P5E · Curation filters (P5D ✅ done — now safe to do)
 - Public demo: exclude `risk_level=high` records from the candidate
 - Digest: cap picks at 1 per artist (Anonymous normalized to "Anonymous")
@@ -367,6 +378,24 @@ are gathered under P5+ below.)
 - Automated thumbnail quality check (blurry/dark detection).
 - Palette drift monitoring (dominant colors should not all be brown).
 - Category balance check (no category should be >40% or <10% of total).
+
+### P5+ · Still open (P5F ✅ — only meta-items remain)
+
+- **4 unresolved losers** from P4B / P5A (`la-plume-4/` · `le-reve-3/` ·
+  `le-reve/` · `tetes-byzantines-brunette/`) — artvee.com permanently
+  unreachable; alternate-source review or formal `KNOWN_RETIRED` set is
+  a future phase
+- **8 aHash near-dup groups** (3 P4B collision remnants + 5 real artist
+  clusters: Edmund Dulac ×4, Amaldus Nielsen ×3, Arthur Rackham ×3, etc.)
+  — manual review workflow (de-dupe / keep-both) is a future phase
+- **Digest history sliding window** (P4F · 30-day rolling index) — not
+  yet built; current `digests.json` keeps all history but the public
+  page renders only `latest`
+- **Pages CDN wait 60s → 90s** — published verification sometimes
+  hits `cdn.jsdelivr.net` 60s edge; tune the wait window
+- **Report `MEDIA` Telegram path** — reports under
+  the OpenClaw workspace reports dir not in the OpenClaw allowed dirs;
+  sent as plain-text summary only (P5D · P5E both confirmed)
 downloader (e.g. `requests` + direct CDN URL, or `selenium`
 with longer page-load timeout). If they still fail, the
 corresponding `source_url`s are permanently retired (added to

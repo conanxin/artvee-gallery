@@ -203,6 +203,19 @@ digests are not flagged in the index (the on-disk content is
 identical to a fully-analyzed digest from the consumer's point of
 view).
 
+### 8.5 P5E / P5F live verification (2026-06-12 19:06 GMT+8)
+
+All four P5E curation rules are wired into the export pipeline
+*and* verified live on the public surface after P5F approve-publish
+(commit `f972f5a` on `conanxin/conanxin.github.io`):
+
+| Rule | Wired in | Live verify (after P5F) |
+| --- | --- | --- |
+| `--exclude-risk high` | `export_artvee_gallery_public_demo.py` (reads `reports/runtime/p5d-visual-qa-full.json`); auto-enabled in `confirm_demo_refresh.sh` | 0/100 records dropped (P5D reports 0 high-risk); all 100 picks risk=none |
+| `--require-prompt-fields` | same script, opt-in flag | n/a (gallery JSON omits prompt fields by design) |
+| Digest `--max-per-artist 1` | `build_artvee_daily_digest.py` (default 1; `--allow-repeat-artist` to disable) | 5/5 unique artists live (was 2× Yoshida + 2× Anonymous pre-P5E) |
+| Digest non-empty prompt fields | same script (deterministic fallback, no external AI) | backfills=0 (analyzer always populates) |
+
 ## 9. Known limitations
 
 - **Perceptual aHash is 64-bit** — fast but not state-of-the-art.
