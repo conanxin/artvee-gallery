@@ -527,6 +527,20 @@ build-script label fix remains.
 - Daily cron rhythm: 01:30 refill, 02:00 batch, 02:30 confirm_demo_refresh, 03:00 daily health check
 - See `<workspace>/reports/artvee-gallery-p7b-daily-health-cron-20260612.md`
 
+### P7D · v0.2.0-alpha release consolidation ✅ PASS (2026-06-13 04:50)
+- Consolidates P3D through P7B+1 into a single tagged release; no new code or data.
+- New docs: `docs/RELEASE_NOTES_v0.2.0-alpha.md`, `CHANGELOG.md`.
+- README updated: Latest release, docs index, operational model section.
+- Status docs: `docs/PROJECT_STATUS.md` (P7D row + snapshot), `docs/ROADMAP.md` (this entry), `docs/DEVELOPMENT.md` (release checklist), `docs/DAILY_OPERATING_PLAYBOOK.md` (v0.2.0-alpha operating baseline), `docs/RETROSPECTIVE.md` (release consolidation lesson).
+- Tag: `v0.2.0-alpha` (annotated), pushed to `origin`.
+- GitHub Release: `gh release create v0.2.0-alpha --notes-file docs/RELEASE_NOTES_v0.2.0-alpha.md`.
+- See `<workspace>/reports/artvee-gallery-p7d-v0.2.0-alpha-release-20260613.md`.
+
+### Next (post-v0.2.0-alpha)
+- **v0.2.0 observation window** — let the cron run for a few days; the failure-only fallback (P7B+1) is the safety net for MEDIA regressions.
+- **P8 automation polish** — pre-flight `--dry-run` on the publish helper; optional 02:55 *pre-check* cron that runs the daily check in `--no-telegram` mode and alerts only on FAIL; CI matrix that exercises the cron installer in a container.
+- **v0.2.0 stable** — cut after the observation window, with the `KNOWN_RETIRED` table moved into the public demo's UI.
+
 ### P7B+1 · Cron MEDIA delivery verification / failure-only fallback ✅ PASS (2026-06-13 04:30)
 - Refactored `telegram` JSON object: `requested` / `openclaw_status` / `text_summary{attempted,sent,message_id,error}` / `media{requested,staged,staged_path,sent,message_id,error,simulated_failure}` / `fallback{attempted,sent,message_id,reason}`.
 - Failure-only fallback: when health=PASS, text=sent, MEDIA=failed → a short text-only warning is sent (at most once per run, never recursive, does not change exit code).
@@ -542,8 +556,4 @@ build-script label fix remains.
 - Requires a `SECRET_ROTATION_POLICY.md` for the Pages repo PAT if full-auto is desired.
 - Current scope: preparation only, no implementation.
 
-### P7D · Release v0.2.0-alpha
-- Tag the next release after P7A stabilization.
-- Update `RELEASE_NOTES_v0.1.0-alpha.md` → `RELEASE_NOTES_v0.2.0-alpha.md`.
-- Include P4D–P7A features in the release notes.
-- No new code changes, just a milestone marker.
+_superseded by P7D · v0.2.0-alpha release consolidation above (this is the implementation of the original P7D marker)._

@@ -280,3 +280,55 @@ Expected log lines (in order):
 
 The fallback is sent at most once per run, never recursively, and never
 changes the script's exit code (unless health checks themselves fail).
+
+---
+
+## 10. v0.2.0-alpha operating baseline
+
+This is the snapshot the system ships at v0.2.0-alpha. Use it
+when you want to confirm the running host still matches the
+release baseline.
+
+| Metric | Value |
+|--------|-------|
+| Release | `v0.2.0-alpha` (tag on `main`, GitHub Release published) |
+| Records | 776 |
+| Known retired (audited) | 4 |
+| Blocking unresolved | 0 |
+| Strict integrity | PASS |
+| Public demo ready | true |
+| Digest ready | true |
+| Gallery demo | <https://conanxin.github.io/projects/artvee-gallery-demo/> |
+| Digest demo | <https://conanxin.github.io/projects/artvee-gallery-digest/> |
+| Cron rhythm | 01:30 refill · 02:00 nightly batch · 02:30 candidate refresh · 03:00 daily health · manual approved publish |
+| Public bundle | `dist/` (regenerable; never auto-pushed) |
+
+### Quick baseline verification
+
+```bash
+cd <artvee-repo>
+python3 scripts/build_artvee_status_report.py \
+  --out-json reports/runtime/artvee-status-report.json \
+  --out-md   reports/runtime/artvee-status-report.md
+python3 -c "import json; d=json.load(open('reports/runtime/artvee-status-report.json')); \
+  print('records:', d['records'], '| known_retired:', d['known_retired'], \
+        '| blocking_unresolved:', d['blocking_unresolved'], \
+        '| strict_integrity:', d['strict_integrity'], \
+        '| public_demo_ready:', d['public_demo_ready'], \
+        '| digest_ready:', d['digest_ready'])"
+python3 scripts/check_open_source_ready.py
+python3 scripts/check_gallery_integrity.py --strict
+bash scripts/artvee_daily_health_check.sh --no-telegram
+```
+
+Expected output:
+
+- records near 776 (± a few per nightly batch).
+- `known_retired=4`, `blocking_unresolved=0`.
+- `strict_integrity=pass`, `public_demo_ready=True`, `digest_ready=True`.
+- Open-source readiness: 4/4 PASS.
+- Strict integrity: 0 duplicates.
+- Health report: `checks.integrity.status = PASS`, `checks.readiness.status = PASS`.
+
+If any of these fail, see § 5 (Failure Playbook) before pulling
+in a different phase.

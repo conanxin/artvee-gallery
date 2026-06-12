@@ -5,10 +5,14 @@
 > and a daily inspiration digest.
 
 [![Open Source Readiness](https://github.com/conanxin/artvee-gallery/actions/workflows/open-source-ready.yml/badge.svg)](https://github.com/conanxin/artvee-gallery/actions/workflows/open-source-ready.yml)
-[![Release](https://img.shields.io/github/v/release/conanxin/artvee-gallery?include_prereleases)](https://github.com/conanxin/artvee-gallery/releases/tag/v0.1.0-alpha)
+[![Release](https://img.shields.io/github/v/release/conanxin/artvee-gallery?include_prereleases)](https://github.com/conanxin/artvee-gallery/releases/tag/v0.2.0-alpha)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status: v0.1.0-alpha](https://img.shields.io/badge/status-v0.1.0--alpha-orange.svg)](docs/RELEASE_NOTES_v0.1.0-alpha.md)
+[![Status: v0.2.0-alpha](https://img.shields.io/badge/status-v0.2.0--alpha-orange.svg)](docs/RELEASE_NOTES_v0.2.0-alpha.md)
+
+Latest release: **v0.2.0-alpha** (2026-06-13). See
+[docs/RELEASE_NOTES_v0.2.0-alpha.md](docs/RELEASE_NOTES_v0.2.0-alpha.md)
+and [CHANGELOG.md](CHANGELOG.md).
 
 ## Live Demo
 
@@ -240,27 +244,54 @@ For the full rationale and a risk surface, see
 
 | Document | What it covers |
 | --- | --- |
+| [docs/RELEASE_NOTES_v0.2.0-alpha.md](docs/RELEASE_NOTES_v0.2.0-alpha.md) | v0.2.0-alpha release notes (current) |
+| [CHANGELOG.md](CHANGELOG.md) | Aggregated changelog across versions |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Data flow, script responsibilities, generated-vs-tracked boundary |
 | [docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md) | What is and is not in this repository, and why |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Past phases, near-term, mid-term, long-term |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local dev loop, syntax checks, readiness check, what **not** to run |
 | [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) | Current phase markers and last-known-good snapshot |
-| [docs/RELEASE_NOTES_v0.1.0-alpha.md](docs/RELEASE_NOTES_v0.1.0-alpha.md) | v0.1.0-alpha release notes |
+| [docs/DAILY_OPERATING_PLAYBOOK.md](docs/DAILY_OPERATING_PLAYBOOK.md) | Daily operating timeline, commands, failure playbook, quick reference |
+| [docs/DIGEST_HISTORY.md](docs/DIGEST_HISTORY.md) | 30-day digest history and near-dup-aware selection |
+| [docs/NEAR_DUPLICATE_REVIEW.md](docs/NEAR_DUPLICATE_REVIEW.md) | Near-duplicate review workflow |
 | [docs/GALLERY_DATA_SCHEMA.md](docs/GALLERY_DATA_SCHEMA.md) | Field-level schema for `web/data/*.json` |
 | [docs/GALLERY_LOCAL_USAGE.md](docs/GALLERY_LOCAL_USAGE.md) | Local gallery usage and serving |
 | [docs/GALLERY_PUBLIC_DEMO.md](docs/GALLERY_PUBLIC_DEMO.md) | Public demo export internals |
 | [docs/GALLERY_DAILY_DIGEST.md](docs/GALLERY_DAILY_DIGEST.md) | Daily digest selection strategies and outputs |
-| [docs/DAILY_OPERATING_PLAYBOOK.md](docs/DAILY_OPERATING_PLAYBOOK.md) | Daily operating timeline, commands, failure playbook, quick reference |
-| [docs/PUBLIC_DEMO_REFRESH_PLAN.md](docs/PUBLIC_DEMO_REFRESH_PLAN.md) | Public demo refresh modes (manual / semi-auto / full-auto), P4D target |
+| [docs/PUBLIC_DEMO_REFRESH_PLAN.md](docs/PUBLIC_DEMO_REFRESH_PLAN.md) | Public demo refresh modes (manual / semi-auto / full-auto) |
+| [docs/RELEASE_NOTES_v0.1.0-alpha.md](docs/RELEASE_NOTES_v0.1.0-alpha.md) | v0.1.0-alpha release notes (previous) |
+
+## Current operational model
+
+A single host runs four cron jobs in `Asia/Shanghai`; everything
+else is local and offline. The Telegram delivery is opt-in and
+non-fatal — a failure of the MEDIA track cannot fail the daily
+health check.
+
+| Time | Job | What it does |
+| --- | --- | --- |
+| 01:30 | `artvee_nightly_wrapper.sh refill` | Pull a bounded set of public-domain works |
+| 02:00 | `artvee_nightly_wrapper.sh batch` | Run the nightly batch on the local archive |
+| 02:30 | `confirm_demo_refresh.sh --no-telegram` | Build the public-demo candidate bundle |
+| 03:00 | `artvee_daily_health_check.sh --online --media` | Send the daily health report to Telegram |
+| manual | `publish_demo_refresh_candidate.sh --approve` | Push the approved bundle to GitHub Pages |
+
+Refill and batch are the only jobs that touch the network. The
+publish step is always manual — there is no auto-publish cron.
 
 ## Roadmap
 
 - ✅ **P1** Local gallery browser
 - ✅ **P2** Public demo export
-- ✅ **P3A** Public demo publish (GitHub Pages)
-- ✅ **P3B** Daily inspiration digest
-- ✅ **P3C** Open-source readiness (this release)
-- 🔜 **P3D** Standalone public GitHub repository
+- ✅ **P3A–P3F** Public GitHub repo, CI, digest page, case study
+- ✅ **P4A–P4E** Filename collision healing, status split, CDN wait
+- ✅ **P5A–P5F** Content healing, visual QA, curation filters
+- ✅ **P6A–P6G** Telegram MEDIA staging, KNOWN_RETIRED, near-dup review, 30-day digest, approved publish
+- ✅ **P7A–P7B+1** Daily health check, Telegram cron, MEDIA failure-only fallback
+- ✅ **P7D** v0.2.0-alpha release consolidation (this release)
+- 🔜 **P8** automation polish (pre-flight dry-run, optional 02:55 pre-check cron, CI matrix for the cron installer)
+- 🔜 **v0.2.0 stable** — cut after a short observation window
+- 🔜 **P3D** (legacy roadmap) has been superseded by P7D; the standalone public GitHub repository is the same as this one.
 - 🔜 **P3E** Public daily-digest page
 
 For the long view, see [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -274,17 +305,22 @@ commits — `scripts/check_open_source_ready.py` is your friend.
 
 ## Documentation
 
+- [docs/RELEASE_NOTES_v0.2.0-alpha.md](docs/RELEASE_NOTES_v0.2.0-alpha.md) — v0.2.0-alpha release notes (current)
+- [CHANGELOG.md](CHANGELOG.md) — aggregated changelog across versions
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — technical deep-dive
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local setup, scripts, conventions
 - [docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md) — what is in / out of this repo
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phase plan and what's next
 - [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) — phase markers and last-known-good
-- [docs/RELEASE_NOTES_v0.1.0-alpha.md](docs/RELEASE_NOTES_v0.1.0-alpha.md) — release notes
+- [docs/DAILY_OPERATING_PLAYBOOK.md](docs/DAILY_OPERATING_PLAYBOOK.md) — daily operating timeline + commands
+- [docs/DIGEST_HISTORY.md](docs/DIGEST_HISTORY.md) — 30-day digest history
+- [docs/NEAR_DUPLICATE_REVIEW.md](docs/NEAR_DUPLICATE_REVIEW.md) — near-dup review workflow
 - [docs/GALLERY_LOCAL_USAGE.md](docs/GALLERY_LOCAL_USAGE.md) — local gallery walkthrough
 - [docs/GALLERY_PUBLIC_DEMO.md](docs/GALLERY_PUBLIC_DEMO.md) — public demo walkthrough
 - [docs/GALLERY_DAILY_DIGEST.md](docs/GALLERY_DAILY_DIGEST.md) — daily digest walkthrough
 - [docs/GALLERY_DATA_SCHEMA.md](docs/GALLERY_DATA_SCHEMA.md) — JSON shape reference
 - [docs/GALLERY_PUBLISHING_PLAN.md](docs/GALLERY_PUBLISHING_PLAN.md) — public publishing plan
+- [docs/RELEASE_NOTES_v0.1.0-alpha.md](docs/RELEASE_NOTES_v0.1.0-alpha.md) — v0.1.0-alpha release notes (previous)
 
 ## Project story
 

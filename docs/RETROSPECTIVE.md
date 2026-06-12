@@ -203,6 +203,43 @@ diagnosis aid.
 ways and only has one health bit, every N≥2 outage looks the
 same. Surface the bits.
 
+### 2.19 (P7D) Large automation projects need release consolidation after phase accumulation
+
+When a project accumulates many small phases (P1–P7B+1 here,
+26 phase markers in v0.2.0-alpha), the repo becomes hard to
+*consume* even though it is well-instrumented. A new reader
+sees `README.md` with badge fragments, scattered notes, and
+several half-finished release notes; there is no single
+document that says "this is what you get if you clone at this
+tag".
+
+The release consolidation pass is what fixes that. It is
+**not** a new feature; it is a documentation + tag + GitHub
+Release pass. The deliverables are:
+
+- `docs/RELEASE_NOTES_v<version>.md` — a single document that
+  answers "what is in this release, what is not, what changed
+  since the last release, and what is the next step".
+- `CHANGELOG.md` — an aggregated changelog with a stable
+  format (Added / Changed / Fixed / Operational / Security).
+- Updated `README.md` (Latest release, docs index, operational
+  model), `docs/PROJECT_STATUS.md` (P7D row + snapshot),
+  `docs/ROADMAP.md` (P7D completed, next section), and a
+  release checklist in `docs/DEVELOPMENT.md`.
+- An annotated tag (`v0.2.0-alpha`) on the release commit,
+  and a `gh release create` with the release notes.
+
+**Rule**: after the last "feature" phase before a release,
+schedule a consolidation phase whose only deliverable is
+docs, tag, and release. The CI gate keeps it cheap (the same
+`check_open_source_ready.py` runs on the release commit), so
+there is no reason to skip it.
+
+**Operational rule**: the failure-only fallback from P7B+1 is
+the safety net for the observation window after the release.
+If MEDIA delivery starts regressing in the field, the
+fallback text is the canary.
+
 ## 3. Phase-by-phase impact analysis
 
 ### P1 · Local Gallery Browser

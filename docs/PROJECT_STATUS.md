@@ -45,6 +45,7 @@
 | **P7A+1** | OpenClaw binary resolution for health check Telegram notify | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a1-openclaw-binary-resolution-20260612.md` |
 | **P7B** | Optional daily health Telegram cron | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7b-daily-health-telegram-cron-20260612.md` |
 | **P7B+1** | Cron MEDIA delivery verification / failure-only fallback | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7b1-cron-media-fallback-20260613.md` |
+| **P7D** | v0.2.0-alpha release consolidation | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7d-v0.2.0-alpha-release-20260613.md` |
 
 ### P7A daily-automation-hardening snapshot (2026-06-12 22:30 GMT+8)
 
@@ -450,6 +451,24 @@ refresh is expected on the P4B cut.
 | Files changed | `scripts/build_artvee_status_report.py` (new), `scripts/confirm_demo_refresh.sh` (status wording), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P6G ✅), `docs/DEVELOPMENT.md` (new § 17) |
 
 ### P7B+1 cron-media-fallback snapshot (2026-06-13 04:30 GMT+8)
+
+### P7D v0.2.0-alpha-release snapshot (2026-06-13 04:50 GMT+8)
+
+**Goal** — consolidate P3D through P7B+1 into a single v0.2.0-alpha release: release notes, CHANGELOG, tag, GitHub Release, and an observation baseline. No new code, no new data, no publish.
+
+| Aspect | Value |
+|--------|-------|
+| Release notes | `docs/RELEASE_NOTES_v0.2.0-alpha.md` (Summary, Highlights, Operational state, Daily cron rhythm, Included vs. not included, Upgrade notes, Safety model, Known limitations, Next steps) |
+| CHANGELOG | `CHANGELOG.md` (Aggregated changelog with Added / Changed / Fixed / Operational / Security per version) |
+| Tag | `v0.2.0-alpha` (annotated) on the release commit; pushed to `origin`. |
+| GitHub Release | `gh release create v0.2.0-alpha --notes-file docs/RELEASE_NOTES_v0.2.0-alpha.md`. |
+| Readiness | `python3 scripts/check_open_source_ready.py` — 4/4 PASS. |
+| Strict integrity | `python3 scripts/check_gallery_integrity.py --strict` — PASS, no duplicates. |
+| Status report | `python3 scripts/build_artvee_status_report.py` — records=776, known_retired=4, blocking_unresolved=0, strict_integrity=pass, public_demo_ready=true, digest_ready=true. |
+| Cron rhythm | 01:30 refill · 02:00 nightly batch · 02:30 candidate refresh · 03:00 daily health · manual approved publish. |
+| Public demos | Gallery: <https://conanxin.github.io/projects/artvee-gallery-demo/> · Digest: <https://conanxin.github.io/projects/artvee-gallery-digest/> |
+| Safety | No download / refill / batch / approve / GitHub Pages push. No tracked runtime files. No tokens / chat ids in tracked code or docs. |
+| Files changed | `README.md` (Latest release + docs index + operational model), `CHANGELOG.md` (new), `docs/RELEASE_NOTES_v0.2.0-alpha.md` (new), `docs/PROJECT_STATUS.md` (P7D row + snapshot), `docs/ROADMAP.md` (P7D completed), `docs/DEVELOPMENT.md` (release checklist), `docs/DAILY_OPERATING_PLAYBOOK.md` (v0.2.0-alpha operating baseline), `docs/RETROSPECTIVE.md` (release consolidation lesson). |
 
 **Goal** — distinguish health-check internal MEDIA from phase-final MEDIA, expose three independent delivery tracks (text / media / fallback), and verify the cron path actually delivers the report.
 

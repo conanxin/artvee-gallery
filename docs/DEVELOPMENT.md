@@ -226,3 +226,69 @@ new chat id, simply re-export and re-run the installer.
 ARTVEE_TELEGRAM_CHAT_ID="<telegram-chat-id>" \
   bash scripts/install_daily_health_cron.sh --install
 ```
+
+---
+
+## 23. v0.2.0-alpha release checklist
+
+This section is the in-repo runbook for cutting a release. It is
+intentionally short and idempotent: every step is reproducible from
+a clean clone + a working local data directory.
+
+### Pre-flight
+```bash
+cd <artvee-repo>
+git status --short                     # only runtime / untracked files; no in-progress edits
+git log --oneline -3                   # HEAD is the release commit
+git remote -v                          # origin = github.com/conanxin/artvee-gallery
+```
+
+### Build / readiness gates
+```bash
+python3 -m py_compile scripts/*.py
+for s in scripts/artvee_daily_health_check.sh scripts/install_daily_health_cron.sh \
+         scripts/confirm_demo_refresh.sh scripts/publish_demo_refresh_candidate.sh \
+         scripts/artvee_nightly_wrapper.sh; do bash -n "$s"; done
+python3 scripts/check_open_source_ready.py
+python3 scripts/check_gallery_integrity.py --strict
+python3 scripts/build_artvee_status_report.py \
+  --out-json reports/runtime/artvee-status-report.json \
+  --out-md reports/runtime/artvee-status-report.md
+bash scripts/artvee_daily_health_check.sh --no-telegram
+```
+
+All six checks must pass. `git ls-files` must not show any tracked
+runtime files; `grep` over the docs / source must not produce
+real local paths, tokens, or chat ids.
+
+### Create the tag and GitHub Release
+```bash
+# Tag (annotated, on the release commit)
+git tag -a v0.2.0-alpha -m "Artvee Gallery v0.2.0-alpha"
+git push origin v0.2.0-alpha
+
+# GitHub Release (idempotent: re-running with the same tag fails loudly)
+gh release view v0.2.0-alpha >/dev/null 2>&1 \
+  || gh release create v0.2.0-alpha \
+       --title "Artvee Gallery v0.2.0-alpha" \
+       --notes-file docs/RELEASE_NOTES_v0.2.0-alpha.md
+```
+
+### Public demo verification
+```bash
+curl -I https://conanxin.github.io/projects/artvee-gallery-demo/
+curl -I https://conanxin.github.io/projects/artvee-gallery-digest/
+gh repo view conanxin/artvee-gallery --json name,visibility,url,defaultBranchRef
+git ls-remote --tags origin v0.2.0-alpha
+gh release view v0.2.0-alpha --json tagName,name,url,isPrerelease
+```
+
+### Safety rails
+- The release commit must not include `images/`, `metadata/`,
+  `thumbs/`, `dist/`, `digests/`, `logs/`, `inbox/`, `web/data/*.json`,
+  `index/`, `reports/runtime/`, or `tmp/`.
+- The release commit must not include tokens, chat ids, bot
+  tokens, or real local paths in tracked files.
+- The release must not trigger a download, refill, batch, or
+  `publish_demo_refresh_candidate.sh --approve`. The publish
+  step is always manual.
