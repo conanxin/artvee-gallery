@@ -506,6 +506,16 @@ build-script label fix remains.
 - No auto-publish cron added — approval remains manual by design
 - See `<workspace>/reports/artvee-gallery-p7a-daily-automation-hardening-20260612.md`
 
+### P7A+1 · OpenClaw binary resolution for health check Telegram notify ✅ PASS (2026-06-12 23:07)
+- Fixed `artvee_telegram_notify.py` PATH lookup: `os.path.exists('openclaw')` → `shutil.which('openclaw')` via `_resolve_openclaw_bin()`
+- Resolution order: `--openclaw-bin` CLI arg > `ARTVEE_OPENCLAW_BIN` env > `OPENCLAW_BIN` env > PATH lookup > None (graceful skip)
+- Added `--openclaw-bin` to `artvee_telegram_notify.py`, `artvee_daily_health_check.sh`, `artvee_daily_health_check.py`
+- Added `telegram_notify` JSON field to health check report (`enabled`, `media_requested`, `openclaw_status`, `sent`, `message_id`)
+- Graceful skip: if binary missing, health check still generates report and exits 0; Telegram notify skipped with clear message
+- Test result: Message ID 22727 delivered successfully via interactive shell; MEDIA attachment also works
+- No hardcoded paths, no secrets in error messages
+- See `<workspace>/reports/artvee-gallery-p7a1-openclaw-binary-resolution-20260612.md`
+
 ### P7B · Optional daily health Telegram cron
 - Add a cron hook (e.g., `0 9 * * *`) that runs `artvee_daily_health_check.sh --online --media` and sends a Telegram summary.
 - The cron should be optional and user-configurable (not installed by default).

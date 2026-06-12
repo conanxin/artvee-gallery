@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 ARTVEE_OPENCLAW_BIN = os.environ.get('ARTVEE_OPENCLAW_BIN', 'openclaw')
+OPENCLAW_BIN = os.environ.get('OPENCLAW_BIN', '')
 
 CFG_PATH = Path.home() / '.openclaw' / 'openclaw.json'
 DEFAULT_CHAT_ID = '1540208324'
@@ -40,26 +41,61 @@ def load_chat_id():
     return DEFAULT_CHAT_ID
 
 
-def _check_openclaw_bin():
-    if not os.path.exists(ARTVEE_OPENCLAW_BIN):
-        print(f'ERROR: OpenClaw binary not found: {ARTVEE_OPENCLAW_BIN}')
+def _resolve_openclaw_bin(cli_path: str = None) -> str:
+    """
+    Resolution order:
+    1. CLI argument --openclaw-bin
+    2. Environment variable ARTVEE_OPENCLAW_BIN
+    3. Environment variable OPENCLAW_BIN
+    4. PATH lookup for 'openclaw'
+    5. None (not found)
+    """
+    import shutil
+    candidates = []
+    if cli_path and cli_path.strip():
+        candidates.append(cli_path.strip())
+    if ARTVEE_OPENCLAW_BIN and ARTVEE_OPENCLAW_BIN.strip():
+        candidates.append(ARTVEE_OPENCLAW_BIN.strip())
+    if OPENCLAW_BIN and OPENCLAW_BIN.strip():
+        candidates.append(OPENCLAW_BIN.strip())
+    # Also try bare 'openclaw' as last resort
+    candidates.append('openclaw')
+    for c in candidates:
+        if os.path.isabs(c):
+            if os.path.exists(c) and os.access(c, os.X_OK):
+                return c
+        else:
+            found = shutil.which(c)
+            if found:
+                return found
+    return None
+
+
+def _check_openclaw_bin(cli_path: str = None):
+    resolved = _resolve_openclaw_bin(cli_path)
+    if not resolved:
+        print(f'ERROR: OpenClaw binary not found. Tried: ARTVEE_OPENCLAW_BIN={ARTVEE_OPENCLAW_BIN!r}, OPENCLAW_BIN={OPENCLAW_BIN!r}, PATH lookup for openclaw.')
         return False
-    if not os.access(ARTVEE_OPENCLAW_BIN, os.X_OK):
-        print(f'ERROR: OpenClaw binary not executable: {ARTVEE_OPENCLAW_BIN}')
+    if not os.path.exists(resolved):
+        print(f'ERROR: OpenClaw binary not found at resolved path: {resolved}')
+        return False
+    if not os.access(resolved, os.X_OK):
+        print(f'ERROR: OpenClaw binary not executable: {resolved}')
         return False
     return True
 
 
-def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = None) -> dict:
-    if not _check_openclaw_bin():
-        return {'ok': False, 'error': f'OpenClaw binary missing or not executable: {ARTVEE_OPENCLAW_BIN}'}
+def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = None, openclaw_bin: str = None) -> dict:
+    resolved = _resolve_openclaw_bin(openclaw_bin)
+    if not _check_openclaw_bin(openclaw_bin):
+        return {'ok': False, 'error': f'OpenClaw binary missing or not executable. Tried: ARTVEE_OPENCLAW_BIN={ARTVEE_OPENCLAW_BIN!r}, OPENCLAW_BIN={OPENCLAW_BIN!r}, PATH lookup for openclaw, or --openclaw-bin if provided.', 'resolved': resolved}
 
     if chat_id is None:
         chat_id = load_chat_id()
 
     # 构建命令
     cmd = [
-        ARTVEE_OPENCLAW_BIN, 'message', 'send',
+        resolved, 'message', 'send',
         '--channel', 'telegram',
         '--target', chat_id,
         '--message', text,
@@ -120,10 +156,11 @@ def main():
     parser.add_argument('--chat-id', default=None, help='Override chat_id')
     parser.add_argument('--media', default=None, help='Optional media path (must be in OpenClaw allowed dirs)')
     parser.add_argument('--wait', action='store_true', help='Wait for send to complete (slow, 120-180s)')
+    parser.add_argument('--openclaw-bin', default=None, help='Path or command name for OpenClaw binary (overrides env vars)')
     args = parser.parse_args()
 
     try:
-        result = send_text(args.text, chat_id=args.chat_id, wait=args.wait, media=args.media)
+        result = send_text(args.text, chat_id=args.chat_id, wait=args.wait, media=args.media, openclaw_bin=args.openclaw_bin)
         if result.get('ok'):
             print(f'NOTIFY_OK pid={result.get("pid")} log={result.get("log_path")}')
             if args.wait and result.get('returncode') is not None:

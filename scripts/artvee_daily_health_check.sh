@@ -30,12 +30,14 @@ REPORT_MD="${REPORT_DIR}/artvee-daily-health-${RUN_DATE}.md"
 ONLINE=false
 MEDIA=false
 TELEGRAM=true
+OPENCLAW_BIN=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --date) RUN_DATE="$2"; shift 2 ;;
     --no-telegram) TELEGRAM=false; shift ;;
     --online) ONLINE=true; shift ;;
     --media) MEDIA=true; shift ;;
+    --openclaw-bin) OPENCLAW_BIN="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -49,8 +51,9 @@ python3 "${BASE_DIR}/scripts/artvee_daily_health_check.py" \
   --output-json "${REPORT_JSON}" \
   --output-md "${REPORT_MD}" \
   $([[ "${ONLINE}" == true ]] && echo "--online") \
-  $([[ "${TELEGRAM}" == true ]] && echo "--telegram" || echo "--no-telegram") \
-  $([[ "${MEDIA}" == true ]] && echo "--media")
+  $([[ "${TELEGRAM}" == false ]] && echo "--no-telegram") \
+  $([[ "${MEDIA}" == true ]] && echo "--media") \
+  $([[ -n "${OPENCLAW_BIN}" ]] && echo "--openclaw-bin ${OPENCLAW_BIN}")
 
 echo "[✓] Health check report: ${REPORT_JSON} + ${REPORT_MD}"
 echo "===== Daily health check complete ====="

@@ -152,3 +152,13 @@ Telegram MEDIA attachments for Artvee reports are first copied to
 artifacts**: not tracked, not committed, not part of the repo. The
 gitignore covers the upstream `<workspace-reports>/` and the helper
 writes outside any project directory.
+
+### P7A+1 · OpenClaw binary path
+The path to the `openclaw` binary is **runtime configuration**, not
+source code. The resolver (`scripts/artvee_telegram_notify.py`) checks,
+in order: `--openclaw-bin` CLI argument, `ARTVEE_OPENCLAW_BIN`
+environment variable, `OPENCLAW_BIN` environment variable, and finally
+`PATH` lookup. No absolute path is hardcoded in the repo. The binary
+location depends on the local installation method (npm global, local
+node_modules, system package, etc.) and is therefore outside the scope
+of the open-source repository.

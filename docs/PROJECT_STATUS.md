@@ -42,6 +42,7 @@
 | **P6C** | Near-duplicate review workflow | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6c-near-duplicate-review-20260612.md` |
 | **P6F** | Digest history 30-day + near-dup-aware selection | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6f-digest-history-20260612.md` |
 | **P7A** | Daily automation hardening / phase consolidation | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a-daily-automation-hardening-20260612.md` |
+| **P7A+1** | OpenClaw binary resolution for health check Telegram notify | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a1-openclaw-binary-resolution-20260612.md` |
 
 ### P7A daily-automation-hardening snapshot (2026-06-12 22:30 GMT+8)
 
@@ -58,6 +59,20 @@
 | No auto-publish | By design — P7A does NOT add publish cron; approval remains manual |
 | Safety | No download, no refill, no batch, no retired retry, no Pages push, no approve, no source data modification |
 | Files changed | `scripts/artvee_daily_health_check.sh` (new), `scripts/artvee_daily_health_check.py` (new), `docs/DAILY_OPERATING_PLAYBOOK.md` (new), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P7A ✅), `docs/DEVELOPMENT.md` (§ 19), `docs/RETROSPECTIVE.md` (§ 2.14) |
+
+### P7A+1 openclaw-binary-resolution snapshot (2026-06-12 23:07 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| Problem | `artvee_telegram_notify.py` used `os.path.exists('openclaw')` which fails for PATH-only binaries |
+| Root cause | `ARTVEE_OPENCLAW_BIN` default `'openclaw'` was treated as a literal path, not a command to search in PATH |
+| Fix | `_resolve_openclaw_bin()` with resolution order: CLI arg > env `ARTVEE_OPENCLAW_BIN` > env `OPENCLAW_BIN` > `shutil.which('openclaw')` > None |
+| Graceful skip | If binary not found, health check still generates report and exits 0; Telegram notify skipped with clear message |
+| `--openclaw-bin` arg | Added to `artvee_telegram_notify.py`, `artvee_daily_health_check.sh`, `artvee_daily_health_check.py` |
+| `telegram_notify` JSON field | Added to health check report: `enabled`, `media_requested`, `openclaw_status`, `sent`, `message_id` |
+| Test result | Message ID 22727 delivered successfully via interactive shell |
+| MEDIA test | Message with report attachment delivered successfully |
+| Files changed | `scripts/artvee_telegram_notify.py` (resolver + `--openclaw-bin`), `scripts/artvee_daily_health_check.sh` (pass-through), `scripts/artvee_daily_health_check.py` (pass-through + JSON field), `docs/DEVELOPMENT.md` (§ 20), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 8), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P7A+1 ✅) |
 
 ## Last-known-good nightly snapshot
 
