@@ -846,6 +846,58 @@ with no P6B run), the report falls back to:
 This keeps a fresh clone honest — the script does not
 pretend the audit happened.
 
+## 18. P6F Digest history + near-dup aware selection
+
+P6F turns the P6C near-dup review into a **reusable
+automated curation filter** inside the daily digest builder.
+It does not modify the gallery data; it produces a runtime
+history file and a 30-day dedup window.
+
+### Run the digest builder (with history awareness)
+
+```bash
+# Default: 30-day history window, near-dup aware (if P6C JSON exists)
+python3 scripts/build_artvee_daily_digest.py
+
+# Fresh start: ignore all history
+python3 scripts/build_artvee_daily_digest.py --ignore-history
+
+# Shorter window (e.g., 7 days)
+python3 scripts/build_artvee_daily_digest.py --history-days 7
+
+# Custom history file path
+python3 scripts/build_artvee_daily_digest.py \
+  --history-file reports/runtime/digest-history.json
+
+# Custom near-dup clusters path (skip if missing)
+python3 scripts/build_artvee_daily_digest.py \
+  --near-dup-clusters reports/runtime/p6c-near-dup-clusters.json
+```
+
+Outputs (runtime history file, not tracked):
+
+| Artifact | Path | Purpose |
+| --- | --- | --- |
+| JSON | `reports/runtime/digest-history.json` | 30-day rolling digest picks + near-dup cluster IDs |
+| Markdown | `digests/artvee-digest-YYYY-MM-DD.md` | Human-readable digest |
+| HTML | `digests/artvee-digest-YYYY-MM-DD.html` | Visual digest |
+| JSON index | `web/data/digests.json` | Rolling index with picks array |
+
+### Default behavior
+
+- **history-days = 30**: avoids repeating id, artist, or near-dup cluster within 30 days.
+- **Idempotent**: same-day re-run updates the same history entry, does not append duplicates.
+- **Capped**: max `window_days * 2` entries (minimum 60), so the file never grows unboundedly.
+- **Fallback**: if the strictest filter (id + artist + cluster) leaves fewer than `--select` candidates, the builder relaxes rules in order (cluster → artist → id) and records a fallback reason.
+
+### Safety
+
+- **No network.** Pure local file read.
+- **No file modification** to `web/data/artworks.json`, `index/`, `inbox/`, or images.
+- **History file is runtime-only** (`reports/runtime/`, gitignored).
+- **No deletion.** The script is a read-only auditor with a small append-only history file.
+- **Fallback:** if P6C JSON is missing, near-dup awareness is skipped (history id + artist dedup still works).
+
 ### Telegram wording
 
 `scripts/confirm_demo_refresh.sh` now appends a

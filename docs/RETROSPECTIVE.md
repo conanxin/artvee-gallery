@@ -456,3 +456,24 @@ source_url, missing file, corrupt image). Near-duplicate detectors
 surface *curation concerns* (artist series, hash collisions, legacy
 artifacts). These concerns should be resolved by curation rules in
 the digest / demo builder, not by data-deletion in the archive.
+
+### 2.13 Daily digest should optimize over a time window, not just one run (P6F)
+
+P5E's `--max-per-artist 1` prevented a single digest from repeating an artist, but it did not prevent the same artist from appearing on consecutive days. The result: a subscriber who reads the digest every day would see Yoshida Hiroshi on Monday, Tuesday, and Wednesday — not because the gallery lacks variety, but because the builder optimized each day independently.
+
+P6F fixes this by adding a **30-day history window** that deduplicates across runs, not just within one run. The builder now avoids three forms of repetition:
+
+1. **Same artwork id**: an exact re-pick within 30 days.
+2. **Same artist**: the same artist appearing on consecutive days (unless the candidate pool is too small).
+3. **Same near-dup cluster**: two visually similar works from the same cluster appearing close together.
+
+**Rule**: a content system's selection algorithm should optimize over the audience's expected consumption window, not just the current production batch. If a digest is daily, the dedup window should be multi-day. If a playlist is weekly, the dedup window should be multi-week. The audience experiences the system over time; the algorithm should too.
+
+The P6F implementation encodes this rule:
+- `scripts/build_artvee_daily_digest.py` → `--history-days 30` + `--near-dup-clusters` + `--history-file`
+- `reports/runtime/digest-history.json` → runtime-only, idempotent, capped (max 60 entries)
+- `web/data/digests.json` → now includes `picks` array with `near_dup_cluster_id` per pick
+- Fallback: if strict filter leaves too few candidates, relax rules in order (cluster → artist → id) and record the reason
+- No network, no file modification to source data, no deletion, no GitHub Pages push
+
+**The general principle**: curation is not just about what you include; it is about what you exclude and when you exclude it. A time-aware exclusion rule is a feature, not a bug.

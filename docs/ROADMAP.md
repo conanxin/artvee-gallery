@@ -391,6 +391,7 @@ are gathered under P5+ below.)
 - **Digest history sliding window** (P4F · 30-day rolling index) — not
   yet built; current `digests.json` keeps all history but the public
   page renders only `latest`
+  — ✅ **P6F DONE** (2026-06-12): `scripts/build_artvee_daily_digest.py` + `--history-days 30` + `--near-dup-clusters` + `docs/DIGEST_HISTORY.md` + runtime `reports/runtime/digest-history.json` + `digests.json` picks array with near_dup_cluster_id
 - **Pages CDN wait 60s → 90s** — published verification sometimes
   hits `cdn.jsdelivr.net` 60s edge; tune the wait window
 - **Report `MEDIA` Telegram path** — reports under
@@ -479,3 +480,16 @@ build-script label fix remains.
 - Fallback: if p6b manifest missing → known_retired=0, blocking_unresolved=unresolved_count, warning logged
 - Telegram wording: `confirm_demo_refresh.sh` PASS summary now includes `Retired sources: N known_retired, blocking_unresolved=M`
 - See `<workspace>/reports/artvee-gallery-p6g-status-report-20260612.md`
+
+### P6F · Digest history 30-day + near-dup-aware selection ✅ PASS (2026-06-12 22:00)
+- Modified: `scripts/build_artvee_daily_digest.py` — added `--history-days`, `--history-file`, `--ignore-history`, `--near-dup-clusters`
+- New: `docs/DIGEST_HISTORY.md` — design doc, history model, fallback behavior
+- 30-day sliding window: avoids repeating id, artist, or near-dup cluster within the window
+- Idempotent: same-day re-run updates the same entry, does not append duplicates
+- Capped: max `window_days * 2` entries (minimum 60), file never grows unboundedly
+- Fallback: if strict filter (id+artist+cluster) leaves < select candidates, relax rules in order (cluster→artist→id) and record fallback reason
+- Runtime history file: `reports/runtime/digest-history.json` (NOT tracked, gitignored)
+- `web/data/digests.json` now includes `picks` array with `near_dup_cluster_id` per pick
+- Near-dup cluster mapping loaded from P6C JSON: 23 artwork→cluster mappings (8 clusters, 23 records)
+- Safety: no network, no file modification to source data, no deletion, no GitHub Pages push
+- See `<workspace>/reports/artvee-gallery-p6f-digest-history-20260612.md`

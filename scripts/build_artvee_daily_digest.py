@@ -36,7 +36,7 @@ import argparse
 import json
 import sys
 from collections import Counter, deque
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -183,6 +183,166 @@ def select_diverse(candidates: list[dict], select: int, max_per_artist: int = 1)
             break
     return picked
 
+
+
+
+# ---------- P6F: history + near-dup aware filtering ----------
+
+def load_history(history_file: Path) -> dict:
+    """Load digest history from a runtime JSON file.
+
+    Returns {"version":1, "updated_at":..., "window_days":30, "entries":[...]}
+    or a fresh skeleton if the file does not exist or is malformed.
+    """
+    if not history_file.exists():
+        return {"version": 1, "updated_at": "", "window_days": 30, "entries": []}
+    try:
+        with history_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {"version": 1, "updated_at": "", "window_days": 30, "entries": []}
+    if not isinstance(data, dict):
+        data = {"version": 1, "updated_at": "", "window_days": 30, "entries": []}
+    data.setdefault("version", 1)
+    data.setdefault("updated_at", "")
+    data.setdefault("window_days", 30)
+    data.setdefault("entries", [])
+    if not isinstance(data["entries"], list):
+        data["entries"] = []
+    return data
+
+
+def save_history(history_file: Path, data: dict, window_days: int) -> None:
+    """Write digest history atomically (no git track)."""
+    data["version"] = 1
+    data["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    data["window_days"] = window_days
+    history_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = history_file.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.rename(history_file)
+
+
+def load_near_dup_clusters(clusters_path: Path) -> dict[str, str]:
+    """Return artwork_id -> cluster_id mapping from P6C review JSON.
+
+    If the file does not exist, return an empty dict (no near-dup awareness).
+    """
+    if not clusters_path.exists():
+        return {}
+    try:
+        with clusters_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    mapping: dict[str, str] = {}
+    for cluster in data.get("clusters", []):
+        cid = cluster.get("cluster_id", "")
+        for rec in cluster.get("records", []):
+            rid = rec.get("id")
+            if rid and cid:
+                mapping[rid] = cid
+    return mapping
+
+
+def _history_filtered_pool(
+    candidates: list[dict],
+    history_data: dict,
+    near_dup_mapping: dict[str, str],
+    window_days: int,
+    target_date: date,
+    select: int,
+) -> tuple[list[dict], str]:
+    """Filter candidates against recent digest history + near-dup clusters.
+
+    Rules (applied in order, each relaxing only when the previous would leave
+    too few candidates):
+    1. Remove artwork ids that appeared in the last `window_days` days.
+    2. Remove artworks whose artist appeared in the last `window_days` days.
+    3. Remove artworks whose near-dup cluster appeared in the last
+       `window_days` days (only if a cluster mapping exists).
+    4. If the filtered pool has fewer than `select` items, the rule that
+       caused the shortage is relaxed and the next-smaller rule is tried.
+       If *all* rules are exhausted and the pool still < select, we record
+       a fallback reason and return the largest-possible filtered pool.
+
+    Returns (filtered_candidates, fallback_reason).
+    """
+    entries = history_data.get("entries", [])
+    if not entries or window_days <= 0:
+        return candidates, ""
+
+    cutoff = target_date - timedelta(days=window_days)
+    # Gather all seen sets in the window
+    seen_ids: set[str] = set()
+    seen_artists: set[str] = set()
+    seen_clusters: set[str] = set()
+    for entry in entries:
+        entry_date_str = entry.get("date", "")
+        if not entry_date_str:
+            continue
+        try:
+            entry_date = date.fromisoformat(entry_date_str)
+        except Exception:
+            continue
+        if entry_date < cutoff or entry_date > target_date:
+            continue
+        for pick in entry.get("picks", []):
+            seen_ids.add(pick.get("id", ""))
+            seen_artists.add(pick.get("artist", ""))
+            if pick.get("near_dup_cluster_id"):
+                seen_clusters.add(pick.get("near_dup_cluster_id"))
+
+    # Remove empty strings
+    seen_ids.discard("")
+    seen_artists.discard("")
+    seen_clusters.discard("")
+
+    def apply_filter(cands: list[dict], rule_level: int) -> list[dict]:
+        """rule_level: 0=none, 1=id, 2=artist, 3=cluster."""
+        result: list[dict] = []
+        for c in cands:
+            rid = c.get("id", "")
+            artist = (c.get("artist") or "").strip() or "Anonymous"
+            cluster = near_dup_mapping.get(rid, "")
+            if rule_level >= 1 and rid in seen_ids:
+                continue
+            if rule_level >= 2 and artist in seen_artists:
+                continue
+            if rule_level >= 3 and cluster and cluster in seen_clusters:
+                continue
+            result.append(c)
+        return result
+
+    # Try increasingly strict rules, but relax if we drop below `select`
+    for level in range(0, 4):
+        filtered = apply_filter(candidates, level)
+        if len(filtered) >= select:
+            reasons = {
+                1: "filter=history-id (avoid repeat artwork within {d} days)",
+                2: "filter=history-id+artist (avoid repeat artist within {d} days)",
+                3: "filter=history-id+artist+cluster (avoid repeat near-dup cluster within {d} days)",
+            }
+            if level == 0:
+                return filtered, ""
+            return filtered, reasons.get(level, "").format(d=window_days)
+
+    # All rules exhausted; return the strictest filtered pool with fallback note
+    filtered = apply_filter(candidates, 3)
+    if not filtered:
+        # absolute fallback: return id-filtered, then artist-filtered, then all
+        filtered = apply_filter(candidates, 2)
+        if not filtered:
+            filtered = apply_filter(candidates, 1)
+            if not filtered:
+                filtered = candidates
+    return filtered, (
+        f"history-filter fallback: after {window_days}-day id+artist+cluster dedup, "
+        f"only {len(filtered)} candidates remain (need {select}); "
+        "returning relaxed pool"
+    )
 
 STRATEGIES = {
     "recent": select_recent,
@@ -599,10 +759,12 @@ def build_html(
 def update_index(
     digest_date: date,
     selected: list[dict],
+    analyses: list[dict],
     md_path: Path,
     html_path: Path,
     strategy: str,
     index_path: Path,
+    near_dup_mapping: dict[str, str] = None,
 ) -> None:
     """Append-or-replace digest entry in web/data/digests.json.
 
@@ -611,6 +773,7 @@ def update_index(
     """
     cats = sorted({a.get("category") for a in selected if a.get("category")})
     artists = sorted({a.get("artist") for a in selected if a.get("artist")})
+    near_dup_mapping = near_dup_mapping or {}
 
     # gallery web root = BASE_DIR
     # digests.json lives at BASE_DIR/web/data/digests.json
@@ -622,6 +785,15 @@ def update_index(
         rel_md = _safe_rel(md_path)
         rel_html = _safe_rel(html_path)
 
+    picks = []
+    for rec in selected:
+        picks.append({
+            "id": rec.get("id", ""),
+            "artist": rec.get("artist", ""),
+            "category": rec.get("category", ""),
+            "near_dup_cluster_id": near_dup_mapping.get(rec.get("id", ""), None),
+        })
+
     entry = {
         "date": digest_date.isoformat(),
         "title": f"Artvee Daily Digest — {digest_date.isoformat()}",
@@ -631,6 +803,7 @@ def update_index(
         "categories": cats,
         "artists": artists,
         "strategy": strategy,
+        "picks": picks,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -679,6 +852,18 @@ def main() -> int:
     p.add_argument("--allow-repeat-artist", action="store_true",
                    help="P5E. If set, equivalent to --max-per-artist 0 "
                         "(no cap). Default behaviour is max 1 per artist.")
+    p.add_argument("--history-days", type=int, default=30,
+                   help="P6F. How many days back to look for history dedup. "
+                        "Default 30. Set 0 to disable history filtering.")
+    p.add_argument("--history-file", type=Path,
+                   default=BASE_DIR / "reports" / "runtime" / "digest-history.json",
+                   help="P6F. Runtime digest history JSON path. NOT tracked in git.")
+    p.add_argument("--ignore-history", action="store_true",
+                   help="P6F. Skip history dedup (equivalent to --history-days 0).")
+    p.add_argument("--near-dup-clusters", type=Path,
+                   default=BASE_DIR / "reports" / "runtime" / "p6c-near-dup-clusters.json",
+                   help="P6F. Near-dup cluster JSON from review_near_duplicate_clusters.py. "
+                        "If missing, near-dup awareness is skipped.")
     args = p.parse_args()
 
     if args.strategy not in STRATEGIES:
@@ -702,6 +887,21 @@ def main() -> int:
     selector = STRATEGIES[args.strategy]
     # P5E: --allow-repeat-artist short-circuits to no cap
     max_per_artist = 0 if args.allow_repeat_artist else args.max_per_artist
+
+    # P6F: history window + near-dup awareness
+    window_days = 0 if args.ignore_history else args.history_days
+    history_data = load_history(args.history_file)
+    near_dup_mapping = load_near_dup_clusters(args.near_dup_clusters)
+
+    # P6F: history + near-dup cluster filtering before selection
+    filtered_candidates, history_fallback = _history_filtered_pool(
+        candidates, history_data, near_dup_mapping, window_days, digest_date, args.select
+    )
+    if filtered_candidates is not candidates:
+        candidates = filtered_candidates
+        if history_fallback:
+            fallback_reason = fallback_reason + ("; " if fallback_reason else "") + history_fallback
+
     selected = selector(candidates, args.select, max_per_artist=max_per_artist)
     if not selected:
         print("ERROR: nothing selected (empty source?)", file=sys.stderr)
@@ -710,6 +910,7 @@ def main() -> int:
     if args.dry_run:
         print(f"[dry-run] date={digest_date.isoformat()} strategy={args.strategy}")
         print(f"[dry-run] max-per-artist={max_per_artist} (0=no cap)")
+        print(f"[dry-run] history_window={window_days} days, near_dup_clusters={len(near_dup_mapping)}")
         print(f"[dry-run] candidate pool size={len(candidates)} (fallback={bool(fallback_reason)})")
         if fallback_reason:
             print(f"[dry-run] {fallback_reason}")
@@ -766,11 +967,37 @@ def main() -> int:
     update_index(
         digest_date=digest_date,
         selected=selected,
+        analyses=analyses,
         md_path=md_path,
         html_path=html_path,
         strategy=args.strategy,
         index_path=INDEX_FILE,
+        near_dup_mapping=near_dup_mapping,
     )
+
+    # P6F: save history entry (runtime only, not tracked)
+    if not args.dry_run:
+        history_picks = []
+        for rec in selected:
+            history_picks.append({
+                "id": rec.get("id", ""),
+                "artist": rec.get("artist", ""),
+                "category": rec.get("category", ""),
+                "near_dup_cluster_id": near_dup_mapping.get(rec.get("id", ""), None),
+            })
+        history_entry = {
+            "date": digest_date.isoformat(),
+            "digest_path": _safe_rel(md_path),
+            "picks": history_picks,
+        }
+        # Idempotent: replace existing entry for same date
+        history_data["entries"] = [e for e in history_data.get("entries", []) if e.get("date") != history_entry["date"]]
+        history_data["entries"].append(history_entry)
+        # Keep newest first, safety cap at max(window_days*2, 60)
+        history_data["entries"].sort(key=lambda e: e.get("date", ""), reverse=True)
+        max_entries = max(window_days * 2, 60)
+        history_data["entries"] = history_data["entries"][:max_entries]
+        save_history(args.history_file, history_data, window_days)
 
     print(f"[✓] digest generated: {md_path.name} + {html_path.name}")
     print(f"    selected={len(selected)} strategy={args.strategy} "
@@ -779,6 +1006,9 @@ def main() -> int:
     print(f"    index updated: {INDEX_FILE}")
     print(f"    P5E: max_per_artist={max_per_artist}, "
           f"prompt-field backfills={p5e_backfilled}")
+    print(f"    P6F: history_window={window_days} days, "
+          f"near_dup_clusters_loaded={len(near_dup_mapping)} mappings, "
+          f"history_entries={len(history_data.get('entries', []))}")
     # P5E: enforce artist cap. Print distribution so failures are
     # visible in the log (the same info goes into the markdown footer
     # via the candidate_pool_size line; this is a CLI echo).
@@ -799,6 +1029,8 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as e:  # noqa: BLE001
+        import traceback
         print(f"FATAL: digest build crashed: {type(e).__name__}: {e}", file=sys.stderr)
+        traceback.print_exc()
         # Never crash the calling pipeline.
         sys.exit(EXIT_OK)

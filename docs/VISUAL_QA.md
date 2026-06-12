@@ -326,3 +326,42 @@ Future builders should read `p6c-near-dup-clusters.json` and apply:
 - `review_before_public` → same for public demo
 
 The contact sheet is the human decision surface: open it in a browser, visually inspect the cluster, and document any overrides in `docs/NEAR_DUPLICATE_REVIEW.md`.
+
+### Safety
+
+- **No network.** Reads only local `web/data/artworks.json` and `thumbs/512/`.
+- **No file modification.** All outputs are under `reports/runtime/`.
+- **No deletion.** The script is a read-only auditor; it does not touch `web/data/`, `index/`, or `inbox/`.
+- **Fallback:** if Pillow is unavailable, reads P5D visual-QA JSON aHashes; if that is also missing, outputs `SKIP` with reason.
+
+## 12. Digest history + near-dup aware selection (P6F)
+
+P6F turns the P6C near-dup review into an **automated curation filter** inside the daily digest builder. The digest builder now reads the P6C cluster JSON and a 30-day history file to avoid repeating the same artwork, artist, or near-dup cluster within a short window.
+
+### What P6F does
+
+`scripts/build_artvee_daily_digest.py` gains four new arguments:
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--history-days` | 30 | Lookback window for dedup |
+| `--history-file` | `reports/runtime/digest-history.json` | Runtime history JSON (not tracked) |
+| `--ignore-history` | False | Skip history dedup (fresh start) |
+| `--near-dup-clusters` | `reports/runtime/p6c-near-dup-clusters.json` | P6C cluster JSON |
+
+### History model
+
+- **Idempotent**: same-day re-runs update the same entry, do not append duplicates.
+- **Capped**: max `window_days * 2` entries (minimum 60), so the file never grows unboundedly.
+- **Newest-first**: entries sorted by date descending.
+- **No local paths**: `digest_path` is relative, uses `_safe_rel` to strip absolute fragments.
+
+### Fallback behavior
+
+If the strictest filter (id + artist + cluster) leaves fewer than `--select` candidates, the builder relaxes rules in order (cluster → artist → id) until enough candidates are available. A fallback reason is recorded in the digest metadata.
+
+### Safety
+
+- Pure local file read. **No network, no subprocess, no shell-out.**
+- History file lives in `reports/runtime/` (gitignored).
+- No modification to `web/data/artworks.json`, `index/`, `inbox/`, or images.

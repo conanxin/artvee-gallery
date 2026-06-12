@@ -89,8 +89,11 @@ If a cluster needs special handling, document it in:
 - This file (`docs/NEAR_DUPLICATE_REVIEW.md`) under "Known P6C findings"
 - Or a new `docs/NEAR_DUPLICATE_EXCEPTIONS.md` if the list grows
 
-### Step 4: Update digest/demo builders
-Modify `scripts/build_artvee_daily_digest.py` and `scripts/export_artvee_gallery_public_demo.py` to read the P6C JSON and apply `limit_one_per_digest` / `review_before_digest` rules.
+### Step 4: Update digest/demo builders (P6F DONE)
+
+`scripts/build_artvee_daily_digest.py` now reads `p6c-near-dup-clusters.json` by default (via `--near-dup-clusters`) and maintains a 30-day history window that avoids selecting multiple works from the same near-dup cluster within the window. See `docs/DIGEST_HISTORY.md` for the full history model.
+
+The public demo builder (`scripts/export_artvee_gallery_public_demo.py`) still reads the P6C JSON and can apply the same `limit_one_per_digest` rule; this is a future enhancement if the public demo needs near-dup awareness.
 
 ## 8. Known P6C findings
 
