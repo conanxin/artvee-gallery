@@ -184,7 +184,7 @@ python3 scripts/check_gallery_integrity.py --strict
 If the health check reports `telegram_notify.openclaw_status: missing`,
 common causes are:
 
-1. **PATH difference** — cron may not have `~/.local/bin` in PATH.
+1. **PATH difference** — cron may not have `\u003cuser-home\u003e/.local/bin` in PATH.
    Fix: add `export PATH="$HOME/.local/bin:$PATH"` to the cron script,
    or pass `--openclaw-bin <openclaw-bin>` explicitly.
 2. **ARTVEE_OPENCLAW_BIN env var** — set it in `.bashrc` or the cron
