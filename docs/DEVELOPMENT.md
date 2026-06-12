@@ -789,3 +789,76 @@ in `web/data/artworks.json` and do not affect
 `check_gallery_integrity.py --strict` (which only checks
 duplicates and source_url conflicts). They are also
 excluded from the public demo and digest by construction.
+
+## 17. P6G KNOWN_RETIRED-aware status report
+
+The status snapshot is the operational expression of the
+P6B invariant: "after bounded retries, retire unavailable
+sources." Two counters replace the old "unresolved":
+
+- `known_retired = N` — audited, deliberately not retried
+- `blocking_unresolved = M` — what still needs attention
+
+### Build the local status snapshot
+
+```bash
+python3 scripts/build_artvee_status_report.py
+```
+
+Outputs (atomic write via `.tmp` + `os.replace`):
+
+- `reports/runtime/artvee-status-report.json` — machine-readable
+- `reports/runtime/artvee-status-report.md` — human-readable
+
+The script reads (all optional with fallbacks):
+
+- `web/data/gallery_stats.json` — counts
+- `web/data/artworks.json` — record count cross-check
+- `reports/runtime/p6b-known-retired-urls.json` — KNOWN_RETIRED set
+- `reports/runtime/p5a-unresolved-losers.json` (P4B fallback) — unresolved
+- `logs/nightly_summary.csv` — latest nightly run snapshot
+
+### Inspect a status snapshot
+
+```bash
+python3 - <<'PY'
+import json
+data = json.load(open('reports/runtime/artvee-status-report.json'))
+print(f"records:             {data['records']}")
+print(f"known_retired:       {data['known_retired']}")
+print(f"blocking_unresolved: {data['blocking_unresolved']}")
+print(f"strict_integrity:    {data['strict_integrity']}")
+print(f"public_demo_ready:   {data['public_demo_ready']}")
+print(f"digest_ready:        {data['digest_ready']}")
+PY
+```
+
+### Fallback semantics
+
+If `p6b-known-retired-urls.json` is missing (e.g. fresh clone
+with no P6B run), the report falls back to:
+
+- `known_retired = 0`
+- `blocking_unresolved = <unresolved_count>`
+- `public_demo_ready = false`, `digest_ready = false`
+- `warnings = ["p6b-known-retired-urls.json not found; ..."]`
+
+This keeps a fresh clone honest — the script does not
+pretend the audit happened.
+
+### Telegram wording
+
+`scripts/confirm_demo_refresh.sh` now appends a
+`Retired sources: N known_retired, blocking_unresolved=M`
+line to the PASS summary, computed at runtime from the
+KNOWN_RETIRED manifest (or fallback to P5A/P4B unresolved
+count). The line is informational; it does not affect
+the PASS/FAIL decision of the candidate flow.
+
+### Safety
+
+- Pure local file read. **No network, no subprocess, no shell-out.**
+- Refuses to write outside `reports/runtime/` (exit 2).
+- Atomic write via `.tmp` + `os.replace` (no partial files).
+- All inputs are optional — missing files are logged as
+  warnings and the report uses a safe default.

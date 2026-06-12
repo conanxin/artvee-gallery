@@ -460,3 +460,12 @@ build-script label fix remains.
 - Does NOT modify strict integrity (losers not in web/data → already excluded)
 - Future reports should split: `known_retired=N, blocking_unresolved=M`
 - See `<workspace>/reports/artvee-gallery-p6b-known-retired-urls-20260612.md`
+
+### P6G · KNOWN_RETIRED-aware status report ✅ PASS (2026-06-12 21:18)
+- Status split: `known_retired` (audited, not blocking) vs `blocking_unresolved` (needs attention)
+- New: `scripts/build_artvee_status_report.py` (no network, no subprocess)
+- New runtime artifacts: `reports/runtime/artvee-status-report.{json,md}` (NOT tracked)
+- Current snapshot: records=756, known_retired=4, blocking_unresolved=0, strict_integrity=pass
+- Fallback: if p6b manifest missing → known_retired=0, blocking_unresolved=unresolved_count, warning logged
+- Telegram wording: `confirm_demo_refresh.sh` PASS summary now includes `Retired sources: N known_retired, blocking_unresolved=M`
+- See `<workspace>/reports/artvee-gallery-p6g-status-report-20260612.md`

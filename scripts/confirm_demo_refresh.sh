@@ -702,12 +702,27 @@ if [[ $DRY_RUN -eq 0 ]]; then
     else
         if [[ -f "$TELEGRAM_NOTIFIER" ]]; then
             TELEGRAM_MSG=""
+            # P6G: compute known_retired / blocking_unresolved split
+            # from the runtime manifest if present, else fallback.
+            KNOWN_RETIRED_COUNT=0
+            BLOCKING_UNRESOLVED=0
+            if [[ -f "$BASE_DIR/reports/runtime/p6b-known-retired-urls.json" ]]; then
+                KNOWN_RETIRED_COUNT="$("$PYTHON_BIN" -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("records", [])))' "$BASE_DIR/reports/runtime/p6b-known-retired-urls.json" 2>/dev/null || echo 0)"
+            else
+                UNRESOLVED_FILE="$BASE_DIR/reports/runtime/p5a-unresolved-losers.json"
+                [[ ! -f "$UNRESOLVED_FILE" ]] && UNRESOLVED_FILE="$BASE_DIR/reports/runtime/p4b-unresolved-losers.json"
+                if [[ -f "$UNRESOLVED_FILE" ]]; then
+                    BLOCKING_UNRESOLVED="$("$PYTHON_BIN" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(len(d) if isinstance(d, list) else len(d.get("records", [])))' "$UNRESOLVED_FILE" 2>/dev/null || echo 0)"
+                fi
+            fi
+            RETIRED_LINE="Retired sources: $KNOWN_RETIRED_COUNT known_retired, blocking_unresolved=$BLOCKING_UNRESOLVED"
             if [[ "$OVERALL" == "PASS" ]]; then
                 TELEGRAM_MSG="✅ Artvee Demo Refresh Candidate
 日期: $DATE
 Gallery: PASS, records=$GALLERY_RECORDS, thumbs=$((GALLERY_THUMB_256+GALLERY_THUMB_512)), size=$GALLERY_SIZE_HUMAN
 Digest: PASS, selected=$DIGEST_SELECTED, thumbs=$DIGEST_THUMB, size=$DIGEST_SIZE_HUMAN
 Guards: duplicate_source_url=$GALLERY_DUPE_SOURCE_URL, Le_rêve=$GALLERY_LE_REVE, leaks=$((GALLERY_LEAKS+DIGEST_LEAKS)), missing=$((GALLERY_MISSING+DIGEST_MISSING))
+$RETIRED_LINE
 Publish: not pushed, manual approval required
 Path: dist/refresh-candidates/$DATE/"
             else

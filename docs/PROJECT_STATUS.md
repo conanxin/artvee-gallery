@@ -377,3 +377,18 @@ refresh is expected on the P4B cut.
 | Candidate / public flow | `confirm_demo_refresh.sh --no-telegram` PASS; `publish_demo_refresh_candidate.sh --dry-run` PASS |
 | Strict integrity | PASS (P6B does NOT change strict integrity; 4 losers are not in web/data so they're already excluded) |
 | Files changed | `scripts/mark_known_retired_urls.py` (new), `examples/known_retired_urls.sample.json` (new), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P6B ✅) |
+
+### P6G KNOWN_RETIRED-aware status report (2026-06-12 21:18 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| New script | `scripts/build_artvee_status_report.py` (~310 lines, stdlib) — pure local read, no network |
+| New runtime artifact | `reports/runtime/artvee-status-report.json` + `.md` (NOT tracked; regenerable) |
+| New status split | `known_retired=N` (audited, not blocking) and `blocking_unresolved=M` (what still needs attention) |
+| Current values | records=756, known_retired=4, blocking_unresolved=0, strict_integrity=pass, public_demo_ready=true, digest_ready=true |
+| Fallback semantics | if `p6b-known-retired-urls.json` missing → `known_retired=0, blocking_unresolved=unresolved_count`, public_demo_ready/digest_ready flip to false, warning logged |
+| Telegram wording update | `scripts/confirm_demo_refresh.sh` now appends `Retired sources: N known_retired, blocking_unresolved=M` to the PASS summary |
+| Public surface | unchanged — status report reads only existing files |
+| Safety | atomic write via `.tmp + os.replace`; refuses `--out-*` outside `reports/runtime/`; no shell-out, no subprocess, no network |
+| Candidate / public flow | `confirm_demo_refresh.sh --no-telegram` PASS; `publish_demo_refresh_candidate.sh --dry-run` PASS |
+| Files changed | `scripts/build_artvee_status_report.py` (new), `scripts/confirm_demo_refresh.sh` (status wording), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P6G ✅), `docs/DEVELOPMENT.md` (new § 17) |
