@@ -494,15 +494,30 @@ build-script label fix remains.
 - Safety: no network, no file modification to source data, no deletion, no GitHub Pages push
 - See `<workspace>/reports/artvee-gallery-p6f-digest-history-20260612.md`
 
-### P6F+1 · Approved publish to GitHub Pages (history-aware digest live) ✅ PASS (2026-06-12 22:26)
-- Pages commit: `f419d31` on `conanxin/conanxin.github.io` (`f972f5a..f419d31`)
-- Gallery: 100 records, 200 thumbs, 5.7M — `https://conanxin.github.io/projects/artvee-gallery-demo/` → 200
-- Digest: 5 picks, 5 thumbs, 256K — `https://conanxin.github.io/projects/artvee-gallery-digest/` → 200
-- Digest artists: Alphonse_Mucha, Amaldus_Nielsen, Anonymous, Utagawa_Hiroshige, Yoshida_Hiroshi (5/5 unique)
-- Digest categories: book-illustrations, japanese-prints, posters-design (3 categories)
-- digests.json includes `picks` array with `near_dup_cluster_id` (1 pick from cluster-006, 4 unique)
-- Public JSON safety: 0 `metadata_path`, 0 abs-path leaks, 0 duplicate `source_url`
-- Online verification: gallery `/`, `data/artworks.json`, `data/gallery_stats.json`, `app.js`, `style.css`, sample thumbs (256+512) all 200
-- Digest online: `/`, `digest.html`, `digest.md`, `data/digests.json`, sample thumb all 200
-- CDN wait 90s + `wait_and_curl()` retry: first-pass 200 on gallery `/`, digest `/`
-- See `<workspace>/reports/artvee-gallery-p6f-approved-publish-20260612.md`
+### P7A · Daily automation hardening / phase consolidation ✅ PASS (2026-06-12 22:30)
+- New: `scripts/artvee_daily_health_check.sh` + `scripts/artvee_daily_health_check.py` — single-command daily health check
+- New: `docs/DAILY_OPERATING_PLAYBOOK.md` — operational reference for daily workflow
+- Consolidates all previous phase-specific checks (P6B, P6C, P6F, P6G) into one daily command
+- Modes: default, `--date`, `--no-telegram`, `--online`, `--media`
+- Checks: readiness, integrity, status report, nightly batch, candidate refresh, digest history, near-dup clusters, candidate state, online (optional)
+- Recommended actions: `healthy_no_action` / `candidate_ready_manual_publish_optional` / `attention_required`
+- Current snapshot: records=756, known_retired=4, blocking_unresolved=0, integrity=PASS, readiness=PASS, candidate=PASS, online=200+200
+- Daily cron rhythm documented: 01:30 refill, 02:00 batch, 02:30 confirm_demo_refresh candidate, manual approved publish only
+- No auto-publish cron added — approval remains manual by design
+- See `<workspace>/reports/artvee-gallery-p7a-daily-automation-hardening-20260612.md`
+
+### P7B · Optional daily health Telegram cron
+- Add a cron hook (e.g., `0 9 * * *`) that runs `artvee_daily_health_check.sh --online --media` and sends a Telegram summary.
+- The cron should be optional and user-configurable (not installed by default).
+- Scope: daily health check only, no publish, no download.
+
+### P7C · Automated approved-publish preparation
+- Pre-stage the approved-publish flow so a future `--approve` can be triggered by a scheduled event (e.g., "auto-publish on Sunday if candidate QA PASS").
+- Requires a `SECRET_ROTATION_POLICY.md` for the Pages repo PAT if full-auto is desired.
+- Current scope: preparation only, no implementation.
+
+### P7D · Release v0.2.0-alpha
+- Tag the next release after P7A stabilization.
+- Update `RELEASE_NOTES_v0.1.0-alpha.md` → `RELEASE_NOTES_v0.2.0-alpha.md`.
+- Include P4D–P7A features in the release notes.
+- No new code changes, just a milestone marker.

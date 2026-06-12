@@ -41,7 +41,23 @@
 | **P6G** | KNOWN_RETIRED-aware status report | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6g-status-report-20260612.md` |
 | **P6C** | Near-duplicate review workflow | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6c-near-duplicate-review-20260612.md` |
 | **P6F** | Digest history 30-day + near-dup-aware selection | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6f-digest-history-20260612.md` |
-| **P6F+1** | Approved publish to GitHub Pages (history-aware digest live) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6f-approved-publish-20260612.md` |
+| **P7A** | Daily automation hardening / phase consolidation | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a-daily-automation-hardening-20260612.md` |
+
+### P7A daily-automation-hardening snapshot (2026-06-12 22:30 GMT+8)
+
+| Field | Value |
+| --- | --- |
+| Daily health check script | `scripts/artvee_daily_health_check.sh` + `scripts/artvee_daily_health_check.py` (Python implementation, shell wrapper) |
+| Daily Operating Playbook | `docs/DAILY_OPERATING_PLAYBOOK.md` (new, tracked) |
+| Health check modes | default / `--date` / `--no-telegram` / `--online` / `--media` |
+| Checks performed | readiness, integrity, status report, nightly batch, candidate refresh, digest history, near-dup clusters, candidate state, online (optional) |
+| Recommended actions | `healthy_no_action` / `candidate_ready_manual_publish_optional` / `attention_required` |
+| Default output | `reports/runtime/daily-health/artvee-daily-health-YYYY-MM-DD.{json,md}` (NOT tracked) |
+| Current status snapshot | records=756, known_retired=4, blocking_unresolved=0, integrity=PASS, readiness=PASS, candidate=PASS, online=200+200 |
+| Daily cron rhythm | 01:30 refill, 02:00 batch, 02:30 confirm_demo_refresh candidate, manual approved publish only |
+| No auto-publish | By design — P7A does NOT add publish cron; approval remains manual |
+| Safety | No download, no refill, no batch, no retired retry, no Pages push, no approve, no source data modification |
+| Files changed | `scripts/artvee_daily_health_check.sh` (new), `scripts/artvee_daily_health_check.py` (new), `docs/DAILY_OPERATING_PLAYBOOK.md` (new), `docs/PROJECT_STATUS.md` (this row), `docs/ROADMAP.md` (P7A ✅), `docs/DEVELOPMENT.md` (§ 19), `docs/RETROSPECTIVE.md` (§ 2.14) |
 
 ## Last-known-good nightly snapshot
 

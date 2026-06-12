@@ -915,6 +915,78 @@ the PASS/FAIL decision of the candidate flow.
 - All inputs are optional — missing files are logged as
   warnings and the report uses a safe default.
 
+## 19. P7A Daily health check
+
+P7A consolidates all previous phase-specific checks into a single
+ daily command. The health check is read-only and never modifies
+ source data, candidates, or public surfaces.
+
+### Run the health check
+
+```bash
+# Default: local checks only, no network, no Telegram
+bash scripts/artvee_daily_health_check.sh
+
+# With date override
+bash scripts/artvee_daily_health_check.sh --date 2026-06-12
+
+# No Telegram (just write report)
+bash scripts/artvee_daily_health_check.sh --no-telegram
+
+# With online endpoint checks (curl public Gallery / Digest)
+bash scripts/artvee_daily_health_check.sh --online
+
+# With MEDIA attachment to Telegram (stages report into OpenClaw-allowed dir)
+bash scripts/artvee_daily_health_check.sh --media
+
+# Combined: online + media + no-telegram (dry-run with online check)
+bash scripts/artvee_daily_health_check.sh --online --media --no-telegram
+```
+
+### What it checks
+
+| Check | Source | Status |
+|-------|--------|--------|
+| Open-source readiness | `scripts/check_open_source_ready.py` | PASS/FAIL |
+| Gallery integrity | `scripts/check_gallery_integrity.py --strict` | PASS/FAIL |
+| Status report | `reports/runtime/artvee-status-report.json` | PASS/WARN/SKIP |
+| Nightly batch | `logs/nightly_summary/` CSV | PASS/SKIP |
+| Candidate refresh | `logs/confirm_demo_refresh/report_*.md` | PASS/FAIL/UNKNOWN/SKIP |
+| Digest history | `reports/runtime/digest-history.json` | PASS/SKIP |
+| Near-dup clusters | `reports/runtime/p6c-near-dup-clusters.json` | PASS/SKIP |
+| Candidate state | `dist/refresh-candidates/<date>/` existence | PASS/SKIP |
+| Online (optional) | `curl` to public Pages endpoints | PASS/FAIL/SKIP |
+
+### Outputs
+
+| File | Path | Tracked |
+|------|------|---------|
+| JSON report | `reports/runtime/daily-health/artvee-daily-health-YYYY-MM-DD.json` | No |
+| Markdown report | `reports/runtime/daily-health/artvee-daily-health-YYYY-MM-DD.md` | No |
+
+### Recommended actions
+
+- `healthy_no_action` — everything is fine, no action needed.
+- `candidate_ready_manual_publish_optional` — candidate QA passed, user may choose to publish.
+- `attention_required` — one or more checks failed, investigate before proceeding.
+
+### Safety
+
+- **No network in default mode.** Only `--online` touches the network.
+- **No file modification.** The script is read-only on all inputs.
+- **No Telegram in default mode.** Only `--media` or default `--telegram` sends a message.
+- **No secret leakage.** The Telegram message includes only counts and status strings, no tokens or paths.
+
+### Implementation
+
+The shell script is a thin wrapper around
+ `scripts/artvee_daily_health_check.py` (Python, stdlib only). The
+ Python script handles JSON generation, Markdown rendering, and
+ optional Telegram notification. The shell script only parses flags
+ and delegates.
+
+---
+
 ## 18. P6C Near-duplicate review workflow
 
 P6C turns the P5D visual-QA near-dup findings into a

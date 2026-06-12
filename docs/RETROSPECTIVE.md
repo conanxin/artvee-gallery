@@ -457,7 +457,27 @@ surface *curation concerns* (artist series, hash collisions, legacy
 artifacts). These concerns should be resolved by curation rules in
 the digest / demo builder, not by data-deletion in the archive.
 
-### 2.13 Daily digest should optimize over a time window, not just one run (P6F)
+### 2.14 After many phase-specific scripts, consolidate into a daily operating layer (P7A)
+
+By the end of P6F+1, the project had 20+ phase-specific scripts, each solving one problem well: collision migration, orphan cleanup, visual QA, near-dup review, digest history, status reports, Telegram staging, CDN tuning, and more. The scripts were correct individually, but the daily operator (the human or the cron) had to remember which scripts to run, in what order, and with what flags.
+
+P7A consolidates the operational surface into a single command:
+- `scripts/artvee_daily_health_check.sh` — one entry point
+- `scripts/artvee_daily_health_check.py` — the implementation (Python, stdlib only)
+- `docs/DAILY_OPERATING_PLAYBOOK.md` — the operational reference
+
+The consolidation is not a new script that replaces the old ones; it is a **read-only aggregator** that runs the old scripts and reports their status in a single JSON + Markdown report. The old scripts remain the source of truth; the health check is just a lens.
+
+**Rule**: when a project accumulates more than 5 phase-specific operational scripts, the next phase should be a **consolidation phase** that surfaces all of them through a single daily command. The consolidation should be read-only (never replace the underlying scripts), should generate a single report, and should recommend an action rather than take one. The goal is to reduce the cognitive load of the operator, not to automate the operator out of existence.
+
+The P7A implementation encodes this rule:
+- `scripts/artvee_daily_health_check.sh` → thin wrapper, parses flags, delegates to Python
+- `scripts/artvee_daily_health_check.py` → stdlib-only, no network in default mode, no file modification
+- `docs/DAILY_OPERATING_PLAYBOOK.md` → operational reference, not a design doc
+- Recommended actions: `healthy_no_action` / `candidate_ready_manual_publish_optional` / `attention_required`
+- No auto-publish, no auto-download, no auto-retry — the consolidation is observability, not automation
+
+**The general principle**: a system with many correct parts is not a correct system. The parts must be wired together so that a single glance tells the operator whether the system is healthy. The daily health check is that glance.
 
 P5E's `--max-per-artist 1` prevented a single digest from repeating an artist, but it did not prevent the same artist from appearing on consecutive days. The result: a subscriber who reads the digest every day would see Yoshida Hiroshi on Monday, Tuesday, and Wednesday — not because the gallery lacks variety, but because the builder optimized each day independently.
 
