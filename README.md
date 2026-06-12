@@ -250,6 +250,7 @@ For the full rationale and a risk surface, see
 | [docs/GALLERY_LOCAL_USAGE.md](docs/GALLERY_LOCAL_USAGE.md) | Local gallery usage and serving |
 | [docs/GALLERY_PUBLIC_DEMO.md](docs/GALLERY_PUBLIC_DEMO.md) | Public demo export internals |
 | [docs/GALLERY_DAILY_DIGEST.md](docs/GALLERY_DAILY_DIGEST.md) | Daily digest selection strategies and outputs |
+| [docs/PUBLIC_DEMO_REFRESH_PLAN.md](docs/PUBLIC_DEMO_REFRESH_PLAN.md) | Public demo refresh modes (manual / semi-auto / full-auto), P4D target |
 
 ## Roadmap
 

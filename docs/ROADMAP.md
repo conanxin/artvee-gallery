@@ -165,31 +165,34 @@
   - 0 referenced-but-missing files
   - 11 image / metadata / thumbs orphans per size = P4B's deliberately-kept legacy winner files (rollback safety)
   - 3 source_url dupe groups remain (P4A+1 § 6.4 build bug: build script takes first source_url per id; winner's URL got collapsed to loser's URL for the 3 Le_rêve siblings)
-  - public demo exporter dry-run + full-export-to-tmp verified; real `dist/` untouched
-- **CI Node 24 upgrade**: opted into Node.js 24 via
-  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` job-level env var.
-  Removes the `actions/checkout@v4` / `actions/setup-python@v5`
-  Node 20 deprecation warning without bumping action pins. Safer
-  than pinning v5/v6 in case they don't exist yet.
-- **Public demo refresh planning** (design only, not executed):
-  - 3 candidate designs sketched (cron + rsync, GitHub Actions on
-    artvee-gallery repo with cross-repo write, GitHub Actions on
-    Pages repo triggered by webhook)
-  - Each needs a secret-rotation policy first
-  - Deferred to P4D (no actual publish in P4C)
-- **Unresolved losers 复核** (4 from P4B, no retry):
-  - `la-plume-4/`, `le-reve-3/`, `le-reve/`, `tetes-byzantines-brunette/`
-  - All `Page.goto: Timeout 30000ms exceeded`
-  - Left for P5+ (or P4D with a different downloader)
+  - 4 unresolved losers from P4B (all playwright 30s timeouts on `la-plume-4/` / `le-reve-3/` / `le-reve/` / `tetes-byzantines-brunette/`) left for P5+ retry with a different downloader
+  - public demo exporter dry-run + full-export-to-`/tmp/artvee-gallery-demo-p4c` verified; 100 / 100 records, 200 thumbs, 0 leaks, 0 missing
+- **CI Node 24 upgrade**: bumped `actions/checkout@v4` → `actions/checkout@v5`. The
+  GitHub-recommended path before 2026-09-16 forced deprecation of
+  Node 20 runner. `setup-python@v5` left untouched (still
+  supported). The CI log now shows zero Node-deprecation annotations
+  (P4B had 1 info-level warning).
+- **Public demo refresh planning**: standalone design doc
+  `docs/PUBLIC_DEMO_REFRESH_PLAN.md`. Three refresh modes
+  (manual / semi-auto / full-auto) with 6 mandatory gates
+  before any Pages push. P4D target = **semi-auto with explicit
+  approval** (no secrets needed). Full-auto (with PAT) is P5+
+  and requires a `docs/SECRET_ROTATION_POLICY.md` first.
+- **Le_rêve source_url**: still points to `le-reve/` (loser's
+  URL) in the new record, not `le-reve-2/` (winner's URL).
+  P4A+1 § 6.4 build bug; image and title are correct, only
+  the URL label is wrong. Leave for P5+ build-script fix.
 
-### P4D · Automatic public demo refresh
-- Both public routes are published via manual
-  `rsync + commit + push`. Acceptable for now.
-- Automation requires a personal access token in cron or a
-  GitHub Actions workflow on the Pages repo, both of which
-  require a secret-rotation policy first.
-- P4C sketched 3 candidate designs; P4D should pick one and
-  implement the secret-rotation policy first.
+### P4D · Semi-automatic public demo refresh
+**Target:** `scripts/confirm_demo_refresh.sh` that re-runs the
+6 mandatory gates from `PUBLIC_DEMO_REFRESH_PLAN.md` § 5,
+prints a `git diff` of the planned Pages push, and asks for
+explicit `y/N` confirmation. The nightly wrapper
+(`artvee_nightly_wrapper.sh`) calls it at 02:30 so the user
+sees the prompt daily without remembering to do so. Manual
+`git push` is the only step that needs human action. No
+secrets, no PAT, no webhook — keeps the local-first invariant
+intact.
 
 ### P4E · Digest history index page
 - The public digest route currently shows only the latest day.
@@ -224,6 +227,17 @@
 - Optional AI-generated "mood" descriptors, fully local.
 
 ## 4. Long-term
+
+### P5+ · Unresolved loser retry
+The 4 losers dropped by P4B (all 30s Playwright timeouts on
+`la-plume-4/` / `le-reve-3/` / `le-reve/` /
+`tetes-byzantines-brunette/`) get retried with an alternative
+downloader (e.g. `requests` + direct CDN URL, or `selenium`
+with longer page-load timeout). If they still fail, the
+corresponding `source_url`s are permanently retired (added to
+a `KNOWN_RETIRED` set in `artvee_identity.py` and skipped by
+future refills / candidates). P5+ is a meta-bucket for "later
+phases not yet individually scoped".
 
 ### Object-storage full archive
 - Optional S3 / R2 / OSS mirror of the local `images/` + `metadata/`,

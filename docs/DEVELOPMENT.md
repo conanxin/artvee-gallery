@@ -167,6 +167,84 @@ So the gate is safe to run on every PR. The historical P4A
 fingerprint (11 groups, 13 extra rows) is frozen inside the
 script. Any *new* duplicate pattern fails the gate immediately.
 
+## 6.2. Post-migration verification (P4C)
+
+P4C adds a read-only verification harness for the
+post-migration state. Run after every batch / migration / change
+to the data layer.
+
+```bash
+# 1. integrity check (3 modes)
+for mode in "" "--allow-known-duplicates" "--strict"; do
+  echo "  mode='$mode': $(python3 scripts/check_gallery_integrity.py $mode >/dev/null 2>&1; echo $?)"
+done
+
+# 2. open-source readiness (4/4 must pass)
+python3 scripts/check_open_source_ready.py
+
+# 3. public demo dry-run (no real dist write)
+python3 scripts/export_artvee_gallery_public_demo.py --dry-run --limit 100 --strategy diverse
+python3 scripts/export_artvee_digest_public_page.py --dry-run
+
+# 4. public demo full export to a temp dir (cleanup after)
+rm -rf /tmp/artvee-gallery-demo-verify
+python3 scripts/export_artvee_gallery_public_demo.py \
+  --limit 100 --strategy diverse \
+  --out-dir /tmp/artvee-gallery-demo-verify \
+  --base-url .
+python3 -m json.tool /tmp/artvee-gallery-demo-verify/data/artworks.json >/dev/null
+python3 -m json.tool /tmp/artvee-gallery-demo-verify/data/gallery_stats.json >/dev/null
+find /tmp/artvee-gallery-demo-verify/assets/thumbs/{256,512} -type f | wc -l
+# 100 + 100 = expected
+# 5. inline path-integrity check
+python3 - <<'PY'
+import json
+from pathlib import Path
+base = Path('/tmp/artvee-gallery-demo-verify')
+arts = json.loads((base / 'data/artworks.json').read_text())
+missing = []
+seen = set()
+for a in arts:
+    if a.get('id') in seen:
+        raise SystemExit('duplicate id: ' + a.get('id'))
+    seen.add(a.get('id'))
+    for k in ['thumb_256', 'thumb_512']:
+        p = base / str(a.get(k, '')).replace('./', '')
+        if not p.exists():
+            missing.append((a.get('id'), k, str(p)))
+print('exported:', len(arts), 'problems:', len(missing))
+raise SystemExit(1 if missing else 0)
+PY
+rm -rf /tmp/artvee-gallery-demo-verify
+```
+
+Expected output:
+- 3 integrity modes all exit 0
+- readiness 4/4 PASS
+- dry-run prints plans but writes 0 files
+- temp export: 100 records, 200 thumbs, 0 problems, 0 leaks
+
+## 6.3. Public demo refresh (P4C design, P4D impl)
+
+Public demo refresh is currently **manual**: run exporters,
+inspect `dist/`, `rsync` to `conanxin.github.io` repo, commit,
+push. See [docs/PUBLIC_DEMO_REFRESH_PLAN.md](PUBLIC_DEMO_REFRESH_PLAN.md)
+for the three refresh modes (manual / semi-auto / full-auto)
+and the P4D target (semi-auto with explicit approval). P4D
+also requires a `docs/SECRET_ROTATION_POLICY.md` for the
+full-auto mode (P5+ candidate).
+
+## 6.4. CI Node 24 (P4C)
+
+The CI workflow opts into Node.js 24 by bumping
+`actions/checkout@v4` → `actions/checkout@v5`. This is the
+GitHub-recommended path before the **2026-09-16** forced
+deprecation of Node 20 runner. The setup-python action is kept
+at v5 (still supported). The CI log will show an info-level
+annotation "is being forced to run on Node.js 24" if any other
+action is later added on Node 20; this is informational, not a
+failure.
+
 ## 7. Sample-data roundtrip
 
 The synthetic data under `examples/` is the canonical shape for

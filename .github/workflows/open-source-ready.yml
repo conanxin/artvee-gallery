@@ -10,18 +10,12 @@ jobs:
   check:
     name: Open-source readiness check
     runs-on: ubuntu-latest
-    # P4C: opt into Node.js 24 ahead of GitHub's 2026-09-16 forced
-    # deprecation of Node.js 20 actions. Removes the
-    # `actions/checkout@v4` / `actions/setup-python@v5` deprecation
-    # warning without bumping the action pins.
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
