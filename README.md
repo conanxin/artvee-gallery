@@ -4,20 +4,25 @@
 > references into a browsable local gallery, lightweight public demo exports,
 > and a daily inspiration digest.
 
+[![Open Source Readiness](https://github.com/conanxin/artvee-gallery/actions/workflows/open-source-ready.yml/badge.svg)](https://github.com/conanxin/artvee-gallery/actions/workflows/open-source-ready.yml)
+[![Release](https://img.shields.io/github/v/release/conanxin/artvee-gallery?include_prereleases)](https://github.com/conanxin/artvee-gallery/releases/tag/v0.1.0-alpha)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![Status: v0.1.0-alpha](https://img.shields.io/badge/status-v0.1.0--alpha-orange.svg)](docs/RELEASE_NOTES_v0.1.0-alpha.md)
 
 ## Live Demo
 
-A static, curated subset of the gallery is published at:
+Two static, CDN-friendly exports are published on GitHub Pages:
 
-> **https://conanxin.github.io/projects/artvee-gallery-demo/**
+- **Gallery demo** (curated thumbnail subset, ~5.7 MB):
+  <https://conanxin.github.io/projects/artvee-gallery-demo/>
+- **Daily digest** (latest 5-pick inspiration page, ~324 KB):
+  <https://conanxin.github.io/projects/artvee-gallery-digest/>
 
-The public demo is a hand-picked selection of thumbnails — it does **not**
-contain the full local archive, the original image assets, or any private
-metadata. See [docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md)
-for the full breakdown.
+Neither export contains the full local archive, the original image assets,
+or any private metadata. See
+[docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md) for the
+full breakdown of what is — and is not — in this repository.
 
 ## What it does
 
@@ -264,6 +269,22 @@ Open an issue or a pull request against the standalone public
 repository (see [docs/ROADMAP.md](docs/ROADMAP.md) for the publish
 plan). Local forks are welcome; please keep generated data out of
 commits — `scripts/check_open_source_ready.py` is your friend.
+
+## Screenshots
+
+### Gallery demo
+
+![Gallery demo](docs/media/gallery-demo.png)
+
+A static subset of 100 curated thumbnails across 4 categories. Served
+from <https://conanxin.github.io/projects/artvee-gallery-demo/>.
+
+### Daily digest demo
+
+![Daily digest demo](docs/media/daily-digest-demo.png)
+
+The latest 5-pick daily inspiration digest. Served from
+<https://conanxin.github.io/projects/artvee-gallery-digest/>.
 
 ## License
 
