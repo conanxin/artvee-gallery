@@ -34,6 +34,11 @@
 | **P5D** | Deeper visual QA (thumbnail / palette / category / digest / near-dup) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5d-visual-qa-20260612.md` |
 | **P5E** | Curation filters: public demo `--exclude-risk high` + digest `--max-per-artist 1` (default) | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p5e-curation-filters-20260612.md` |
 | **E2E** | Nightly Cron Auto-Run | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-nightly-auto-run-verification-2026-06-12.md` |
+| **P6A** | Telegram MEDIA staging fix | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6a-telegram-media-staging-20260612.md` |
+| **P6B** | Mark unresolved losers as KNOWN_RETIRED | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6b-known-retired-urls-20260612.md` |
+| **P6C** | Near-duplicate review workflow | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6c-near-duplicate-review-20260612.md` |
+| **P6D** | GitHub Pages CDN wait 60s → 90s | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6d-cdn-wait-90s-20260612.md` |
+| **P6G** | KNOWN_RETIRED-aware status report | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p6g-status-report-20260612.md` |
 
 ## Last-known-good nightly snapshot
 

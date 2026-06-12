@@ -387,7 +387,7 @@ are gathered under P5+ below.)
   a future phase
 - **8 aHash near-dup groups** (3 P4B collision remnants + 5 real artist
   clusters: Edmund Dulac ×4, Amaldus Nielsen ×3, Arthur Rackham ×3, etc.)
-  — manual review workflow (de-dupe / keep-both) is a future phase
+  — ✅ **P6C DONE** (2026-06-12): `scripts/review_near_duplicate_clusters.py` + `docs/NEAR_DUPLICATE_REVIEW.md` + conservative no-deletion policy + `limit_one_per_digest` for digest and public demo
 - **Digest history sliding window** (P4F · 30-day rolling index) — not
   yet built; current `digests.json` keeps all history but the public
   page renders only `latest`
@@ -460,6 +460,16 @@ build-script label fix remains.
 - Does NOT modify strict integrity (losers not in web/data → already excluded)
 - Future reports should split: `known_retired=N, blocking_unresolved=M`
 - See `<workspace>/reports/artvee-gallery-p6b-known-retired-urls-20260612.md`
+
+### P6C · Near-duplicate review workflow ✅ PASS (2026-06-12 21:31)
+- New: `scripts/review_near_duplicate_clusters.py` (Pillow-optional, fallback to P5D aHash, threshold=0 default)
+- New: `docs/NEAR_DUPLICATE_REVIEW.md` — design doc, review rules, and known findings
+- Conservative policy: no automatic deletion, no exclusion, no movement
+- 8 exact aHash clusters found (threshold=0): 3 collision_legacy + 2 artist_cluster + 3 mixed
+- Per-record policy: `keep` / `limit_one_per_digest` / `review_before_digest`
+- Runtime outputs: `reports/runtime/p6c-near-dup-clusters.{json,md}` + `p6c-near-dup-contact-sheet.html` (NOT tracked)
+- Contact sheet: static HTML, relative thumb paths, no base64, no local path leaks
+- See `<workspace>/reports/artvee-gallery-p6c-near-duplicate-review-20260612.md`
 
 ### P6G · KNOWN_RETIRED-aware status report ✅ PASS (2026-06-12 21:18)
 - Status split: `known_retired` (audited, not blocking) vs `blocking_unresolved` (needs attention)

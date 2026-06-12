@@ -414,3 +414,45 @@ allowed because it would corrupt the audit trail.
 The "known_retired=N, blocking_unresolved=M" split is the
 operational expression of this rule: N is bounded
 historical state, M is what needs attention.
+
+### 2.12 Near-duplicate is a curation concern, not necessarily a data integrity failure (P6C)
+
+P5D surfaced 8 exact aHash near-dup groups. The first instinct
+might be to "delete the duplicates" or "deduplicate the index".
+That would be wrong for three reasons:
+
+1. **Artistic intent is real.** Edmund Dulac's 4 book illustrations
+   are intentionally similar — they are part of a single commission
+   (e.g., a fairy-tale book). Amaldus Nielsen's 3 seascapes are
+   different works from the same artist's lifelong study of the
+   Norwegian coast. Deleting them would erase legitimate content.
+2. **aHash collisions are not content duplicates.** Two different
+   artists' black-and-white line drawings can produce the same
+   8×8 grayscale average hash. This is a perceptual-hash limitation,
+   not a data bug. Treating it as a bug would lead to false
+   deletions.
+3. **P4B collision legacy is data history, not data error.** The 3
+   collision-legacy clusters (same title, unique id/source_url/path)
+   are the trace of a bounded migration. They document that the
+   gallery once had ambiguous filenames and now has stable ids.
+   Removing them would erase the audit trail.
+
+**Rule**: when a near-duplicate detector surfaces a group, the
+first response should be **classification**, not **deletion**.
+Classify by: artist consistency, source_url uniqueness, title
+similarity, and id suffix pattern (hex suffix = collision legacy).
+Then apply a **curation policy** (keep_all / limit_one_per_digest /
+review_before_public) rather than a data-correction policy (delete /
+merge / deduplicate).
+
+The P6C workflow encodes this rule:
+- `scripts/review_near_duplicate_clusters.py` → read-only, no file modification
+- `docs/NEAR_DUPLICATE_REVIEW.md` → human review surface, not an automated gate
+- `limit_one_per_digest` → curation limit, not a data deletion
+- `collision_legacy` → documented history, not an error to fix
+
+**The general principle**: integrity gates detect *errors* (duplicate
+source_url, missing file, corrupt image). Near-duplicate detectors
+surface *curation concerns* (artist series, hash collisions, legacy
+artifacts). These concerns should be resolved by curation rules in
+the digest / demo builder, not by data-deletion in the archive.

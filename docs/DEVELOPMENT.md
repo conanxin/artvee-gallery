@@ -862,3 +862,63 @@ the PASS/FAIL decision of the candidate flow.
 - Atomic write via `.tmp` + `os.replace` (no partial files).
 - All inputs are optional — missing files are logged as
   warnings and the report uses a safe default.
+
+## 18. P6C Near-duplicate review workflow
+
+P6C turns the P5D visual-QA near-dup findings into a
+**reusable, conservative review workflow**. It does not
+delete, move, or exclude any artwork automatically.
+
+### Run the review
+
+```bash
+# Default: exact aHash match (threshold=0), reproduces P5D groups
+python3 scripts/review_near_duplicate_clusters.py
+
+# Outputs (runtime only, not tracked):
+#   reports/runtime/p6c-near-dup-clusters.json
+#   reports/runtime/p6c-near-dup-clusters.md
+#   reports/runtime/p6c-near-dup-contact-sheet.html
+
+# Expanded search: threshold=6 (more false positives, for exploration)
+python3 scripts/review_near_duplicate_clusters.py --threshold 6
+
+# Custom output paths
+python3 scripts/review_near_duplicate_clusters.py \
+  --out-json reports/runtime/p6c-near-dup-clusters.json \
+  --out-md reports/runtime/p6c-near-dup-clusters.md \
+  --contact-sheet reports/runtime/p6c-near-dup-contact-sheet.html
+```
+
+### Review the contact sheet
+
+Open `reports/runtime/p6c-near-dup-contact-sheet.html` in a
+browser from the repo root. The sheet uses relative paths to
+`thumbs/512/` (no base64, no local path leaks, no file
+copying). Each cluster is a visual group with title, artist,
+category, source_url, id, distance, and recommended policy.
+
+### What the clusters mean
+
+| Type | What it looks like | Policy | Digest rule |
+| --- | --- | --- | --- |
+| `collision_legacy` | Same title, different id with hex suffix, unique source_url | `keep_all` | `limit_one_per_digest` |
+| `artist_cluster` | Same artist, different works, visually similar | `keep_all` | `limit_one_per_digest` |
+| `true_series` | Same artist, same series, intentionally similar | `keep_all` | `limit_one_per_digest` |
+| `mixed` | Different artists, same aHash (false positive collision) | `keep_all` | `review_before_digest` |
+| `possible_duplicate` | Same source_url or same image_path (should not happen) | `review` | `review_before_digest` |
+
+### Integration with digest / public demo
+
+Future builders should read `p6c-near-dup-clusters.json` and:
+
+- Skip a second pick from the same `artist_cluster` or `collision_legacy` cluster in the same digest.
+- Flag `mixed` clusters for human curator review before inclusion.
+- Never auto-exclude; the policy is `limit` (not `delete`).
+
+### Safety
+
+- **No network.** Reads only local `web/data/artworks.json` and `thumbs/512/`.
+- **No file modification.** All outputs are under `reports/runtime/`.
+- **No deletion.** The script is a read-only auditor; it does not touch `web/data/`, `index/`, or `inbox/`.
+- **Fallback:** if Pillow is unavailable, reads P5D visual-QA JSON aHashes; if that is also missing, outputs `SKIP` with reason.

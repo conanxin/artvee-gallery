@@ -268,3 +268,61 @@ Future state changes:
   `python3 scripts/mark_known_retired_urls.py --apply`
   regenerates it from the canonical unresolved report
   (P5A primary, P4B fallback).
+
+## 11. Near-duplicate review (P6C)
+
+P6C extends the P5D visual QA pass into a **conservative
+near-duplicate review workflow**. It does not modify the
+gallery data; it produces runtime review artifacts for
+human curation and future digest/demo selection rules.
+
+### What P6C does
+
+```bash
+cd artvee-library
+python3 scripts/review_near_duplicate_clusters.py
+```
+
+Outputs (all runtime, not tracked):
+
+| Artifact | Path | Purpose |
+| --- | --- | --- |
+| JSON | `reports/runtime/p6c-near-dup-clusters.json` | Machine-readable cluster definitions + per-record policy |
+| Markdown | `reports/runtime/p6c-near-dup-clusters.md` | Human-readable review report |
+| HTML contact sheet | `reports/runtime/p6c-near-dup-contact-sheet.html` | Browser visual review (relative thumb paths, no base64) |
+
+### Default behavior
+
+- **Threshold = 0** (exact aHash match). This reproduces the P5D
+  exact-match groups and is the most conservative filter.
+- **Fallback:** if P5D visual QA JSON is available, reuses its
+  aHashes instead of recomputing 756 thumbnails. This makes P6C
+  run in seconds even on a large gallery.
+- **No network, no downloads, no file modification.** Pure local read.
+
+### Review policies (conservative, no deletion)
+
+| Type | Trigger | Policy | Digest rule | Public demo rule |
+| --- | --- | --- | --- | --- |
+| `collision_legacy` | P4B migration artifact: same title, unique source_url/image_path/id, hex suffix id | `keep_all` | `limit_one_per_digest` | `limit_one_per_digest` |
+| `artist_cluster` | Same artist, different works, same visual family (e.g., book-illustration series) | `keep_all` | `limit_one_per_digest` | `limit_one_per_digest` |
+| `true_series` | Same artist, same series, intentionally similar | `keep_all` | `limit_one_per_digest` | `limit_one_per_digest` |
+| `possible_duplicate` | Same source_url or same image_path (should not happen in strict integrity) | `review` | `review_before_digest` | `review_before_public` |
+| `mixed` | Different artists, same aHash (perceptual hash collision) | `keep_all` | `review_before_digest` | `review_before_public` |
+
+### Why not automatically delete near-dup groups?
+
+1. **Artistic intent:** An artist may produce a series of similar works (Dulac book illustrations, Nielsen landscapes).
+2. **Different editions:** Same artwork with different printings, colorings, or cropping are legitimate records.
+3. **aHash collisions:** 8×8 grayscale average hash is a fast perceptual hash, not a semantic fingerprint. Two different images can collide.
+4. **P4B collision legacy:** Past migration artifacts are data-state history, not errors. They have unique IDs, URLs, and paths.
+
+### Integration with digest and public demo
+
+Future builders should read `p6c-near-dup-clusters.json` and apply:
+
+- `limit_one_per_digest` → select at most one work from the cluster per daily digest
+- `review_before_digest` → flag for human curator; do not auto-select multiple works from the cluster
+- `review_before_public` → same for public demo
+
+The contact sheet is the human decision surface: open it in a browser, visually inspect the cluster, and document any overrides in `docs/NEAR_DUPLICATE_REVIEW.md`.
