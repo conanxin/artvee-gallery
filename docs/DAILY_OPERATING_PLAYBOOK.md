@@ -298,6 +298,37 @@ release baseline.
 | Strict integrity | PASS |
 | Public demo ready | true |
 | Digest ready | true |
+
+---
+
+## 11. v0.2.0 observation window checklist
+
+During the observation window (2026-06-14 — 2026-06-16), run this each morning after the 03:00 health check arrives:
+
+```markdown
+- [ ] 03:00 Telegram message received
+- [ ] MEDIA attachment present (or fallback text sent)
+- [ ] records within ~750–800
+- [ ] failed == 0
+- [ ] known_retired == 4
+- [ ] blocking_unresolved == 0
+- [ ] integrity == PASS
+- [ ] readiness == PASS
+- [ ] candidate_gallery == True
+- [ ] candidate_digest == True
+- [ ] online_gallery == 200
+- [ ] online_digest == 200
+- [ ] No manual intervention needed
+```
+
+**Scoring:**
+- All 12 checked → Green day, observation continues
+- 1–2 yellow items → Yellow day, document and watch
+- Any red item (integrity FAIL, readiness FAIL, blocking_unresolved > 0) → Red day, stop stable release planning
+
+At the end of Day 3 (2026-06-16), if all 3 days are green, v0.2.0 stable is approved. If any day is yellow or red, extend observation by 1 day and re-evaluate.
+
+See [docs/V0_2_OBSERVATION_WINDOW.md](V0_2_OBSERVATION_WINDOW.md) for full criteria, warning signs, and next steps.
 | Gallery demo | <https://conanxin.github.io/projects/artvee-gallery-demo/> |
 | Digest demo | <https://conanxin.github.io/projects/artvee-gallery-digest/> |
 | Cron rhythm | 01:30 refill · 02:00 nightly batch · 02:30 candidate refresh · 03:00 daily health · manual approved publish |

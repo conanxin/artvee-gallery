@@ -536,6 +536,14 @@ build-script label fix remains.
 - GitHub Release: `gh release create v0.2.0-alpha --notes-file docs/RELEASE_NOTES_v0.2.0-alpha.md`.
 - See `<workspace>/reports/artvee-gallery-p7d-v0.2.0-alpha-release-20260613.md`.
 
+### P7E · v0.2.0 observation window 🔄 IN PROGRESS (2026-06-14)
+- 3-day observation window: 2026-06-14 — 2026-06-16.
+- No new code, no data changes, no downloads, no publish. Only observation docs.
+- New doc: `docs/V0_2_OBSERVATION_WINDOW.md` defines daily checklist, healthy criteria, warning signs, and stable-readiness gates.
+- First-day signal: 03:02 Telegram health summary + MEDIA delivered; records=795, known_retired=4, blocking_unresolved=0, integrity=PASS, readiness=PASS, online=200+200.
+- Next: v0.2.0 stable if all 3 days are green.
+- See `<workspace>/reports/artvee-gallery-p7e-v0.2-observation-window-20260614.md`.
+
 ### Next (post-v0.2.0-alpha)
 - **v0.2.0 observation window** — let the cron run for a few days; the failure-only fallback (P7B+1) is the safety net for MEDIA regressions.
 - **P8 automation polish** — pre-flight `--dry-run` on the publish helper; optional 02:55 *pre-check* cron that runs the daily check in `--no-telegram` mode and alerts only on FAIL; CI matrix that exercises the cron installer in a container.

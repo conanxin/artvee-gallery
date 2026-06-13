@@ -46,6 +46,7 @@
 | **P7B** | Optional daily health Telegram cron | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7b-daily-health-telegram-cron-20260612.md` |
 | **P7B+1** | Cron MEDIA delivery verification / failure-only fallback | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7b1-cron-media-fallback-20260613.md` |
 | **P7D** | v0.2.0-alpha release consolidation | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7d-v0.2.0-alpha-release-20260613.md` |
+| **P7E** | v0.2.0 observation window setup | ✅ PASS | 2026-06-14 | `<workspace>/reports/artvee-gallery-p7e-v0.2-observation-window-20260614.md` |
 
 ### P7A daily-automation-hardening snapshot (2026-06-12 22:30 GMT+8)
 
@@ -469,6 +470,20 @@ refresh is expected on the P4B cut.
 | Public demos | Gallery: <https://conanxin.github.io/projects/artvee-gallery-demo/> · Digest: <https://conanxin.github.io/projects/artvee-gallery-digest/> |
 | Safety | No download / refill / batch / approve / GitHub Pages push. No tracked runtime files. No tokens / chat ids in tracked code or docs. |
 | Files changed | `README.md` (Latest release + docs index + operational model), `CHANGELOG.md` (new), `docs/RELEASE_NOTES_v0.2.0-alpha.md` (new), `docs/PROJECT_STATUS.md` (P7D row + snapshot), `docs/ROADMAP.md` (P7D completed), `docs/DEVELOPMENT.md` (release checklist), `docs/DAILY_OPERATING_PLAYBOOK.md` (v0.2.0-alpha operating baseline), `docs/RETROSPECTIVE.md` (release consolidation lesson). |
+
+### P7E v0.2.0-observation-window snapshot (2026-06-14 07:00 GMT+8)
+
+**Goal** — establish a 3-day observation window for v0.2.0-alpha before stable release. No new code, no data changes, no downloads, no publish.
+
+| Aspect | Value |
+|--------|-------|
+| Observation period | 2026-06-14 — 2026-06-16 (3 days) |
+| Daily health cron | 2026-06-14 03:02 — Telegram summary + MEDIA delivered successfully. Message ID 22919. |
+| First-day signal | records=795, known_retired=4, blocking_unresolved=0, integrity=PASS, readiness=PASS, candidate_gallery=True, candidate_digest=True, online_gallery=200, online_digest=200. |
+| Checklist | `docs/V0_2_OBSERVATION_WINDOW.md` defines daily checklist, healthy criteria, warning signs, and stable-readiness gates. |
+| Safety | No download / refill / batch / approve / GitHub Pages push. No tracked runtime files. Only docs and reports committed. |
+| Verification scripts | `check_open_source_ready.py` PASS, `check_gallery_integrity.py --strict` PASS, `build_artvee_status_report.py` PASS, `artvee_daily_health_check.sh --online --no-telegram` PASS. |
+| Files changed | `docs/V0_2_OBSERVATION_WINDOW.md` (new), `docs/PROJECT_STATUS.md` (P7E row + snapshot), `docs/ROADMAP.md` (P7E observation window), `docs/DAILY_OPERATING_PLAYBOOK.md` (observation checklist), `README.md` (observation note). |
 
 **Goal** — distinguish health-check internal MEDIA from phase-final MEDIA, expose three independent delivery tracks (text / media / fallback), and verify the cron path actually delivers the report.
 

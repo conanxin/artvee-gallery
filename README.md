@@ -14,6 +14,12 @@ Latest release: **v0.2.0-alpha** (2026-06-13). See
 [docs/RELEASE_NOTES_v0.2.0-alpha.md](docs/RELEASE_NOTES_v0.2.0-alpha.md)
 and [CHANGELOG.md](CHANGELOG.md).
 
+> **v0.2.0-alpha is under observation before stable release.**
+> See [docs/V0_2_OBSERVATION_WINDOW.md](docs/V0_2_OBSERVATION_WINDOW.md) for the 3-day observation window (2026-06-14 — 2026-06-16).
+
+> **v0.2.0-alpha is under observation before stable release.**
+> See [docs/V0_2_OBSERVATION_WINDOW.md](docs/V0_2_OBSERVATION_WINDOW.md) for the 3-day observation window (2026-06-14 — 2026-06-16).
+
 ## Live Demo
 
 Two static, CDN-friendly exports are published on GitHub Pages:
