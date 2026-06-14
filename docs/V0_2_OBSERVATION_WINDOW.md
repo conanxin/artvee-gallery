@@ -11,8 +11,27 @@ The v0.2.0-alpha release has been cut. Before promoting it to **v0.2.0 stable**,
 | Day | Date | Notes |
 |-----|------|-------|
 | Day 1 | 2026-06-14 | First day — health cron verified at 03:02 |
-| Day 2 | 2026-06-15 | Mid-window — confirm consistency |
+| Day 2 | 2026-06-15 | Mid-window — confirm consistency (records=815, online=200/200) |
 | Day 3 | 2026-06-16 | Final day — assess stable-readiness |
+
+### Day-by-day log
+
+#### Day 1 (2026-06-14)
+
+- 03:02 — Telegram health summary + MEDIA delivered (message_id 22919).
+- Status: records=795, known_retired=4, blocking_unresolved=0, integrity=PASS, readiness=PASS, online=200+200.
+- Verdict: **Green**.
+
+#### Day 2 (2026-06-15) — incident day, recovered
+
+- 03:00 — Telegram health summary delivered (message_id 23150 + media 23151), but the report flagged **`Online: gallery=0, digest=0`**. Local Artvee system was healthy; the `0,0` was signal distortion (see P7E+1).
+- 06:55 — P7E+1 read-only diagnosis: 9/9 public endpoints HTTP 404; remote `conanxin.github.io` `main` had moved forward 8–9 WBW SpaceX Mars publish commits (013fbdb → 3748acb) which had replaced the `projects/` subtree as a whole, deleting `projects/artvee-gallery-{demo,digest}/` (205 files / 2042 lines). Side finding: `projects/yang-fudong-fragrant-river/` (35 files) was also wiped in the same burst.
+- 07:18 — P7E+2 published a fresh artvee candidate via `publish_demo_refresh_candidate.sh --approve --cdn-wait 90`. Pages commit `a5ad80c` pushed. **9/9 endpoints HTTP 200**. Sample thumbs 5/5.
+- 07:25 — YF-RESTORE-1 (separate phase): `projects/yang-fudong-fragrant-river/` restored from source commit `3bcdf8b` (35 files / 332 KB). Pages commit `31b2ac7` pushed. 5/5 YF endpoints HTTP 200.
+- 07:35 — PAGES-GUARD-1 (separate phase): new `scripts/check-project-publish-guard.py` + `docs/PAGES_PUBLISH_GUARD.md` + 2 fixtures. Pages commit `6d3961c` pushed. Tests: allowed=13/13 PASS exit 0; blocked=6+2 FAIL exit 1.
+- 07:39 — current re-check: records=815, known_retired=4, blocking_unresolved=0, integrity=PASS, readiness=PASS, online=kind=ok, gallery=200, digest=200, both candidates ready, `recommended_action=candidate_ready_manual_publish_optional`.
+- 03:00 health cron itself continued to work (Telegram text + MEDIA both delivered). The Pages-drift event did not break the local cron pipeline; it only affected the `Online` block of the report.
+- Verdict: **Green with incident annotation** — the local Artvee system was healthy throughout; the public Pages drift was caught, diagnosed, and restored within ~4.5 hours without losing any local data and without rolling back the unrelated WBW Mars commits. The signal-distortion bug in the health check is now fixed (HTTPError is no longer collapsed to 0).
 
 ## 3. Daily expected timeline
 

@@ -566,6 +566,14 @@ build-script label fix remains.
 - Safety: no download / refill / batch / nightly; no full assets uploaded (only the public demo's existing thumbs already shipped in 2026-06-12 candidate); no `images/` / `metadata/` / `thumbs/` modification in this repo; no force-push; no rollback of WBW Mars commits.
 - See `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md`.
 
+### P7E+3 · v0.2.0 observation continuation (Day 2, 2026-06-15) 🔄 IN PROGRESS
+- Observation window continues: Day 1 (2026-06-14) green, Day 2 (2026-06-15) green with incident annotation (see `V0_2_OBSERVATION_WINDOW.md` day-by-day log).
+- Day-2 re-check at 07:39 GMT+8: records=815, known_retired=4, blocking_unresolved=0, integrity=pass, readiness=pass (4/4), online.kind=ok, gallery=200, digest=200, candidates ready, `recommended_action=candidate_ready_manual_publish_optional`.
+- Cross-repo sibling phases (in the shared Pages repo, not in artvee): **YF-RESTORE-1** restored `projects/yang-fudong-fragrant-river/` (Pages commit `31b2ac7`); **PAGES-GUARD-1** added `scripts/check-project-publish-guard.py` (Pages commit `6d3961c`).
+- Files changed in artvee: `docs/V0_2_OBSERVATION_WINDOW.md` (Day 2 log), `docs/PROJECT_STATUS.md` (continuation snapshot + P7E+1/P7E+2 phase markers), `docs/ROADMAP.md` (this entry).
+- Safety: no download / refill / batch / nightly; no runtime data modification; no `--approve`; no CI regression.
+- Next: **P7F** (stable readiness review) is **deferred** to Day 3 (2026-06-16) per the §4.1 entry-condition gate.
+
 ### Next (post-v0.2.0-alpha)
 - **v0.2.0 observation window** — let the cron run for a few days; the failure-only fallback (P7B+1) is the safety net for MEDIA regressions.
 - **P8 automation polish** — pre-flight `--dry-run` on the publish helper; optional 02:55 *pre-check* cron that runs the daily check in `--no-telegram` mode and alerts only on FAIL; CI matrix that exercises the cron installer in a container.

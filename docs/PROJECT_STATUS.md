@@ -47,6 +47,8 @@
 | **P7B+1** | Cron MEDIA delivery verification / failure-only fallback | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7b1-cron-media-fallback-20260613.md` |
 | **P7D** | v0.2.0-alpha release consolidation | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7d-v0.2.0-alpha-release-20260613.md` |
 | **P7E** | v0.2.0 observation window setup | ✅ PASS | 2026-06-14 | `<workspace>/reports/artvee-gallery-p7e-v0.2-observation-window-20260614.md` |
+| **P7E+1** | Online endpoint failure diagnosis (Pages content drift) | ✅ PASS | 2026-06-15 | `<workspace>/reports/artvee-gallery-p7e1-online-endpoint-failure-20260615.md` |
+| **P7E+2** | Public demo restore after Pages content drift | ✅ PASS | 2026-06-15 | `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md` |
 
 ### P7A daily-automation-hardening snapshot (2026-06-12 22:30 GMT+8)
 
@@ -535,3 +537,21 @@ refresh is expected on the P4B cut.
 | Safety | no download / refill / batch / nightly; no `images/` / `metadata/` / `thumbs/` modification; no full assets uploaded (only the pre-existing 2026-06-12 thumbs); no force-push; no WBW Mars rewind |
 | CI | `gh run list --workflow open-source-ready.yml --limit 3` kicked off — verdict pending at report time |
 | Report | `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md` |
+
+### v0.2.0 observation continuation snapshot (2026-06-15 07:39 GMT+8)
+
+**Goal** — continue the v0.2.0 observation window (which started 2026-06-14 and runs through 2026-06-16) after the Day-2 Pages-drift incident; record Day 2 status and the cross-repo actions taken in three sibling phases.
+
+| Aspect | Value |
+|--------|-------|
+| Local Artvee health (re-check) | records=815, known_retired=4, blocking_unresolved=0, strict_integrity=pass, readiness=pass (4/4) |
+| Online | `online.kind=ok`, `gallery_http_code=200`, `digest_http_code=200` |
+| Candidates | `gallery_ready=True`, `digest_ready=True` |
+| Recommended action | `candidate_ready_manual_publish_optional` |
+| Day 2 verdict | **Green with incident annotation** (see `V0_2_OBSERVATION_WINDOW.md`) |
+| Cross-repo action 1 (YF-RESTORE-1) | Pages commit `31b2ac7 Restore Yang Fudong project page` — restored `projects/yang-fudong-fragrant-river/` (35 files / 332 KB) from source `3bcdf8b` without WBW Mars rewind |
+| Cross-repo action 2 (PAGES-GUARD-1) | Pages commit `6d3961c Add shared Pages publish guard` — new `scripts/check-project-publish-guard.py` + `docs/PAGES_PUBLISH_GUARD.md` + 2 fixtures; allowed PASS exit 0, blocked FAIL exit 1 |
+| Files changed | `docs/V0_2_OBSERVATION_WINDOW.md` (Day 2 log), `docs/PROJECT_STATUS.md` (this snapshot + P7E+1/P7E+2 phase markers), `docs/ROADMAP.md` (continuation note) |
+| Safety | no download / refill / batch / nightly / `--approve`; no runtime data modification; no CI regression |
+| CI | `open-source-ready.yml` re-run after this commit |
+| Observation window | still open; Day 3 (2026-06-16) is the final day |
