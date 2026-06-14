@@ -363,3 +363,88 @@ Expected output:
 
 If any of these fail, see § 5 (Failure Playbook) before pulling
 in a different phase.
+
+---
+
+## 12. Online-endpoint content drift (P7E+1 / P7E+2, 2026-06-15)
+
+**Symptom** — Daily Health Telegram summary shows:
+
+```
+Online: gallery=404, digest=404
+Action: attention_required_pages_content_drift
+```
+
+(After P7E+2, `gallery_http_code` and `digest_http_code` are real HTTP codes; before
+P7E+2, the same symptom showed as `gallery=0, digest=0` because `except Exception`
+collapsed `urllib.error.HTTPError` into 0.)
+
+**What it means** — the local Artvee system is healthy (records pass strict
+integrity, candidates are ready), but the public GitHub Pages site is missing
+the `projects/artvee-gallery-demo/` or `projects/artvee-gallery-digest/`
+directories. The path exists; the *content* doesn't. This is content drift,
+not a network failure. `online.kind = "http_error"` and `gallery_error`
+contains the real reason (`HTTPError 404 Not Found`).
+
+**Recovery playbook** (read-only diagnosis, then approved publish):
+
+```bash
+# 1. Confirm: 9/9 endpoints HTTP 404 from this server
+for url in \
+  "https://conanxin.github.io/projects/artvee-gallery-demo/" \
+  "https://conanxin.github.io/projects/artvee-gallery-demo/data/artworks.json" \
+  "https://conanxin.github.io/projects/artvee-gallery-demo/data/gallery_stats.json" \
+  "https://conanxin.github.io/projects/artvee-gallery-demo/app.js" \
+  "https://conanxin.github.io/projects/artvee-gallery-demo/style.css" \
+  "https://conanxin.github.io/projects/artvee-gallery-digest/" \
+  "https://conanxin.github.io/projects/artvee-gallery-digest/digest.html" \
+  "https://conanxin.github.io/projects/artvee-gallery-digest/digest.md" \
+  "https://conanxin.github.io/projects/artvee-gallery-digest/data/digests.json"
+do
+  curl -L -I --max-time 10 -w '%{http_code} ' -o /dev/null -s "$url"
+  echo "  $url"
+done
+# expect: 404 404 404 404 404 404 404 404 404
+#         (NOT 0 0 0 0 0 0 0 0 0 — that would be network_error, different fix path)
+
+# 2. Pages repo: check drift
+cd <pages-repo>
+git fetch origin main
+git log --oneline f419d31..origin/main   # how far behind
+git ls-tree -r --name-only origin/main -- \
+  projects/artvee-gallery-demo projects/artvee-gallery-digest | wc -l   # expect 0
+
+# 3. Sync to current main (ff-only, NEVER force)
+git pull --ff-only
+
+# 4. Rebuild candidate + restore (artvee repo)
+cd <artvee-repo>
+bash scripts/confirm_demo_refresh.sh --no-telegram
+bash scripts/publish_demo_refresh_candidate.sh --date $(date +%F) --approve --cdn-wait 90
+
+# 5. Online re-verify (wait ≥90s for CDN)
+sleep 90
+# repeat the curl loop from step 1 — expect 200 200 ... 200
+```
+
+**Key rules**:
+
+- Do **not** revert the unrelated commits that triggered the drift (in the
+  2026-06-15 incident, those were 9 WBW SpaceX Mars publish commits). They
+  are correct work; they just share a `projects/` namespace with artvee.
+- Do **not** use `git add .` in the Pages repo. Stage explicit paths only.
+- Do **not** modify `images/` / `metadata/` / `thumbs/` / `inbox/` / `index/`
+  / `web/data/` in the artvee repo during a content-drift restore. The
+  candidate is already correct; the problem is upstream.
+- If `online.kind = "network_error"` (i.e. real `0`s, not `404`s), the
+  problem is DNS / TLS / Pages down / ISP — the recovery is *not* the
+  same. Re-run `--online` after 5–10 min; if it persists, check
+  `https://github.com/conanxin/conanxin.github.io/actions` for a Pages
+  build failure.
+
+**Related reports**:
+
+- `<workspace>/reports/artvee-gallery-p7e1-online-endpoint-failure-20260615.md`
+  — the diagnosis that surfaced the signal-distortion bug.
+- `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md`
+  — the approved restore that shipped `a5ad80c` and the health-script fix.

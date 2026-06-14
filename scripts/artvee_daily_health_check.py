@@ -197,30 +197,76 @@ def run_check(args):
                     else "candidate(s) missing for " + args.date + "; run confirm_demo_refresh.sh"),
     }
 
-    # 9. Online checks (optional)
+    # 9. Online checks (optional) — distinguishes HTTP 4xx/5xx from network 0
+    # P7E+2 (2026-06-15): content drift on conanxin.github.io surfaced that
+    # `except Exception` collapsed urllib's HTTPError (404/403) into 0, hiding
+    # path-existence failures behind network-failure noise. We now record the
+    # real HTTP code on HTTPError, and reserve 0 for genuine transport failures
+    # (DNS / TLS / timeout / connection refused).
     online = {"status": "SKIP", "details": "online check disabled; use --online to enable"}
+    online_kind = "skipped"
     if args.online:
         gallery_url = "https://conanxin.github.io/projects/artvee-gallery-demo/"
-        digest_url = "https://conanxin.github.io/projects/artvee-gallery-digest/"
-        try:
-            import urllib.request
-            gcode = urllib.request.urlopen(gallery_url, timeout=30).getcode()
-            dcode = urllib.request.urlopen(digest_url, timeout=30).getcode()
-        except Exception:
-            gcode, dcode = 0, 0
+        digest_url  = "https://conanxin.github.io/projects/artvee-gallery-digest/"
+
+        def _probe(url):
+            """Return (http_code:int, kind:str, error:str|None).
+            kind ∈ {ok, http_error, network_error}; 0 means transport failure."""
+            import urllib.request, urllib.error
+            try:
+                resp = urllib.request.urlopen(url, timeout=30)
+                return (resp.getcode(), "ok", None)
+            except urllib.error.HTTPError as e:
+                # Real HTTP response with non-2xx code — record it.
+                return (e.code, "http_error", f"HTTPError {e.code} {e.reason}")
+            except urllib.error.URLError as e:
+                # DNS / connection refused / TLS / network unreachable.
+                return (0, "network_error", f"URLError {e.reason}")
+            except (TimeoutError, ConnectionError) as e:
+                return (0, "network_error", f"timeout/connection: {e}")
+            except Exception as e:
+                # Unexpected — still surface something so we don't silently collapse.
+                return (0, "network_error", f"{type(e).__name__}: {e}")
+
+        gcode, gkind, gerr = _probe(gallery_url)
+        dcode, dkind, derr = _probe(digest_url)
+        # Aggregate kind: ok only if both ok; http_error if any is http_error
+        # (and the other is not network_error); otherwise network_error.
+        if gkind == "ok" and dkind == "ok":
+            online_kind = "ok"
+        elif gkind == "network_error" or dkind == "network_error":
+            online_kind = "network_error"
+        else:
+            online_kind = "http_error"
+
         online = {
             "gallery_url": gallery_url,
             "gallery_http_code": gcode,
+            "gallery_kind": gkind,
+            "gallery_error": gerr,
             "digest_url": digest_url,
             "digest_http_code": dcode,
+            "digest_kind": dkind,
+            "digest_error": derr,
+            "kind": online_kind,
             "status": "PASS" if (gcode == 200 and dcode == 200) else "FAIL",
             "details": ("both public endpoints return 200" if (gcode == 200 and dcode == 200)
-                        else f"one or more public endpoints failed (gallery={gcode}, digest={dcode})"),
+                        else (f"http_error (gallery={gcode}, digest={dcode}) — Pages content drift or path removed"
+                              if online_kind == "http_error"
+                              else f"network_error (gallery={gcode}, digest={dcode}) — DNS/TLS/timeout/unreachable")),
         }
 
     # Determine recommended action
     blocking = status_report.get("blocking_unresolved", 0) or 0
-    if integrity["status"] == "PASS" and readiness["status"] == "PASS" and blocking == 0:
+    # Online failure takes priority and shapes the action label
+    if args.online and online.get("status") == "FAIL":
+        if online_kind == "http_error":
+            action = "attention_required_pages_content_drift"
+        elif online_kind == "network_error":
+            action = "attention_required_network_or_pages_unreachable"
+        else:
+            action = "attention_required_online_check"
+    elif integrity["status"] == "PASS" and readiness["status"] == "PASS" and blocking == 0:
         if gallery_ready and digest_ready:
             action = "candidate_ready_manual_publish_optional"
         else:

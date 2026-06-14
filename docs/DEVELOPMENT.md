@@ -292,3 +292,118 @@ gh release view v0.2.0-alpha --json tagName,name,url,isPrerelease
 - The release must not trigger a download, refill, batch, or
   `publish_demo_refresh_candidate.sh --approve`. The publish
   step is always manual.
+
+---
+
+## 24. P7E+2 Online-check HTTPError / URLError semantics
+
+P7E+1 (2026-06-15) found that the daily health check's online check
+(`scripts/artvee_daily_health_check.py:200-219`) was masking a
+content-drift incident as a network failure. The old code:
+
+```python
+try:
+    gcode = urllib.request.urlopen(gallery_url, timeout=30).getcode()
+    dcode = urllib.request.urlopen(digest_url,  timeout=30).getcode()
+except Exception:
+    gcode, dcode = 0, 0
+```
+
+collapsed *all* errors into `0, 0` — including `urllib.error.HTTPError`,
+which is a *response* (404, 403, 500) and not a *transport* failure.
+When a `--online` cron run then reports `Online: gallery=0, digest=0`,
+the operator cannot tell whether the public site is unreachable (DNS
+/ TLS / timeout) or simply missing the path (404).
+
+P7E+2 splits the error handling so the two cases are distinguishable.
+
+### 24.1 Three failure kinds, two numeric codes
+
+| `online.kind`     | `gallery_http_code` | `gallery_error`                              | meaning                                    |
+|-------------------|---------------------|----------------------------------------------|--------------------------------------------|
+| `ok`              | `200`               | `null`                                       | both endpoints reachable, 200 OK           |
+| `http_error`      | real code (`404`)   | `"HTTPError 404 Not Found"`                  | endpoint reachable, but path is wrong / removed / drift |
+| `network_error`   | `0`                 | `"URLError [Errno -2] Name or service not known"` (or `"timeout/connection: ..."`) | DNS / TLS / connection refused / timeout / Pages down |
+| `skipped`         | n/a                 | n/a                                          | `--online` was not passed                  |
+
+### 24.2 Implementation
+
+The new code is a small private helper:
+
+```python
+def _probe(url):
+    """Return (http_code:int, kind:str, error:str|None)."""
+    import urllib.request, urllib.error
+    try:
+        resp = urllib.request.urlopen(url, timeout=30)
+        return (resp.getcode(), "ok", None)
+    except urllib.error.HTTPError as e:
+        return (e.code, "http_error", f"HTTPError {e.code} {e.reason}")
+    except urllib.error.URLError as e:
+        return (0, "network_error", f"URLError {e.reason}")
+    except (TimeoutError, ConnectionError) as e:
+        return (0, "network_error", f"timeout/connection: {e}")
+    except Exception as e:
+        return (0, "network_error", f"{type(e).__name__}: {e}")
+```
+
+Each endpoint is probed independently. The aggregate `online.kind` is
+`ok` only if both are `ok`; otherwise it is `network_error` if either
+is `network_error`; otherwise `http_error`.
+
+### 24.3 Recommended action branches
+
+The action label is now chosen by priority: an online FAIL beats any
+internal check, and the kind shapes the wording.
+
+| Condition                                | `recommended_action`                              |
+|------------------------------------------|---------------------------------------------------|
+| `online.status == "FAIL"` and `http_error` | `attention_required_pages_content_drift`         |
+| `online.status == "FAIL"` and `network_error` | `attention_required_network_or_pages_unreachable` |
+| `online.status == "FAIL"` (other)        | `attention_required_online_check`                 |
+| internal integrity/readiness FAIL         | `attention_required`                              |
+| gallery_ready AND digest_ready            | `candidate_ready_manual_publish_optional`        |
+| otherwise                                 | `healthy_no_action`                               |
+
+### 24.4 Backward compatibility
+
+- The legacy `online.gallery_http_code` and `online.digest_http_code`
+  fields are still present. For pre-fix reports they were `0` on
+  every error; for post-fix reports they are the real code (200, 404,
+  0, etc.). The Telegram summary template still emits
+  `Online: gallery={gcode}, digest={dcode}`, but the meaning of
+  `0` is now narrower: it means *transport failure only*.
+- The legacy `online.details` field is still present, but its
+  wording now distinguishes `http_error` from `network_error`.
+- The legacy `recommended_action` strings (`healthy_no_action`,
+  `candidate_ready_manual_publish_optional`, `attention_required`)
+  are unchanged. The two new action strings are additive
+  (`attention_required_pages_content_drift`,
+  `attention_required_network_or_pages_unreachable`,
+  `attention_required_online_check`).
+
+### 24.5 Test recipes
+
+| Test                                            | Expected                                                              |
+|-------------------------------------------------|-----------------------------------------------------------------------|
+| `bash scripts/artvee_daily_health_check.sh --online --no-telegram` (when sites are live) | `kind=ok`, `gallery_http_code=200`, `digest_http_code=200`, `action=candidate_ready_manual_publish_optional` |
+| Synthetic 404: `urllib.request.urlopen("https://conanxin.github.io/projects/nonexistent-artvee-12345/")` | `(404, "http_error", "HTTPError 404 Not Found")` |
+| Synthetic network: `urllib.request.urlopen("https://nonexistent-host-artvee-12345.invalid/")` | `(0, "network_error", "URLError [Errno -2] Name or service not known")` |
+
+### 24.6 Lessons
+
+- **Bare `except Exception` is a debugging anti-pattern in any code
+  path that maps an exception to a status code.** It hides the
+  semantic difference between "the server said no" and "we never
+  reached the server". Always prefer at minimum
+  `except urllib.error.HTTPError:` and `except urllib.error.URLError:`.
+- **Cron + Telegram amplifies signal-distortion bugs.** Because the
+  daily health summary is the operator's only glance, a 0/0 mask
+  means *the operator is debugging in the dark* — even when the
+  underlying data is fine. The lesson is to make every numeric
+  field in the report truthful, even at the cost of a slightly
+  noisier report.
+- **Separate "transport failure" from "application-layer failure"**
+  in any health check. They imply different fix paths:
+  `network_error` → check DNS / Pages status; `http_error` → check
+  path / namespace drift / explicit removal.

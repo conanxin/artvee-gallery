@@ -497,3 +497,41 @@ refresh is expected on the P4B cut.
 | Secret hygiene | Hardcoded `DEFAULT_CHAT_ID = '<digits>'` removed from `artvee_telegram_notify.py`. Resolution is now: `--chat-id` CLI > `ARTVEE_TELEGRAM_CHAT_ID` env > OpenClaw config > hard error. No tokens / chat ids in tracked code. |
 | Health | `records=756, known_retired=4, blocking_unresolved=0, strict_integrity=PASS, readiness=PASS` |
 | Files changed | `scripts/artvee_daily_health_check.py` (nested `telegram` object + fallback + simulate), `scripts/artvee_daily_health_check.sh` (pass-through new flag), `scripts/artvee_telegram_notify.py` (message_id extraction; chat_id from env/config, no hardcoded literal), `scripts/install_daily_health_cron.sh` (PATH + chat_id env, fallback comment, idempotent), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9), `docs/DEVELOPMENT.md` (§ 22), `docs/RETROSPECTIVE.md` (lesson), `docs/ROADMAP.md` (P7B+1 → completed). |
+
+### P7E+1 online-drift-diagnosis snapshot (2026-06-15 06:55 GMT+8)
+
+**Goal** — diagnose why the 03:00 Daily Health cron reported `Online: gallery=0, digest=0` while the local Artvee system was clearly healthy. Read-only.
+
+| Aspect | Value |
+|--------|-------|
+| Local Artvee health | records=815, known_retired=4, blocking_unresolved=0, strict_integrity=pass, public_demo_ready=True, digest_ready=True |
+| Local repo HEAD | `aa82608 Add v0.2.0 observation window` (clean) |
+| Server-side curl on 9/9 endpoints | **all HTTP 404** in 0.7–3.9s (DNS+TLS ok) |
+| Local Pages HEAD | `f419d31` (clean, 215 artvee files locally) |
+| Remote Pages `origin/main` HEAD | `41bb6258` (later seen as `3748acb` after fresh fetch — 9 WBW Mars polish commits) |
+| Drift evidence | `git diff --stat f419d31 origin/main -- projects/artvee-gallery-demo` = 205 files / 2042 deletions |
+| Trigger commits | 8 WBW SpaceX Mars publishes (013fbdb → 41bb625) |
+| Side finding | `projects/yang-fudong-fragrant-river/` (35 files) was wiped in the same burst — flagged for follow-up |
+| Root cause | WBW Mars publish flow replaced `projects/` subtree; local f419d31 had not followed |
+| Signal distortion | `except Exception` in `artvee_daily_health_check.py:209` swallowed `urllib.error.HTTPError` and emitted `0,0` instead of `404,404` |
+| Safety | no download / refill / batch / push / commit / approve |
+| Report | `<workspace>/reports/artvee-gallery-p7e1-online-endpoint-failure-20260615.md` |
+
+### P7E+2 public-demo-restore snapshot (2026-06-15 07:18 GMT+8)
+
+**Goal** — restore the `projects/artvee-gallery-demo/` and `projects/artvee-gallery-digest/` subtrees on the public GitHub Pages, fix the health-script online-check signal distortion, and document the recovery, **without** reverting any of the WBW Mars commits.
+
+| Aspect | Value |
+|--------|-------|
+| Pages restore commit | `a5ad80c Refresh Artvee public demos from approved candidate 2026-06-15` |
+| Pages `origin/main` after push | `3748acb..a5ad80c` (no force push, no reset, no WBW Mars rewind) |
+| Online re-verify | 9/9 endpoints HTTP 200; sample thumbs 5/5 across `[0, 25, 50, 75, 99]` of public `artworks.json` (100 records) |
+| Health script fix | `except Exception` split into `HTTPError` (record real code) / `URLError` (record 0 + `network_error`) / `TimeoutError` / `ConnectionError`; new `online.kind`, `online.gallery_error`, `online.digest_error`; new `recommended_action` branches: `attention_required_pages_content_drift` (404) vs `attention_required_network_or_pages_unreachable` (0) |
+| Verified with live run | `bash scripts/artvee_daily_health_check.sh --online --no-telegram` → `kind=ok`, `gallery_http_code=200`, `digest_http_code=200`, `recommended_action=candidate_ready_manual_publish_optional` |
+| Verified with synthetic 404 | `urllib.request.urlopen("https://conanxin.github.io/projects/nonexistent-artvee-12345/")` → `(404, "http_error", "HTTPError 404 Not Found")` |
+| Verified with synthetic network fail | bad host → `(0, "network_error", "URLError [Errno -2] Name or service not known")` |
+| Doc updates | `docs/ROADMAP.md` (P7E+1 + P7E+2 rows), `docs/PROJECT_STATUS.md` (snapshots), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 12), `docs/DEVELOPMENT.md` (§ 23), `docs/RETROSPECTIVE.md` (lesson 2.15) |
+| Artvee repo commit | one commit, one push — `scripts/artvee_daily_health_check.py` + 5 docs |
+| Safety | no download / refill / batch / nightly; no `images/` / `metadata/` / `thumbs/` modification; no full assets uploaded (only the pre-existing 2026-06-12 thumbs); no force-push; no WBW Mars rewind |
+| CI | `gh run list --workflow open-source-ready.yml --limit 3` kicked off — verdict pending at report time |
+| Report | `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md` |

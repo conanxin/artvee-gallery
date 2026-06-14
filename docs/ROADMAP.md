@@ -544,6 +544,28 @@ build-script label fix remains.
 - Next: v0.2.0 stable if all 3 days are green.
 - See `<workspace>/reports/artvee-gallery-p7e-v0.2-observation-window-20260614.md`.
 
+### P7E+1 · Online endpoint failure diagnosis ✅ PASS (2026-06-15 06:55)
+- Read-only diagnosis of the 03:00 Daily Health anomaly (`Online: gallery=0, digest=0`).
+- Verified the **local Artvee system is healthy** (815 records, strict integrity PASS, readiness PASS, candidates ready, no blocking unresolved).
+- Server-side curl of 9/9 public endpoints → all **HTTP 404** (DNS+TLS work; the paths genuinely do not exist on Pages).
+- Git forensic: local `conanxin.github.io` HEAD = `f419d31` (2026-06-12 artvee refresh); remote `origin/main` = `41bb6258` (local 8 commits behind). Between the two, 8 WBW SpaceX Mars publish commits (013fbdb → 41bb625) removed the entire `projects/artvee-gallery-demo/` and `projects/artvee-gallery-digest/` subtrees (205 files / 2042 lines). `git ls-tree -r origin/main -- projects/artvee-gallery-{demo,digest}` = 0 files.
+- Diagnosed: health script's `except Exception` swallowed `urllib.error.HTTPError` (404), so the real code was masked as 0 — **signal distortion, not network failure**.
+- Side-finding: the same WBW Mars publish burst also wiped `projects/yang-fudong-fragrant-river/` (35 files). Out of scope for P7E+1; flagged for follow-up.
+- No download / refill / batch / push / commit during diagnosis.
+- See `<workspace>/reports/artvee-gallery-p7e1-online-endpoint-failure-20260615.md`.
+
+### P7E+2 · Public demo restore after GitHub Pages content drift ✅ PASS (2026-06-15 07:18)
+- Restored `projects/artvee-gallery-demo/` (215 files / 5.7 MB) and `projects/artvee-gallery-digest/` (5 files / 284 KB) on the public GitHub Pages without reverting any of the 9 WBW Mars commits.
+- Workflow: `git pull --ff-only` (Pages local f419d31 → 3748acb, no force, no reset) → `confirm_demo_refresh.sh` PASS → `publish_demo_refresh_candidate.sh --date 2026-06-15 --approve --cdn-wait 90` (single commit + push).
+- Restore commit on `origin/main`: **`a5ad80c`** ("Refresh Artvee public demos from approved candidate 2026-06-15"), pushed `3748acb..a5ad80c`.
+- Online re-verification: 9/9 endpoints HTTP 200 (gallery 5/5 + digest 5/5; sample thumbs 5/5 across `[0, 25, 50, 75, 99]`).
+- **Health script fix** in `scripts/artvee_daily_health_check.py` (P7E+2 §7): split `except Exception` into `urllib.error.HTTPError` (record real HTTP code) / `urllib.error.URLError` (record 0 + `network_error`) / `TimeoutError` / `ConnectionError`. New `online.kind` ∈ {ok, http_error, network_error, skipped}; new `online.gallery_http_code` and `online.gallery_error` fields. `recommended_action` now branches: `attention_required_pages_content_drift` (404-class) vs `attention_required_network_or_pages_unreachable` (0-class) vs the original healthy actions. Backward compatible with old summary keys.
+- New section in `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 12) for `Online: gallery=404, digest=404` content-drift recovery.
+- Artvee repo commit: adds the health script fix + the 5 doc updates. One commit, one push, no dirty runtime files, no secrets in tracked paths.
+- CI: `open-source-ready.yml` run kicked off; verdict pending at report time.
+- Safety: no download / refill / batch / nightly; no full assets uploaded (only the public demo's existing thumbs already shipped in 2026-06-12 candidate); no `images/` / `metadata/` / `thumbs/` modification in this repo; no force-push; no rollback of WBW Mars commits.
+- See `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md`.
+
 ### Next (post-v0.2.0-alpha)
 - **v0.2.0 observation window** — let the cron run for a few days; the failure-only fallback (P7B+1) is the safety net for MEDIA regressions.
 - **P8 automation polish** — pre-flight `--dry-run` on the publish helper; optional 02:55 *pre-check* cron that runs the daily check in `--no-telegram` mode and alerts only on FAIL; CI matrix that exercises the cron installer in a container.

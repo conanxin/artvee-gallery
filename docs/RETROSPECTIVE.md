@@ -560,3 +560,72 @@ The P6F implementation encodes this rule:
 - No network, no file modification to source data, no deletion, no GitHub Pages push
 
 **The general principle**: curation is not just about what you include; it is about what you exclude and when you exclude it. A time-aware exclusion rule is a feature, not a bug.
+
+### 2.15 GitHub Pages shared-repo publish can delete unrelated project subtrees; health checks must distinguish HTTP 4xx from network 0 (P7E+1 / P7E+2, 2026-06-15)
+
+The artvee public Gallery and Digest pages share a `projects/` namespace
+with every other project on the same `conanxin.github.io` Pages site.
+Between 2026-06-12 and 2026-06-15, 9 WBW SpaceX Mars publish commits
+(013fbdb → 3748acb) were merged into the shared Pages repo. In the
+process, the `projects/artvee-gallery-{demo,digest}/` subtrees
+(**205 files, 2042 lines**) and the unrelated
+`projects/yang-fudong-fragrant-river/` subtree (**35 files**) were
+both removed. The artvee Daily Health cron detected the failure —
+but it reported `Online: gallery=0, digest=0`, masking a content
+problem as a network problem.
+
+Two bugs compounded into one incident:
+
+1. **The Pages publish flow used an over-broad `git add` / `rsync`
+   pattern that replaced the `projects/` subtree as a whole rather
+   than the specific new subdirectory.** When the unrelated WBW
+   project publish replaced `projects/`, it deleted every other
+   project. This is a *shared-namespace hazard* of using a single
+   Pages repo for many projects; the immediate fix is to stage
+   explicit paths (`git add projects/wbw-spacex-mars-cn ...`) and to
+   forbid `git add .` in the publish scripts. The structural fix
+   is to give each project its own Pages repo or its own GitHub
+   Pages deployment (one repo per project, not one repo for all).
+
+2. **The daily health check's online probe used a bare
+   `except Exception`** which collapsed `urllib.error.HTTPError`
+   (a *response*, with a real HTTP code) into the same `0` as
+   `urllib.error.URLError` (a *transport failure*). The result:
+   `0,0` was uninformative — the operator could not tell whether
+   the public site was unreachable or whether the path was
+   missing. The P7E+2 fix splits the exception handling into
+   `HTTPError` (record the real code) vs `URLError` /
+   `TimeoutError` / `ConnectionError` (record `0` + `network_error`),
+   adds an `online.kind` discriminator, and routes the
+   `recommended_action` through three branches: `pages_content_drift`
+   (404-class) vs `network_or_pages_unreachable` (0-class) vs the
+   original healthy actions.
+
+**The general principle**: when many projects share one GitHub
+Pages repo, the publish flow MUST be path-explicit and the
+health check MUST distinguish "the server is unreachable" from
+"the server returned a 4xx/5xx". A `0,0` report that *could* be
+either is worse than a `404,404` report that is unambiguous; the
+latter tells the operator exactly what to do (re-publish), while
+the former only tells them to start guessing.
+
+**Rules**:
+
+- **For shared-namespace Pages repos**: every publish script must
+  stage explicit paths. `git add .` in `conanxin.github.io` is
+  forbidden; the dry-run output of the publish helper must
+  enumerate the exact paths it intends to commit.
+- **For health checks that probe the public site**: split
+  `HTTPError` from `URLError`. The numeric code is a fact; the
+  kind is a fact; never collapse them.
+- **For daily summaries delivered to Telegram / Slack / email**:
+  the summary must remain truthful even when the underlying
+  signal is ambiguous. A `gallery=0, digest=0` summary that
+  could mean either "DNS down" or "path missing" forces the
+  operator to re-curl manually. A `gallery=404, digest=404`
+  summary points them straight to the fix.
+- **For the operator**: when `Online: gallery=404, digest=404`
+  appears, do not re-run the cron. Re-publish the candidate
+  (the local data is fine; the public site is missing the path).
+  See `docs/DAILY_OPERATING_PLAYBOOK.md` § 12 for the recovery
+  playbook.
