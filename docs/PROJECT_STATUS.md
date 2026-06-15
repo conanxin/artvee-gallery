@@ -49,6 +49,29 @@
 | **P7E** | v0.2.0 observation window setup | ✅ PASS | 2026-06-14 | `<workspace>/reports/artvee-gallery-p7e-v0.2-observation-window-20260614.md` |
 | **P7E+1** | Online endpoint failure diagnosis (Pages content drift) | ✅ PASS | 2026-06-15 | `<workspace>/reports/artvee-gallery-p7e1-online-endpoint-failure-20260615.md` |
 | **P7E+2** | Public demo restore after Pages content drift | ✅ PASS | 2026-06-15 | `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md` |
+| **P7F** | v0.2.0 stable readiness review (3-day observation complete, all green) | ✅ PASS | 2026-06-16 | `<workspace>/reports/artvee-gallery-p7f-v0.2-stable-readiness-20260616.md` |
+
+### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
+
+**Goal** — close the v0.2.0 observation window (Day 1 / Day 2 / Day 3) and produce a stable-readiness assessment without cutting any tag or release.
+
+| Aspect | Value |
+|--------|-------|
+| Review doc | `docs/STABLE_READINESS_v0.2.0.md` (new, tracked) |
+| Live records | 835 (live rebuild; 03:00 daily-health snapshot reported 815) |
+| Live integrity | strict PASS, 0 duplicates, 3/3 sections PASS |
+| Live readiness | PASS, 4/4 sub-checks (generated-data, path-leak, secret-keyword, file-size) |
+| Online | 6/6 endpoints HTTP 200 (gallery + digest) |
+| Known retired | 4 |
+| Blocking unresolved | 0 |
+| Telegram cron | Installed, ran 03:00, delivered text (23707) + MEDIA (23709) |
+| Readiness checklist | 15 / 15 PASS |
+| Day 1 / Day 2 / Day 3 verdicts | Green / Green (post-restore, with incident annotation) / Green |
+| Day-2 incident | Diagnosed (P7E+1) + restored (P7E+2) + guarded (cross-repo PAGES-GUARD-1) + signal-distortion bug fixed in `artvee_daily_health_check.py` |
+| Tag cut | **No** — pending user approval |
+| GitHub Release | **No** — pending user approval |
+| Pages push | **No** — no runtime change required |
+| Safety | No download / refill / batch / `--approve`; no `images/`, `metadata/`, `thumbs/`, `dist/`, `digests/`, `logs/`, `inbox/`, `web/data/`, `index/`, `reports/runtime/`, `tmp/` modification; no secrets / real paths leaked |
 
 ### P7A daily-automation-hardening snapshot (2026-06-12 22:30 GMT+8)
 

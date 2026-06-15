@@ -16,9 +16,15 @@ and [CHANGELOG.md](CHANGELOG.md).
 
 > **v0.2.0-alpha is under observation before stable release.**
 > See [docs/V0_2_OBSERVATION_WINDOW.md](docs/V0_2_OBSERVATION_WINDOW.md) for the 3-day observation window (2026-06-14 — 2026-06-16).
+> Stable-readiness assessment (P7F, 2026-06-16): 15/15 PASS — see
+> [docs/STABLE_READINESS_v0.2.0.md](docs/STABLE_READINESS_v0.2.0.md).
+> Tag / release pending user approval.
 
 > **v0.2.0-alpha is under observation before stable release.**
 > See [docs/V0_2_OBSERVATION_WINDOW.md](docs/V0_2_OBSERVATION_WINDOW.md) for the 3-day observation window (2026-06-14 — 2026-06-16).
+> Stable-readiness assessment (P7F, 2026-06-16): 15/15 PASS — see
+> [docs/STABLE_READINESS_v0.2.0.md](docs/STABLE_READINESS_v0.2.0.md).
+> Tag / release pending user approval.
 
 ## Live Demo
 

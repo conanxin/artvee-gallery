@@ -566,18 +566,29 @@ build-script label fix remains.
 - Safety: no download / refill / batch / nightly; no full assets uploaded (only the public demo's existing thumbs already shipped in 2026-06-12 candidate); no `images/` / `metadata/` / `thumbs/` modification in this repo; no force-push; no rollback of WBW Mars commits.
 - See `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md`.
 
-### P7E+3 · v0.2.0 observation continuation (Day 2, 2026-06-15) 🔄 IN PROGRESS
+### P7E+3 · v0.2.0 observation continuation (Day 2, 2026-06-15) ✅ PASS (closed by P7F)
 - Observation window continues: Day 1 (2026-06-14) green, Day 2 (2026-06-15) green with incident annotation (see `V0_2_OBSERVATION_WINDOW.md` day-by-day log).
 - Day-2 re-check at 07:39 GMT+8: records=815, known_retired=4, blocking_unresolved=0, integrity=pass, readiness=pass (4/4), online.kind=ok, gallery=200, digest=200, candidates ready, `recommended_action=candidate_ready_manual_publish_optional`.
 - Cross-repo sibling phases (in the shared Pages repo, not in artvee): **YF-RESTORE-1** restored `projects/yang-fudong-fragrant-river/` (Pages commit `31b2ac7`); **PAGES-GUARD-1** added `scripts/check-project-publish-guard.py` (Pages commit `6d3961c`).
 - Files changed in artvee: `docs/V0_2_OBSERVATION_WINDOW.md` (Day 2 log), `docs/PROJECT_STATUS.md` (continuation snapshot + P7E+1/P7E+2 phase markers), `docs/ROADMAP.md` (this entry).
 - Safety: no download / refill / batch / nightly; no runtime data modification; no `--approve`; no CI regression.
-- Next: **P7F** (stable readiness review) is **deferred** to Day 3 (2026-06-16) per the §4.1 entry-condition gate.
+- Status: closed on 2026-06-16 by **P7F** (stable readiness review). Day 3 ran clean; see `docs/STABLE_READINESS_v0.2.0.md` for the 15/15 PASS checklist.
+
+### P7F · v0.2.0 stable readiness review ✅ PASS (2026-06-16 06:38)
+- 3-day observation window closed: Day 1 (2026-06-14) green, Day 2 (2026-06-15) green with incident annotation, Day 3 (2026-06-16) green.
+- New doc: `docs/STABLE_READINESS_v0.2.0.md` — 15/15 readiness criteria PASS (repo state, integrity, readiness, online 6/6 endpoints, Telegram cron text+MEDIA, no tracked secrets / runtime data, Day-2 incident closed).
+- Live rebuild snapshot: records=835, known_retired=4, blocking_unresolved=0, strict_integrity=pass, readiness=pass (4/4), online 6/6 endpoints HTTP 200.
+- Telegram cron verified: text (message_id 23707) + MEDIA (message_id 23709) delivered at 03:00 Asia/Shanghai on 2026-06-16.
+- Day-2 incident fully closed (Pages content drift: diagnosed P7E+1, restored P7E+2, Pages publish guard shipped cross-repo, signal-distortion bug fixed in `artvee_daily_health_check.py`).
+- Safety: no download / refill / batch / nightly / `--approve`; no `images/`, `metadata/`, `thumbs/`, `dist/`, `digests/`, `logs/`, `inbox/`, `web/data/`, `index/`, `reports/runtime/`, `tmp/` modification; no secrets / real paths leaked.
+- Files changed: `docs/STABLE_READINESS_v0.2.0.md` (new), `docs/PROJECT_STATUS.md` (P7F row + snapshot), `docs/ROADMAP.md` (this entry), `docs/V0_2_OBSERVATION_WINDOW.md` (Day 3 PASS), `README.md` (stable-readiness link).
+- **Tag / release:** **not** cut. `v0.2.0` stable is **pending user approval**.
+- See `<workspace>/reports/artvee-gallery-p7f-v0.2-stable-readiness-20260616.md`.
 
 ### Next (post-v0.2.0-alpha)
-- **v0.2.0 observation window** — let the cron run for a few days; the failure-only fallback (P7B+1) is the safety net for MEDIA regressions.
+- **v0.2.0 stable** — pending user approval (see `docs/STABLE_READINESS_v0.2.0.md` §8 for the cut checklist).
 - **P8 automation polish** — pre-flight `--dry-run` on the publish helper; optional 02:55 *pre-check* cron that runs the daily check in `--no-telegram` mode and alerts only on FAIL; CI matrix that exercises the cron installer in a container.
-- **v0.2.0 stable** — cut after the observation window, with the `KNOWN_RETIRED` table moved into the public demo's UI.
+- **Promote `KNOWN_RETIRED` to the public demo UI** — optional follow-up from the original P7 observation plan.
 
 ### P7B+1 · Cron MEDIA delivery verification / failure-only fallback ✅ PASS (2026-06-13 04:30)
 - Refactored `telegram` JSON object: `requested` / `openclaw_status` / `text_summary{attempted,sent,message_id,error}` / `media{requested,staged,staged_path,sent,message_id,error,simulated_failure}` / `fallback{attempted,sent,message_id,reason}`.

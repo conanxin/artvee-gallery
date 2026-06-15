@@ -33,6 +33,14 @@ The v0.2.0-alpha release has been cut. Before promoting it to **v0.2.0 stable**,
 - 03:00 health cron itself continued to work (Telegram text + MEDIA both delivered). The Pages-drift event did not break the local cron pipeline; it only affected the `Online` block of the report.
 - Verdict: **Green with incident annotation** — the local Artvee system was healthy throughout; the public Pages drift was caught, diagnosed, and restored within ~4.5 hours without losing any local data and without rolling back the unrelated WBW Mars commits. The signal-distortion bug in the health check is now fixed (HTTPError is no longer collapsed to 0).
 
+#### Day 3 (2026-06-16) — final day, observation closed
+
+- 03:00 — Daily health cron delivered Telegram text summary (message_id 23707) + MEDIA report (message_id 23709). All checks PASS.
+- 03:00 snapshot: records=815, known_retired=4, blocking_unresolved=0, strict_integrity=PASS, readiness=PASS, online.kind=ok, gallery=200, digest=200, candidate gallery=True, candidate digest=True, `recommended_action=candidate_ready_manual_publish_optional`.
+- 06:38 — Live rebuild during P7F review: records=835 (regular nightly batch growth between 03:00 and now); re-ran integrity + readiness + online verification — all PASS. **6/6 public endpoints HTTP 200** (gallery index + artworks.json + gallery_stats.json; digest index + digest.html + digests.json).
+- 06:38 — P7F stable readiness review completed: 15/15 readiness criteria PASS. See `docs/STABLE_READINESS_v0.2.0.md`.
+- Verdict: **Green** — Day 3 ran clean with no new incidents, no regressions, and no drift. Observation window closed.
+
 ## 3. Daily expected timeline
 
 All times are Asia/Shanghai (GMT+8).
@@ -114,6 +122,16 @@ At the end of Day 3 (2026-06-16), if all 3 days are green:
 4. Close observation window
 
 If any day is yellow or red, extend observation by 1 day and re-evaluate.
+
+### Day 3 outcome (2026-06-16)
+
+All 3 days were green (Day 1 green, Day 2 green with incident annotation,
+Day 3 green). Observation window is closed. The full readiness assessment
+is in `docs/STABLE_READINESS_v0.2.0.md` (15/15 PASS, see §6 checklist).
+
+The actual tag / release / README badge swap **is not performed by the
+observation window itself** — it is the next step, gated on explicit user
+approval. P7F only documents the readiness state.
 
 ## 8. Next steps after observation
 
