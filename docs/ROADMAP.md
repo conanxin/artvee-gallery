@@ -585,10 +585,11 @@ build-script label fix remains.
 - **Tag / release:** **not** cut. `v0.2.0` stable is **pending user approval**.
 - See `<workspace>/reports/artvee-gallery-p7f-v0.2-stable-readiness-20260616.md`.
 
-### Next (post-v0.2.0-alpha)
-- **v0.2.0 stable** — pending user approval (see `docs/STABLE_READINESS_v0.2.0.md` §8 for the cut checklist).
+### Next (post-v0.2.0 stable)
+- **v0.2.0 stable** — released 2026-06-16 (tag `v0.2.0`, GitHub Release `v0.2.0`). See `docs/RELEASE_NOTES_v0.2.0.md`.
 - **P8 automation polish** — pre-flight `--dry-run` on the publish helper; optional 02:55 *pre-check* cron that runs the daily check in `--no-telegram` mode and alerts only on FAIL; CI matrix that exercises the cron installer in a container.
-- **Promote `KNOWN_RETIRED` to the public demo UI** — optional follow-up from the original P7 observation plan.
+- **Content product polish** — promote the `KNOWN_RETIRED` table into the public demo's UI; consider a per-artist collection view; tune the digest `--max-per-artist` and `--exclude-risk` defaults if user feedback warrants it.
+- **Watch the P7E+2 signal-distortion fix for 7 days of clean runs** (i.e. through 2026-06-23) before considering the `online.kind` branches fully settled.
 
 ### P7B+1 · Cron MEDIA delivery verification / failure-only fallback ✅ PASS (2026-06-13 04:30)
 - Refactored `telegram` JSON object: `requested` / `openclaw_status` / `text_summary{attempted,sent,message_id,error}` / `media{requested,staged,staged_path,sent,message_id,error,simulated_failure}` / `fallback{attempted,sent,message_id,reason}`.

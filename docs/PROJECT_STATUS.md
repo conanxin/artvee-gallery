@@ -50,6 +50,7 @@
 | **P7E+1** | Online endpoint failure diagnosis (Pages content drift) | ✅ PASS | 2026-06-15 | `<workspace>/reports/artvee-gallery-p7e1-online-endpoint-failure-20260615.md` |
 | **P7E+2** | Public demo restore after Pages content drift | ✅ PASS | 2026-06-15 | `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md` |
 | **P7F** | v0.2.0 stable readiness review (3-day observation complete, all green) | ✅ PASS | 2026-06-16 | `<workspace>/reports/artvee-gallery-p7f-v0.2-stable-readiness-20260616.md` |
+| **v0.2.0 stable release** | v0.2.0 stable cut (tag + GitHub Release) after 3-day green observation | ✅ PASS | 2026-06-16 | `<workspace>/reports/artvee-gallery-v0.2.0-stable-release-20260616.md` |
 
 ### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
 
@@ -578,3 +579,25 @@ refresh is expected on the P4B cut.
 | Safety | no download / refill / batch / nightly / `--approve`; no runtime data modification; no CI regression |
 | CI | `open-source-ready.yml` re-run after this commit |
 | Observation window | still open; Day 3 (2026-06-16) is the final day |
+
+### v0.2.0 stable release snapshot (2026-06-16 06:54 GMT+8)
+
+**Goal** — promote `v0.2.0-alpha` → `v0.2.0` (stable) after the 3-day green observation window, without any new code or runtime data.
+
+| Aspect | Value |
+|--------|-------|
+| Stable release notes | `docs/RELEASE_NOTES_v0.2.0.md` (new, tracked) |
+| CHANGELOG | `CHANGELOG.md` v0.2.0 (stable) section added on top |
+| README | Latest release bumped to **v0.2.0** (2026-06-16); status badge `v0.2.0`; observation banner replaced with stable banner |
+| Project status | `v0.2.0 stable release` row added above this snapshot |
+| Roadmap | `P7F` moved to completed; `v0.2.0 stable` moved to completed |
+| Tag | `v0.2.0` (annotated), pushed to `origin` |
+| GitHub Release | `gh release create v0.2.0 --title "Artvee Gallery v0.2.0" --notes-file docs/RELEASE_NOTES_v0.2.0.md` |
+| Live state at cut | records=835, known_retired=4, blocking_unresolved=0, strict_integrity=pass, readiness=pass (4/4), online 6/6 endpoints HTTP 200 |
+| Pre-cut CI | `open-source-ready.yml` ran on the release-consolidation commit, completed success |
+| Safety | no download / refill / batch / `--approve` / Pages push / runtime data modification / secrets leaked |
+| Files changed | `docs/RELEASE_NOTES_v0.2.0.md` (new), `CHANGELOG.md`, `README.md`, `docs/PROJECT_STATUS.md` (this row + snapshot), `docs/ROADMAP.md` |
+| Tag-check | `git ls-remote --tags origin v0.2.0` confirms the tag is on `origin` |
+| Release-check | `gh release view v0.2.0` confirms the GitHub Release exists, `isPrerelease=false` |
+| Public demos | 6/6 endpoints HTTP 200 (re-verified post-cut) |
+| Report | `<workspace>/reports/artvee-gallery-v0.2.0-stable-release-20260616.md` |

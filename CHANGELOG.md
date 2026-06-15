@@ -5,6 +5,58 @@ format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/)
 in the form `vMAJOR.MINOR.PATCH-stage` (pre-1.0).
 
+## v0.2.0 (stable, 2026-06-16)
+
+> First **stable** daily-operable release. Identical surface to
+> v0.2.0-alpha plus the post-observation hardening:
+> 3-day observation window, Pages publish guard (cross-repo),
+> daily-health online-check signal-distortion fix, and the
+> stable tag itself. See
+> [docs/RELEASE_NOTES_v0.2.0.md](docs/RELEASE_NOTES_v0.2.0.md)
+> and [docs/STABLE_READINESS_v0.2.0.md](docs/STABLE_READINESS_v0.2.0.md)
+> (15 / 15 PASS).
+
+### Changed
+- **Stable tag** — `v0.2.0` (annotated) on the v0.2.0-alpha
+  surface plus the post-observation hardening commits.
+- `scripts/artvee_daily_health_check.py` — split `except
+  Exception` into `HTTPError` / `URLError` / `TimeoutError` /
+  `ConnectionError`; new `online.kind` ∈ {ok, http_error,
+  network_error, skipped}; new `online.gallery_error` and
+  `online.digest_error`; `recommended_action` now branches on
+  the kind. A future Pages content drift is reported with the
+  correct HTTP code instead of being masked as `0, 0`.
+- `README.md` — Latest release bumped from `v0.2.0-alpha` to
+  `v0.2.0`; stable-readiness link added.
+
+### Added
+- [docs/RELEASE_NOTES_v0.2.0.md](docs/RELEASE_NOTES_v0.2.0.md)
+  — the stable release notes.
+- [docs/STABLE_READINESS_v0.2.0.md](docs/STABLE_READINESS_v0.2.0.md)
+  — 15 / 15 readiness criteria that gate this release.
+- [docs/V0_2_OBSERVATION_WINDOW.md](docs/V0_2_OBSERVATION_WINDOW.md)
+  — Day 1 / Day 2 / Day 3 log; § 7 outcome block.
+- `docs/PROJECT_STATUS.md` — `P7E+3` closed, `P7F` row added,
+  `v0.2.0 stable release` row added.
+- `docs/ROADMAP.md` — `P7F` moved to completed, `v0.2.0 stable`
+  moved to completed, next: P8 automation polish + content
+  product polish.
+
+### Cross-repo follow-up (not in this repo)
+- `scripts/check-project-publish-guard.py` +
+  `docs/PAGES_PUBLISH_GUARD.md` shipped in the shared GitHub
+  Pages repo so that future WBW SpaceX Mars publish runs cannot
+  silently clobber the `projects/artvee-gallery-*` subtrees.
+
+### Safety
+- No download / refill / batch / `--approve` during this
+  release-consolidation phase.
+- No `images/` / `metadata/` / `thumbs/` / `dist/` / `digests/`
+  / `logs/` / `inbox/` / `web/data/` / `index/` /
+  `reports/runtime/` / `tmp/` modification.
+- No tokens / chat ids / bot tokens / real local paths in
+  tracked code; CI enforces this on every push.
+
 ## v0.2.0-alpha
 
 > Daily-operable local-first visual archive system with public

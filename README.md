@@ -5,26 +5,29 @@
 > and a daily inspiration digest.
 
 [![Open Source Readiness](https://github.com/conanxin/artvee-gallery/actions/workflows/open-source-ready.yml/badge.svg)](https://github.com/conanxin/artvee-gallery/actions/workflows/open-source-ready.yml)
-[![Release](https://img.shields.io/github/v/release/conanxin/artvee-gallery?include_prereleases)](https://github.com/conanxin/artvee-gallery/releases/tag/v0.2.0-alpha)
+[![Release](https://img.shields.io/github/v/release/conanxin/artvee-gallery)](https://github.com/conanxin/artvee-gallery/releases/tag/v0.2.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
-[![Status: v0.2.0-alpha](https://img.shields.io/badge/status-v0.2.0--alpha-orange.svg)](docs/RELEASE_NOTES_v0.2.0-alpha.md)
+[![Status: v0.2.0](https://img.shields.io/badge/status-v0.2.0-brightgreen.svg)](docs/RELEASE_NOTES_v0.2.0.md)
 
-Latest release: **v0.2.0-alpha** (2026-06-13). See
-[docs/RELEASE_NOTES_v0.2.0-alpha.md](docs/RELEASE_NOTES_v0.2.0-alpha.md)
+Latest release: **v0.2.0** (stable, 2026-06-16). See
+[docs/RELEASE_NOTES_v0.2.0.md](docs/RELEASE_NOTES_v0.2.0.md)
 and [CHANGELOG.md](CHANGELOG.md).
+Previous pre-release: [v0.2.0-alpha](docs/RELEASE_NOTES_v0.2.0-alpha.md).
 
-> **v0.2.0-alpha is under observation before stable release.**
-> See [docs/V0_2_OBSERVATION_WINDOW.md](docs/V0_2_OBSERVATION_WINDOW.md) for the 3-day observation window (2026-06-14 — 2026-06-16).
-> Stable-readiness assessment (P7F, 2026-06-16): 15/15 PASS — see
-> [docs/STABLE_READINESS_v0.2.0.md](docs/STABLE_READINESS_v0.2.0.md).
-> Tag / release pending user approval.
+> **v0.2.0 is the first stable daily-operable release.**
+> 3-day observation window (2026-06-14 — 2026-06-16) closed green;
+> stable-readiness assessment (P7F) 15/15 PASS — see
+> [docs/STABLE_READINESS_v0.2.0.md](docs/STABLE_READINESS_v0.2.0.md)
+> and the day-by-day log in
+> [docs/V0_2_OBSERVATION_WINDOW.md](docs/V0_2_OBSERVATION_WINDOW.md).
 
-> **v0.2.0-alpha is under observation before stable release.**
-> See [docs/V0_2_OBSERVATION_WINDOW.md](docs/V0_2_OBSERVATION_WINDOW.md) for the 3-day observation window (2026-06-14 — 2026-06-16).
-> Stable-readiness assessment (P7F, 2026-06-16): 15/15 PASS — see
-> [docs/STABLE_READINESS_v0.2.0.md](docs/STABLE_READINESS_v0.2.0.md).
-> Tag / release pending user approval.
+> **v0.2.0 is the first stable daily-operable release.**
+> 3-day observation window (2026-06-14 — 2026-06-16) closed green;
+> stable-readiness assessment (P7F) 15/15 PASS — see
+> [docs/STABLE_READINESS_v0.2.0.md](docs/STABLE_READINESS_v0.2.0.md)
+> and the day-by-day log in
+> [docs/V0_2_OBSERVATION_WINDOW.md](docs/V0_2_OBSERVATION_WINDOW.md).
 
 ## Live Demo
 
