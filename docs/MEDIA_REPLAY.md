@@ -63,7 +63,7 @@ reports/runtime/daily-health/.fallback-pending-<YYYY-MM-DD>.json
   "media_error_kind": "transport",            // matches error_class
   "media_error": "...",                       // short error string
   "raw_report": "reports/runtime/.../artvee-...md",         // NEVER sent (allowlist-locked)
-  "staged_report": "/home/<user>/.openclaw/media/artvee-reports/artvee-...md",  // only path we will ever send
+  "staged_report": "<openclaw-media-root>/artvee-reports/artvee-...md",  // only path we will ever send
   "attempts": 0                               // incremented on every replayed attempt
 }
 ```
@@ -118,7 +118,7 @@ python3 scripts/replay_pending_media.py --apply --openclaw-bin /usr/local/bin/op
 ```
 
 The notifier will refuse to send anything that is not under the
-OpenClaw media allowlist (`~/.openclaw/media/...` by default). This is
+OpenClaw media allowlist (`<openclaw-media-root>/...` by default). This is
 intentional: replay **must not** bypass P7B+2's allowlist guarantee.
 
 ## 5. Retry / quarantine behavior
@@ -170,7 +170,7 @@ never sends a Telegram message.
 
 The replay workflow is intentionally constrained:
 
-* **Only sends staged paths** under `~/.openclaw/media/artvee-reports/`
+* **Only sends staged paths** under `<openclaw-media-root>/artvee-reports/`
   (or the explicit `--media-root` override). The original
   `raw_report` path is never used.
 * **No destructive operations.** The original pending file is always
