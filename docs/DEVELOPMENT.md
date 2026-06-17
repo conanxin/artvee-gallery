@@ -407,3 +407,83 @@ internal check, and the kind shapes the wording.
   in any health check. They imply different fix paths:
   `network_error` → check DNS / Pages status; `http_error` → check
   path / namespace drift / explicit removal.
+
+---
+
+## 23. P7B+2 Staged-only MEDIA + transport-deferred fallback
+
+P7B+2 closes the regression where a 2026-06-18 03:00 daily health
+run saw `MEDIA: failed` even though the report was *already
+correctly staged* into an OpenClaw-allowlisted directory. The
+root cause was a transient `GatewayTransportError: gateway timeout
+after 10000ms` on the local OpenClaw gateway, not a path problem
+— but the original reporting collapsed both into a generic
+`openclaw exit 1` and the fallback text still pointed operators at
+the raw `reports/runtime/daily-health/...` path, making the
+investigation misleading.
+
+### Three small changes
+
+1. **`stage_report_for_telegram_media.py --print-meta`** — emits a
+   single-line JSON object with both `raw_report` and
+   `staged_report`, plus `stage_failed`, `staged_size`,
+   `media_root`, and an `error` string. The caller no longer has to
+   parse a freeform path from stdout. If staging itself fails, the
+   JSON is still emitted (with `stage_failed=true`) and the helper
+   returns exit code 1.
+
+2. **artvee_daily_health_check.py**: media is now **staged-only**.
+   If `--print-meta` reports `stage_failed`, MEDIA is recorded as
+   failed and we never attempt to attach the raw path. The raw
+   path is recorded in `telegram.media.raw_report` so the report
+   itself remains diagnosable. The fallback text now reports
+   `raw_report`, `staged_report`, and `media_error` as separate
+   lines so operators do not have to grep the JSON.
+
+3. **Transport-deferred fallback**: if MEDIA fails with
+   `error_kind=transport` (gateway ws timeout / unreachable), the
+   fallback is *not* sent immediately. Instead we write a
+   `.fallback-pending-YYYY-MM-DD.json` next to the report and
+   `telegram.fallback.reason="media_transport_deferred"`. The
+   *next* run, if its `text_summary` succeeds (proving the
+   gateway is healthy again), flushes that pending file exactly
+   once and unlinks it. This avoids burning 10-180s of cron time
+   re-hitting the same gateway timeout for a fallback that would
+   have failed anyway.
+
+### Failure-mode taxonomy (P7B+2)
+
+| `media.error_kind`     | `fallback.reason`              | Behaviour |
+|------------------------|--------------------------------|-----------|
+| `null` (success)       | `null`                         | normal: media sent, no fallback |
+| `simulated`            | `media_failed`                 | simulate path, fallback sent (test only) |
+| `stage_failed`         | `stage_failed`                 | staging helper error; fallback sent once with `stage_failed` reason |
+| `media_allowed`        | `media_failed`                 | allowlist rejection; fallback sent once |
+| `binary_missing`       | `media_failed`                 | openclaw not on PATH; fallback sent once |
+| `exit_nonzero`         | `media_failed`                 | unknown send failure; fallback sent once |
+| `timeout`              | `media_failed`                 | openclaw process timeout; fallback sent once |
+| `transport`            | `media_transport_deferred`     | gateway unreachable; **fallback deferred to local file** |
+
+### Manual staging test
+
+```bash
+# Show the would-be staged path (no copy)
+python3 scripts/stage_report_for_telegram_media.py \
+  --report reports/runtime/daily-health/artvee-daily-health-2026-06-18.md \
+  --check-only
+# → WOULD_STAGE ${HOME}/.openclaw/media/artvee-reports/artvee-daily-health-2026-06-18.md
+
+# Stage and emit the JSON metadata envelope
+python3 scripts/stage_report_for_telegram_media.py \
+  --report reports/runtime/daily-health/artvee-daily-health-2026-06-18.md \
+  --print-meta
+# → {"ok":true,"stage_failed":false,"raw_report":"...","staged_report":"...","staged_size":1651,...}
+
+# Negative test
+python3 scripts/stage_report_for_telegram_media.py \
+  --report reports/runtime/daily-health/does-not-exist.md --print-meta
+# → {"ok":false,"stage_failed":true,...,"error":"FileNotFoundError: ..."}  (exit 1)
+```
+
+See `docs/DAILY_OPERATING_PLAYBOOK.md` § 9.5 for the daily
+operating diagnosis flow.

@@ -240,6 +240,65 @@ the safety net for the observation window after the release.
 If MEDIA delivery starts regressing in the field, the
 fallback text is the canary.
 
+### 2.20 (P7B+2) Fallback text should report delivery-state, but MEDIA must always use the staged allowlisted path
+
+The 2026-06-18 03:00 daily health run taught a sharp lesson
+about the difference between a *delivery* failure and a *path*
+failure. The report *was* correctly staged into an
+OpenClaw-allowlisted directory; the actual failure was a
+transient `GatewayTransportError: gateway timeout after
+10000ms` on the local OpenClaw gateway. Yet the original
+`Report: <raw-path>` line in the fallback text pointed
+operators at the raw `reports/runtime/daily-health/...` path
+— which is *not* in the allowlist — which made the regression
+look like a path problem when it was actually a transport
+problem. And because the fallback itself hit the same gateway
+error, the operator was left with *zero* observability: the
+fallback that was supposed to tell them "MEDIA failed" also
+failed silently.
+
+Three lessons emerged:
+
+1. **Staging is a precondition, not an alternative.** If the
+   staging helper fails, the right behavior is to record
+   `stage_failed: true` and never attempt to attach the raw
+   path. The raw path is recorded in the report for diagnosis
+   but never sent. This is the single most important
+   property of the fix — it prevents the misleading
+   `Report: <raw-path>` from ever appearing in the fallback
+   text again.
+
+2. **Classify the failure before deciding the response.**
+   `transport` and `exit_nonzero` and `media_allowed` are all
+   "MEDIA failed" at the surface, but the right recovery
+   action is different for each. `transport` is an
+   environmental issue (gateway, ws, network); re-trying
+   immediately burns cron time. `media_allowed` is a config
+   issue that needs an operator. `exit_nonzero` may be a
+   transient openclaw bug. Collapsing them into one bit
+   forced the operator to re-curl and grep every time.
+
+3. **Defer, don't retry, on transport errors.** When the
+   gateway is unreachable, the *next* cron run will tell us
+   whether it recovered (its `text_summary` will succeed or
+   fail). If it succeeds, flush the deferred fallback then.
+   This turns a 10-180s wait per failed attempt into one
+   filesystem write + one eventual flush. Cron self-heals
+   without operator intervention.
+
+**Rule**: any cross-process delivery code path (Telegram, web
+push, email) must distinguish "the message is well-formed but
+the recipient is unreachable" from "the message itself is
+malformed". A retry loop that doesn't distinguish them will
+both waste time and hide bugs.
+
+**Operational rule**: never embed a raw (non-allowlisted)
+path in a fallback message that an operator is expected to
+read. If the delivery is going to fail, the fallback must
+point at the *staged* path (so the operator can verify the
+allowlist by hand) or, if staging itself failed, the *helper
+output* (so they can re-run it).
+
 ## 3. Phase-by-phase impact analysis
 
 ### P1 · Local Gallery Browser

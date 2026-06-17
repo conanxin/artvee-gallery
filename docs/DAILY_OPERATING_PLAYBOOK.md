@@ -138,6 +138,59 @@ python3 scripts/check_gallery_integrity.py --strict
 2. Check `stage_report_for_telegram_media.py` whitelist paths.
 3. Fallback: send plain text summary without `--media`.
 
+### 9.5. MEDIA staging regression (P7B+2)
+
+If the daily health message reports `MEDIA: failed` but the report
+itself is fine, the failure mode lives in one of three places
+listed below. Read them in order — the JSON file
+`reports/runtime/daily-health/artvee-daily-health-YYYY-MM-DD.json`
+contains all the data you need to triage.
+
+1. **Staging failed (P7B+2)** — `telegram.media.stage_failed == true`
+   - The staging helper itself could not copy the report into the
+     allowlisted media root (default: `${HOME}/.openclaw/media/artvee-reports/`).
+     The reason is in `telegram.media.error`.
+   - Common cause: filesystem permission, disk full, source report
+     missing. Verify the report exists at `telegram.media.raw_report`
+     and that the media root is writable.
+   - Action: re-run the staging helper manually:
+     ```bash
+     python3 scripts/stage_report_for_telegram_media.py \
+       --report reports/runtime/daily-health/artvee-daily-health-YYYY-MM-DD.md \
+       --print-meta
+     ```
+     The JSON envelope tells you whether it succeeded.
+
+2. **Send failed, non-transport** — `telegram.media.error_kind ∈
+   {media_allowed, binary_missing, exit_nonzero, timeout}`
+   - The report *was* staged, but OpenClaw rejected the send.
+   - `media_allowed` — staged path is not under the OpenClaw
+     allowlist. Verify `telegram.media.staged_report` is under
+     `${HOME}/.openclaw/{media,workspace/media,workspace/tmp}/`.
+   - `binary_missing` — OpenClaw CLI was not on PATH. Add
+     `export PATH=$HOME/.local/bin:$PATH` to the cron line.
+   - `exit_nonzero` / `timeout` — openclaw process crashed or
+     exceeded 300s. Inspect `/tmp/artvee_notify_*.log`.
+   - Action: the fallback message *was* sent (reason:
+     `media_failed` or `stage_failed`), so ops learned about the
+     problem; the next run will retry normally.
+
+3. **Transport error — gateway unreachable**
+   - `telegram.media.error_kind == "transport"` and
+     `telegram.fallback.reason == "media_transport_deferred"`.
+   - This is a transient OpenClaw gateway issue (the local
+     loopback ws port timing out). The fallback is **deferred**,
+     not sent.
+   - Check `telegram.fallback.deferred_local_path` — there is a
+     `.fallback-pending-YYYY-MM-DD.json` on disk containing the
+     exact fallback text that would have been sent.
+   - Once the OpenClaw gateway recovers, the *next* health check
+     run will flush the pending file (its `text_summary` must
+     succeed first to prove the gateway is healthy again). The
+     pending file is then unlinked.
+   - Action: only intervene if the deferral is more than 24h old —
+     the cron self-heals.
+
 ### GitHub Pages Verification Fail
 
 1. Check if Pages repo has the latest commit (`conanxin.github.io`).

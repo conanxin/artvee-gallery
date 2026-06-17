@@ -82,6 +82,36 @@ def _resolve_openclaw_bin(cli_path: str = None) -> str:
     return None
 
 
+def _classify_error(log_content: str, returncode: int) -> str:
+    """
+    P7B+2: classify a notifier failure so the caller can pick the right
+    follow-up (retry / write local fallback / re-stage media). Never includes
+    secrets — only the openclaw log text we just produced.
+
+    Returns one of:
+      - "binary_missing": the CLI could not be resolved at all
+      - "transport":     gateway ws timeout / transport / network unreachable
+      - "media_allowed": staged path is not under the openclaw allowlist
+      - "timeout":       openclaw process exceeded the wait window
+      - "exit_nonzero":  any other non-zero exit
+      - "unknown":       no log content to classify
+    """
+    text = (log_content or "").lower()
+    if not text and returncode == 0:
+        return "unknown"
+    if "gateway" in text and ("timeout" in text or "transport" in text
+                              or "websocket" in text or "unreachable" in text
+                              or "urllib" in text or "connection refused" in text):
+        return "transport"
+    if "localmediaaccesserror" in text or "allowed directory" in text or "not under an allowed" in text:
+        return "media_allowed"
+    if "openclaw binary" in text or "no such file" in text:
+        return "binary_missing"
+    if returncode != 0 and not text:
+        return "exit_nonzero"
+    return "unknown"
+
+
 def _check_openclaw_bin(cli_path: str = None):
     resolved = _resolve_openclaw_bin(cli_path)
     if not resolved:
@@ -174,12 +204,20 @@ def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = N
                 if message_id:
                     result['message_id'] = message_id
                 if rc != 0:
+                    log_text = ''
+                    try:
+                        with open(log_path, 'r', encoding='utf-8', errors='replace') as lf:
+                            log_text = lf.read()
+                    except Exception:
+                        pass
                     result['error'] = f'openclaw exit {rc}'
+                    result['error_kind'] = _classify_error(log_text, rc)
                 return result
             except subprocess.TimeoutExpired:
                 return {
                     'ok': False,
                     'error': 'timeout after 300s',
+                    'error_kind': 'timeout',
                     'pid': proc.pid,
                     'log_path': log_path,
                 }
@@ -189,6 +227,7 @@ def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = N
                 'ok': True,
                 'pid': proc.pid,
                 'log_path': log_path,
+                'error_kind': 'not_waited',
                 'note': 'background_send_started',
             }
     except Exception as e:
@@ -214,12 +253,14 @@ def main():
             # or chat_id. Include message_id when --wait captured it.
             mid = result.get('message_id')
             mid_part = f' message_id={mid}' if mid else ''
-            print(f'NOTIFY_OK pid={result.get("pid")} log={result.get("log_path")}{mid_part}')
+            kind_part = f' error_kind={result.get("error_kind")}' if result.get('error_kind') and result.get('error_kind') != 'not_waited' else ''
+            print(f'NOTIFY_OK pid={result.get("pid")} log={result.get("log_path")}{mid_part}{kind_part}')
             if args.wait and result.get('returncode') is not None:
                 print(f'RETURN_CODE={result["returncode"]}')
             sys.exit(0)
         else:
-            print(f'NOTIFY_FAIL: {result.get("error", "unknown")}')
+            kind_part = f' error_kind={result.get("error_kind")}' if result.get('error_kind') else ''
+            print(f'NOTIFY_FAIL: {result.get("error", "unknown")}{kind_part}')
             sys.exit(1)
     except Exception as e:
         print(f'NOTIFY_ERROR: {e}')

@@ -35,8 +35,14 @@ def run_check(args):
     report_json = report_dir / f"artvee-daily-health-{args.date}.json"
     report_md = report_dir / f"artvee-daily-health-{args.date}.md"
 
-    # --- telegram delivery state model (P7B+1) ---
+    # --- telegram delivery state model (P7B+1, P7B+2) ---
     # Three independent tracks so partial failures are observable.
+    # P7B+2: media is staged-only (raw path is never attached). When staging
+    # itself fails, MEDIA is recorded as stage_failed and we never fall back
+    # to the raw path. The fallback path is also refined: a transport error
+    # no longer triggers an immediate retry (which would re-hit the same
+    # gateway timeout). Instead we write a .fallback-pending-YYYY-MM-DD.json
+    # file that the *next* run can re-attempt once the gateway is healthy.
     telegram = {
         "requested": bool(args.telegram),
         "openclaw_status": "unknown",  # resolved | missing | skipped
@@ -48,18 +54,26 @@ def run_check(args):
         },
         "media": {
             "requested": bool(args.media),
+            "stage_failed": False,
             "staged": False,
-            "staged_path": None,
+            "raw_report": None,
+            "staged_report": None,
+            "staged_size": 0,
+            "media_root": None,
+            "stage_subdir": "artvee-reports",
             "sent": False,
             "message_id": None,
             "error": None,
+            "error_kind": None,
             "simulated_failure": bool(args.simulate_media_failure),
         },
         "fallback": {
             "attempted": False,
             "sent": False,
             "message_id": None,
-            "reason": None,
+            "reason": None,                  # media_failed | stage_failed | media_transport_deferred
+            "deferred_local_path": None,     # when reason == media_transport_deferred
+            "error": None,
         },
     }
 
@@ -413,6 +427,59 @@ Action: {action}"""
                 telegram["text_summary"]["error"] = (ts_result.stdout.strip() or ts_result.stderr.strip() or f"exit {ts_result.returncode}")[:300]
                 print(f"[warn] Telegram text summary failed: {telegram['text_summary']['error']}")
 
+            # --- Step 1.5: flush any previously-deferred fallback (P7B+2) ---
+            # If a prior run hit a transport error and wrote a
+            # .fallback-pending-YYYY-MM-DD.json, AND this run's text_summary
+            # succeeded (which proves the gateway is healthy again), flush
+            # the pending fallback text exactly once and remove the defer
+            # file. We do this regardless of whether the current run also
+            # has its own MEDIA failure — the deferred message is a separate
+            # observation and should not be lost.
+            if telegram["text_summary"]["sent"]:
+                pending_path = report_dir / f".fallback-pending-{args.date}.json"
+                if pending_path.is_file():
+                    import re as _re
+                    try:
+                        with open(pending_path, "r", encoding="utf-8") as pf:
+                            pending = json.load(pf)
+                        pending_text = pending.get("fallback_text") or ""
+                        if pending_text:
+                            flush_cmd = notifier_cmd + ["--text", pending_text, "--wait"]
+                            flush_result = subprocess.run(flush_cmd, capture_output=True, text=True, cwd=str(base_dir))
+                            if flush_result.returncode == 0 and "NOTIFY_OK" in flush_result.stdout:
+                                # We expose the flush under a dedicated field
+                                # so it does not collide with the current
+                                # run's fallback.
+                                if "flushed_pending_fallbacks" not in telegram:
+                                    telegram["flushed_pending_fallbacks"] = []
+                                m = _re.search(r"message_id=(\d+)", flush_result.stdout)
+                                telegram["flushed_pending_fallbacks"].append({
+                                    "date": pending.get("date"),
+                                    "reason": pending.get("reason"),
+                                    "sent": True,
+                                    "message_id": m.group(1) if m else None,
+                                    "local_path": str(pending_path),
+                                })
+                                print(f"[✓] Flushed deferred fallback from {pending_path} (message_id={m.group(1) if m else '?'})")
+                                try:
+                                    pending_path.unlink()
+                                except Exception as e:
+                                    print(f"[warn] Failed to unlink pending fallback {pending_path}: {e}")
+                            else:
+                                err = (flush_result.stdout.strip() or flush_result.stderr.strip() or f"exit {flush_result.returncode}")[:200]
+                                if "flushed_pending_fallbacks" not in telegram:
+                                    telegram["flushed_pending_fallbacks"] = []
+                                telegram["flushed_pending_fallbacks"].append({
+                                    "date": pending.get("date"),
+                                    "reason": pending.get("reason"),
+                                    "sent": False,
+                                    "error": err,
+                                    "local_path": str(pending_path),
+                                })
+                                print(f"[warn] Deferred fallback flush failed: {err}")
+                    except Exception as e:
+                        print(f"[warn] Deferred fallback read failed: {e}")
+
             # --- Step 2: media (only if requested AND text sent) ---
             if args.media:
                 if not telegram["text_summary"]["sent"]:
@@ -420,34 +487,69 @@ Action: {action}"""
                     print("[info] MEDIA skipped: text_summary did not send (avoids orphan media)")
                 elif args.simulate_media_failure:
                     # Force a media-failure path for testing the fallback chain.
+                    # Record both raw and (simulated) staged paths so the JSON
+                    # shape matches the real path.
+                    telegram["media"]["raw_report"] = str(report_md)
                     telegram["media"]["staged"] = True
-                    telegram["media"]["staged_path"] = "(simulated)"
+                    telegram["media"]["staged_report"] = "(simulated)"
+                    telegram["media"]["staged_size"] = 0
                     telegram["media"]["sent"] = False
                     telegram["media"]["error"] = "simulated_failure"
+                    telegram["media"]["error_kind"] = "simulated"
                     print("[warn] MEDIA simulated failure (--simulate-media-failure)")
                 else:
                     # Stage the report into an OpenClaw-allowed media dir.
-                    # Use the helper's default root (~/.openclaw/media/) so the
-                    # staged path is inside the OpenClaw allowlist. Passing the
-                    # report_dir here is wrong — the allowlist is
-                    # ~/.openclaw/{media,workspace/media,workspace/tmp}/.
-                    try:
-                        stage_proc = subprocess.run(
-                            [sys.executable, str(base_dir / "scripts" / "stage_report_for_telegram_media.py"),
-                             "--report", str(report_md)],
-                            capture_output=True, text=True, cwd=str(base_dir))
-                        if stage_proc.returncode == 0:
-                            # Parse the staged path from the helper's stdout (last line)
-                            staged_path = stage_proc.stdout.strip().splitlines()[-1].strip()
-                            telegram["media"]["staged"] = True
-                            telegram["media"]["staged_path"] = staged_path
-                            media_path = staged_path
-                        else:
-                            telegram["media"]["error"] = f"stage failed: {stage_proc.stdout.strip() or stage_proc.stderr.strip()}"[:200]
-                            media_path = None
-                    except Exception as e:
-                        telegram["media"]["error"] = f"stage exception: {e}"[:200]
-                        media_path = None
+                    # P7B+2: we use --print-meta so the helper returns a
+                    # single-line JSON object containing both raw_report and
+                    # staged_report, plus an explicit stage_failed flag. We
+                    # NEVER fall back to the raw path — if staging fails, MEDIA
+                    # is recorded as stage_failed and we skip the attachment
+                    # entirely. This is the single most important property of
+                    # the fix: raw reports live under
+                    # ~/workspace/reports/ which is outside the OpenClaw
+                    # allowlist, so attaching them would either fail or expand
+                    # the security boundary. Staging is the only correct path.
+                    stage_proc = subprocess.run(
+                        [sys.executable, str(base_dir / "scripts" / "stage_report_for_telegram_media.py"),
+                         "--report", str(report_md), "--print-meta"],
+                        capture_output=True, text=True, cwd=str(base_dir))
+                    media_path = None
+                    if stage_proc.returncode == 0 and stage_proc.stdout.strip():
+                        try:
+                            meta = json.loads(stage_proc.stdout.strip().splitlines()[-1])
+                        except json.JSONDecodeError as e:
+                            meta = None
+                            telegram["media"]["error"] = f"stage meta parse failed: {e}"[:200]
+                        if meta:
+                            telegram["media"]["raw_report"] = meta.get("raw_report")
+                            telegram["media"]["staged"] = bool(meta.get("staged_report"))
+                            telegram["media"]["staged_report"] = meta.get("staged_report")
+                            telegram["media"]["staged_size"] = meta.get("staged_size", 0) or 0
+                            telegram["media"]["media_root"] = meta.get("media_root")
+                            telegram["media"]["stage_subdir"] = meta.get("stage_subdir", "artvee-reports")
+                            if meta.get("stage_failed"):
+                                telegram["media"]["stage_failed"] = True
+                                telegram["media"]["error"] = f"stage failed: {meta.get('error')}"[:200]
+                                telegram["media"]["error_kind"] = "stage_failed"
+                            elif meta.get("staged_report"):
+                                # Sanity check: staged path must live under
+                                # ~/.openclaw/{media,workspace/media,workspace/tmp}/
+                                # in the resolved (non-symlink) form. The
+                                # helper already enforces the namespaced
+                                # subdir, so the only thing left is to refuse
+                                # a staged path that is somehow still the raw
+                                # report.
+                                if meta.get("staged_report") == meta.get("raw_report"):
+                                    telegram["media"]["stage_failed"] = True
+                                    telegram["media"]["error"] = "staged_report equals raw_report; refusing to attach"
+                                    telegram["media"]["error_kind"] = "stage_failed"
+                                else:
+                                    media_path = meta["staged_report"]
+                    else:
+                        telegram["media"]["stage_failed"] = True
+                        err = (stage_proc.stdout.strip() or stage_proc.stderr.strip() or f"exit {stage_proc.returncode}")[:200]
+                        telegram["media"]["error"] = f"stage helper exited {stage_proc.returncode}: {err}"
+                        telegram["media"]["error_kind"] = "stage_failed"
 
                     if media_path:
                         media_cmd = notifier_cmd + ["--text", msg, "--media", media_path, "--wait"]
@@ -458,48 +560,125 @@ Action: {action}"""
                             m = _re.search(r"message_id=(\d+)", media_result.stdout)
                             if m:
                                 telegram["media"]["message_id"] = m.group(1)
+                            m2 = _re.search(r"error_kind=(\S+)", media_result.stdout)
+                            if m2:
+                                telegram["media"]["error_kind"] = m2.group(1)
                             print(f"[✓] Telegram MEDIA sent (message_id={telegram['media']['message_id']})")
                         else:
                             telegram["media"]["sent"] = False
                             err = (media_result.stdout.strip() or media_result.stderr.strip() or f"exit {media_result.returncode}")[:300]
                             telegram["media"]["error"] = err
-                            print(f"[warn] Telegram MEDIA failed: {err}")
+                            import re as _re
+                            m2 = _re.search(r"error_kind=(\S+)", media_result.stdout)
+                            telegram["media"]["error_kind"] = m2.group(1) if m2 else "exit_nonzero"
+                            print(f"[warn] Telegram MEDIA failed ({telegram['media']['error_kind']}): {err}")
 
             # --- Step 3: failure-only fallback ---
             # Conditions: health PASS + text sent + MEDIA requested + MEDIA failed.
             # We do NOT fallback if text itself failed (avoid noise / loop).
+            #
+            # P7B+2: the reason field now distinguishes three failure modes:
+            #   - stage_failed: the staging helper itself failed. The raw
+            #     report is recorded in media.raw_report; ops should check the
+            #     helper. We still send a fallback so ops learns about the
+            #     staging regression.
+            #   - media_failed: MEDIA staged fine but the OpenClaw send call
+            #     failed for a non-transport reason (e.g. allowlist denial,
+            #     binary missing, exit_nonzero). Fallback sent as before.
+            #   - media_transport_deferred: MEDIA failed with a *transport*
+            #     error (gateway ws timeout / unreachable). Re-sending the
+            #     fallback immediately would hit the same gateway failure and
+            #     burn a 10-180s wait per attempt. We instead write a
+            #     `.fallback-pending-YYYY-MM-DD.json` next to the report so
+            #     the *next* cron run (or the next manual call) can flush it
+            #     once the gateway is healthy. We still record the deferral
+            #     in this run's JSON; ops can read it from there.
             health_pass = (integrity_status == "PASS" and readiness_status == "PASS" and blocking == 0)
             text_sent = telegram["text_summary"]["sent"]
+            media_block = telegram["media"]
             media_failed = (
                 args.media
-                and not telegram["media"]["sent"]
-                and telegram["media"]["error"] is not None
+                and not media_block["sent"]
+                and (media_block["error"] is not None or media_block.get("stage_failed"))
             )
+
             if health_pass and text_sent and media_failed and not telegram["fallback"]["sent"]:
+                # Decide reason first so we know whether to actually send
+                # or to defer to a local file.
+                if media_block.get("stage_failed"):
+                    fallback_reason = "stage_failed"
+                elif media_block.get("error_kind") == "transport":
+                    fallback_reason = "media_transport_deferred"
+                else:
+                    fallback_reason = "media_failed"
+
                 fallback_text = (
                     f"⚠️ Artvee Daily Health MEDIA failed\n"
                     f"Date: {args.date}\n"
                     f"Health: PASS\n"
                     f"Text summary: sent\n"
-                    f"MEDIA: failed\n"
-                    f"Report: {report_md}\n"
+                    f"MEDIA: failed ({fallback_reason})\n"
+                    f"raw_report: {media_block.get('raw_report') or report_md}\n"
+                    f"staged_report: {media_block.get('staged_report') or '(none)'}\n"
+                    f"media_error: {media_block.get('error') or '(none)'}\n"
                     f"Action: no data issue; check media delivery"
                 )
-                fb_cmd = notifier_cmd + ["--text", fallback_text, "--wait"]
-                telegram["fallback"]["attempted"] = True
-                telegram["fallback"]["reason"] = "media_failed"
-                fb_result = subprocess.run(fb_cmd, capture_output=True, text=True, cwd=str(base_dir))
-                if fb_result.returncode == 0 and "NOTIFY_OK" in fb_result.stdout:
-                    telegram["fallback"]["sent"] = True
-                    import re as _re
-                    m = _re.search(r"message_id=(\d+)", fb_result.stdout)
-                    if m:
-                        telegram["fallback"]["message_id"] = m.group(1)
-                    print(f"[✓] Telegram fallback (text-only) sent (message_id={telegram['fallback']['message_id']})")
+
+                if fallback_reason == "media_transport_deferred":
+                    # Defer: write a small JSON next to the report, but do
+                    # NOT re-attempt the send. The next run will pick this
+                    # up only if the OpenClaw gateway has recovered (which
+                    # the next text_summary success will prove).
+                    pending_path = report_dir / f".fallback-pending-{args.date}.json"
+                    pending_doc = {
+                        "date": args.date,
+                        "deferred_at": now(),
+                        "reason": fallback_reason,
+                        "fallback_text": fallback_text,
+                        "media_error_kind": media_block.get("error_kind"),
+                        "media_error": media_block.get("error"),
+                        "raw_report": media_block.get("raw_report") or str(report_md),
+                        "staged_report": media_block.get("staged_report"),
+                    }
+                    try:
+                        with open(pending_path, "w", encoding="utf-8") as pf:
+                            json.dump(pending_doc, pf, ensure_ascii=False, indent=2)
+                        telegram["fallback"]["attempted"] = True
+                        telegram["fallback"]["reason"] = fallback_reason
+                        telegram["fallback"]["deferred_local_path"] = str(pending_path)
+                        print(f"[info] Telegram fallback deferred to {pending_path} (transport error)")
+                    except Exception as e:
+                        # If we cannot even write the defer file, fall back
+                        # to the immediate-send path so the warning still
+                        # reaches ops — this is a degraded mode, not a silent
+                        # failure.
+                        telegram["fallback"]["error"] = f"defer write failed: {e}"[:200]
+                        fb_cmd = notifier_cmd + ["--text", fallback_text, "--wait"]
+                        fb_result = subprocess.run(fb_cmd, capture_output=True, text=True, cwd=str(base_dir))
+                        if fb_result.returncode == 0 and "NOTIFY_OK" in fb_result.stdout:
+                            telegram["fallback"]["sent"] = True
+                            telegram["fallback"]["reason"] = "media_failed"
+                            import re as _re
+                            m = _re.search(r"message_id=(\d+)", fb_result.stdout)
+                            if m:
+                                telegram["fallback"]["message_id"] = m.group(1)
+                            print(f"[✓] Telegram fallback (text-only) sent (message_id={telegram['fallback']['message_id']})")
                 else:
-                    err = (fb_result.stdout.strip() or fb_result.stderr.strip() or f"exit {fb_result.returncode}")[:300]
-                    telegram["fallback"]["error"] = err
-                    print(f"[warn] Telegram fallback failed: {err}")
+                    fb_cmd = notifier_cmd + ["--text", fallback_text, "--wait"]
+                    telegram["fallback"]["attempted"] = True
+                    telegram["fallback"]["reason"] = fallback_reason
+                    fb_result = subprocess.run(fb_cmd, capture_output=True, text=True, cwd=str(base_dir))
+                    if fb_result.returncode == 0 and "NOTIFY_OK" in fb_result.stdout:
+                        telegram["fallback"]["sent"] = True
+                        import re as _re
+                        m = _re.search(r"message_id=(\d+)", fb_result.stdout)
+                        if m:
+                            telegram["fallback"]["message_id"] = m.group(1)
+                        print(f"[✓] Telegram fallback (text-only) sent (message_id={telegram['fallback']['message_id']})")
+                    else:
+                        err = (fb_result.stdout.strip() or fb_result.stderr.strip() or f"exit {fb_result.returncode}")[:300]
+                        telegram["fallback"]["error"] = err
+                        print(f"[warn] Telegram fallback failed: {err}")
     else:
         telegram["openclaw_status"] = "skipped"
 

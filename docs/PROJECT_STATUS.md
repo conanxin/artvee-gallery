@@ -45,6 +45,7 @@
 | **P7A+1** | OpenClaw binary resolution for health check Telegram notify | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7a1-openclaw-binary-resolution-20260612.md` |
 | **P7B** | Optional daily health Telegram cron | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7b-daily-health-telegram-cron-20260612.md` |
 | **P7B+1** | Cron MEDIA delivery verification / failure-only fallback | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7b1-cron-media-fallback-20260613.md` |
+| **P7B+2** | Staged-only MEDIA + transport-deferred fallback (2026-06-18 regression) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p7b2-daily-health-media-staging-fix-20260618.md` |
 | **P7D** | v0.2.0-alpha release consolidation | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7d-v0.2.0-alpha-release-20260613.md` |
 | **P7E** | v0.2.0 observation window setup | ✅ PASS | 2026-06-14 | `<workspace>/reports/artvee-gallery-p7e-v0.2-observation-window-20260614.md` |
 | **P7E+1** | Online endpoint failure diagnosis (Pages content drift) | ✅ PASS | 2026-06-15 | `<workspace>/reports/artvee-gallery-p7e1-online-endpoint-failure-20260615.md` |
@@ -601,3 +602,31 @@ refresh is expected on the P4B cut.
 | Release-check | `gh release view v0.2.0` confirms the GitHub Release exists, `isPrerelease=false` |
 | Public demos | 6/6 endpoints HTTP 200 (re-verified post-cut) |
 | Report | `<workspace>/reports/artvee-gallery-v0.2.0-stable-release-20260616.md` |
+
+### P7B+2 daily-health-media-staging-fix snapshot (2026-06-18 06:55 GMT+8)
+
+**Goal** — close the 2026-06-18 03:00 regression where MEDIA
+delivery reported `failed` despite the report being correctly
+staged. The original reporting was misleading (it pointed
+operators at the raw `reports/runtime/daily-health/...` path
+which is not in the OpenClaw allowlist) and the fallback also
+failed because it hit the same `GatewayTransportError` that
+caused the MEDIA failure. No data, no cron reinstall, no
+publish.
+
+| Field | Value |
+|-------|-------|
+| Date | 2026-06-18 |
+| Staged path (after fix) | `${HOME}/.openclaw/media/artvee-reports/artvee-daily-health-2026-06-18.md` (allowlisted) |
+| Raw report path | `reports/runtime/daily-health/artvee-daily-health-2026-06-18.md` (recorded for diagnosis only) |
+| MEDIA field added | `stage_failed`, `raw_report`, `staged_report`, `staged_size`, `media_root`, `error_kind` |
+| FALLBACK reason taxonomy | `media_failed` / `stage_failed` / `media_transport_deferred` |
+| Transport-deferred path | writes `.fallback-pending-YYYY-MM-DD.json`; next run flushes on successful text_summary |
+| Cron-like verification | health PASS, text_summary sent (message_id=25027), MEDIA sent (message_id=25028), fallback **not** triggered, log clean of secrets |
+| Simulated MEDIA failure | text sent (25029), MEDIA simulated fail, fallback sent once (25031, reason=media_failed), exit 0 |
+| Transport-deferred e2e | end-to-end run with monkey-patched transport error produced `fallback.reason=media_transport_deferred`, `deferred_local_path=…/reports/runtime/daily-health/.fallback-pending-2026-06-18-p7b2-defer-test.json`, `fallback.sent=false` |
+| Strict integrity | PASS |
+| Readiness (4/4) | PASS |
+| Safety | no download / refill / batch / `--approve` / Pages push; no real secrets printed (only `${#CID}` length) |
+| Files changed | `scripts/stage_report_for_telegram_media.py` (`--print-meta`), `scripts/artvee_daily_health_check.py` (staged-only + transport-deferred + flush), `scripts/artvee_telegram_notify.py` (`_classify_error` + `error_kind`), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.5), `docs/DEVELOPMENT.md` (§ 23), `docs/PROJECT_STATUS.md` (this row + snapshot), `docs/ROADMAP.md` (P7B+2 → completed), `docs/RETROSPECTIVE.md` (§ 2.20) |
+| Report | `<workspace>/reports/artvee-gallery-p7b2-daily-health-media-staging-fix-20260618.md` |

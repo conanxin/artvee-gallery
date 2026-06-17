@@ -601,6 +601,18 @@ build-script label fix remains.
 - Files: `scripts/artvee_daily_health_check.{py,sh}`, `scripts/artvee_telegram_notify.py`, `scripts/install_daily_health_cron.sh`, `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9), `docs/DEVELOPMENT.md` (§ 22), `docs/RETROSPECTIVE.md` (lesson).
 - See `<workspace>/reports/artvee-gallery-p7b1-cron-media-fallback-20260613.md`.
 
+### P7B+2 · Staged-only MEDIA + transport-deferred fallback ✅ PASS (2026-06-18 06:55)
+- Root cause of 2026-06-18 03:00 MEDIA-failed: a transient `GatewayTransportError: gateway timeout after 10000ms` on the local OpenClaw gateway (`ws://127.0.0.1:18789`). The report *was* already staged into an OpenClaw-allowlisted directory; the previous reporting was misleading because it pointed operators at the raw `reports/runtime/daily-health/...` path (which is not allowlisted) and the fallback also hit the same transport error.
+- `stage_report_for_telegram_media.py --print-meta`: new mode that emits a single-line JSON object with `raw_report` / `staged_report` / `stage_failed` / `staged_size` / `media_root` / `error`. Lets the caller detect a staging failure without parsing a freeform path.
+- `artvee_daily_health_check.py`: media is now **staged-only**. If `--print-meta` reports `stage_failed`, MEDIA is recorded as failed and we never attempt to attach the raw path. The raw path is recorded in `telegram.media.raw_report` for diagnosis.
+- New `telegram.media.error_kind` field classifies failures into: `transport` / `media_allowed` / `binary_missing` / `timeout` / `exit_nonzero` / `simulated` / `stage_failed`.
+- New `telegram.fallback.reason` taxonomy: `media_failed` / `stage_failed` / `media_transport_deferred`. The first two still send the fallback immediately; `media_transport_deferred` writes `.fallback-pending-YYYY-MM-DD.json` next to the report and waits for the next run (which must have a successful `text_summary` to prove the gateway is healthy) to flush it.
+- `artvee_telegram_notify.py`: new `_classify_error()` helper; `send_text()` returns `error_kind`; `--wait` mode now classifies the failure before returning.
+- Cron-like verification: `text_summary` sent (25027), `media` sent (25028), `fallback` not triggered, exit 0, no secrets in log. `--simulate-media-failure` produces `fallback.sent=true reason=media_failed`. End-to-end transport-defer test produces `fallback.reason=media_transport_deferred` + a real `.fallback-pending-...json` on disk.
+- Safety: no download / refill / batch / `--approve` / Pages push; cron line untouched; no real secrets printed (only `${#CID}` length).
+- Files: `scripts/stage_report_for_telegram_media.py`, `scripts/artvee_daily_health_check.py`, `scripts/artvee_telegram_notify.py`, `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.5), `docs/DEVELOPMENT.md` (§ 23), `docs/PROJECT_STATUS.md` (row + snapshot), `docs/RETROSPECTIVE.md` (§ 2.20).
+- See `<workspace>/reports/artvee-gallery-p7b2-daily-health-media-staging-fix-20260618.md`.
+
 ### P7C · Automated approved-publish preparation
 - Pre-stage the approved-publish flow so a future `--approve` can be triggered by a scheduled event (e.g., "auto-publish on Sunday if candidate QA PASS").
 - Requires a `SECRET_ROTATION_POLICY.md` for the Pages repo PAT if full-auto is desired.
