@@ -487,3 +487,127 @@ python3 scripts/stage_report_for_telegram_media.py \
 
 See `docs/DAILY_OPERATING_PLAYBOOK.md` § 9.5 for the daily
 operating diagnosis flow.
+
+## 24. P7B+3 Pending MEDIA replay + transport health
+
+P7B+3 closes the final gap from P7B+2: the transport-deferred
+fallback file (`.fallback-pending-*.json`) was previously flushed
+opportunistically by the *next* daily health run. That coupled
+recovery to a cron, hid what was actually happening, and gave
+operators no clean way to inspect or trigger a replay. P7B+3
+replaces that with a dedicated, read-only-by-default workflow.
+
+### Three new pieces
+
+1. **`scripts/replay_pending_media.py`** — scan, validate, and
+   re-send pending MEDIA. Default is **dry-run** (no send, no
+   file move); pass `--apply` to actually send. Always archives
+   the original pending file (never deletes) to either
+   `replayed/` (success) or `quarantine/` (max-retries / invalid
+   staged path / no chat id / corrupt JSON).
+
+   ```bash
+   # Plan only (default; no Telegram send, no file move).
+   python3 scripts/replay_pending_media.py
+
+   # Real replay, bounded.
+   python3 scripts/replay_pending_media.py --apply --limit 10 --max-retries 3
+
+   # Custom OpenClaw binary + custom pending root.
+   python3 scripts/replay_pending_media.py --apply \
+       --openclaw-bin /usr/local/bin/openclaw \
+       --pending-root reports/runtime
+   ```
+
+   All work is bounded by `--limit` (default 10) and
+   `--max-retries` (default 3). The original pending file is
+   preserved on disk in either `replayed/` or `quarantine/`; a
+   `.replay-result-<date>.json` sidecar captures the full
+   outcome (no secrets, no chat id).
+
+2. **`scripts/check_openclaw_transport.py`** — a separate,
+   read-only CLI probe. Runs `openclaw --version` and a local
+   TCP connect to `127.0.0.1:18789` (overridable). Emits a
+   single JSON document with `status` / per-probe latency /
+   `error_class`. **Never sends a Telegram message**, so it is
+   safe to call from cron, from the daily health check, or
+   interactively.
+
+   ```bash
+   python3 scripts/check_openclaw_transport.py
+   python3 scripts/check_openclaw_transport.py --extended --text
+   python3 scripts/check_openclaw_transport.py --openclaw-bin /opt/openclaw/bin/openclaw
+   ```
+
+3. **`artvee_daily_health_check.py`** — embeds a new
+   `media_replay` block in the daily report JSON. The cron does
+   **not** auto-replay; it just *reports*. The `media_replay`
+   block includes:
+
+   ```json
+   "media_replay": {
+     "pending": 0,
+     "replayable": 0,
+     "quarantined": 1,
+     "transport_status": "ok",
+     "transport_error_class": "",
+     "transport_latency_ms": 41,
+     "transport_checked_at": "2026-06-18T07:25:29",
+     "transport_limited_cli": true
+   }
+   ```
+
+   The scan explicitly excludes `replayed/` and `quarantine/`
+   subdirectories so archived files are not double-counted.
+
+### Why this is separate from the daily health cron
+
+* The 03:00 cron is now strictly **read + report**. No surprise
+  side effects, no extra Telegram sends beyond the canonical
+  daily report + digest.
+* Recovery is **explicit** — operators (or a separate 03:10 cron,
+  not installed by default) decide when to attempt replay.
+* The transport probe runs on every daily health check at near-
+  zero cost (a subprocess and a TCP connect) and gives at-a-
+  glance visibility into whether the gateway is healthy.
+
+### Manual end-to-end test (replay)
+
+```bash
+# 1. Build a tiny staged report.
+mkdir -p reports/runtime/daily-health
+cat > reports/runtime/daily-health/artvee-pending-replay-test.md <<EOF
+# Artvee Pending MEDIA Replay Test
+This is a small staged report replay test.
+EOF
+STAGED=$(python3 scripts/stage_report_for_telegram_media.py \
+    --report reports/runtime/daily-health/artvee-pending-replay-test.md)
+
+# 2. Write a synthetic pending JSON.
+python3 - <<PY
+import json
+from pathlib import Path
+p = Path('reports/runtime/daily-health/.fallback-pending-test.json')
+p.write_text(json.dumps({
+    "date": "2026-06-18",
+    "deferred_at": "2026-06-17T23:30:00Z",
+    "status": "media_transport_deferred",
+    "reason": "test_pending_replay",
+    "raw_report": "reports/runtime/daily-health/artvee-pending-replay-test.md",
+    "staged_report": "$STAGED",
+    "attempts": 0,
+}, indent=2), encoding='utf-8')
+print(p)
+PY
+
+# 3. Replay (dry-run first, then apply).
+export ARTVEE_TELEGRAM_CHAT_ID='<telegram-chat-id>'
+python3 scripts/replay_pending_media.py --dry-run --limit 5
+python3 scripts/replay_pending_media.py --apply --limit 1
+# → [replayed] pending=... message_id=<n>
+#   pending file moved to reports/runtime/daily-health/replayed/
+#   sidecar .replay-result-*.json written.
+```
+
+See `docs/MEDIA_REPLAY.md` for the full schema and operations
+quick-reference.

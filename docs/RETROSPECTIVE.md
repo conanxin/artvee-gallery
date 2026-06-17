@@ -299,6 +299,62 @@ point at the *staged* path (so the operator can verify the
 allowlist by hand) or, if staging itself failed, the *helper
 output* (so they can re-run it).
 
+### 2.21 (P7B+3) Transport failures should be recoverable, not auto-flushed by the next health run
+
+P7B+2 was correct to defer the fallback on a transport
+timeout rather than retry immediately, but it coupled the
+*recovery* to the *next* daily health run. That had two
+problems:
+
+1. **The 03:00 cron gained a hidden side effect.** A
+   successful `text_summary` would silently re-send a
+   yesterday's pending file. The cron line looked strictly
+   "report + log"; in practice it was also "and maybe send a
+   one-off MEDIA we forgot about". For an approval-gated,
+   read-only-by-default pipeline that is the wrong place to
+   put surprise work.
+
+2. **Operators had no inspectable handle.** If the
+   `.fallback-pending-*.json` got stuck (wrong staged path,
+   chat id not configured, the file is corrupt), the only
+   way to find out was to wait for the next run and read
+   the cron log. There was no "what's pending *right now*?"
+   answer, and no command to flush them on demand.
+
+P7B+3 replaces that with an explicit, bounded workflow:
+
+* A new `scripts/replay_pending_media.py` is the *only* thing
+  that re-sends deferred MEDIA. It defaults to **dry-run**
+  (plan + validate, no send, no move) and requires `--apply`
+  to actually send. Bounded by `--limit` (default 10) and
+  `--max-retries` (default 3). The original pending file is
+  *always* preserved on disk in either `replayed/` (success)
+  or `quarantine/` (exhausted / invalid). A `.replay-result-
+  *.json` sidecar captures the full outcome.
+* A new `scripts/check_openclaw_transport.py` is a
+  side-effect-free probe (runs `openclaw --version` + a
+  local TCP connect, never sends a message) that the daily
+  health check calls and embeds in the report as
+  `media_replay.transport_status`.
+* The daily health JSON gets a `media_replay` block listing
+  `pending` / `replayable` / `quarantined` / `transport_status`
+  / `transport_latency_ms`. The 03:00 cron **only** reports
+  these; it does not replay.
+
+**Rule**: any "deferred for later" workflow must (a) have a
+dedicated, named entry point that operators can call on
+demand, (b) be opt-in (not auto-triggered by a side channel
+like the next cron run), and (c) emit inspectable, bounded
+state on disk (not just a log line). Auto-flush from a
+seemingly-unrelated cron is a code smell: it turns "report"
+into "recovery" and obscures both.
+
+**Operational rule**: when adding a "deferred for later"
+queue, the queue must surface in the *same* health report
+the cron already emits, with at least a count and a
+status. Operators should never have to `find` and `cat`
+files to know whether anything is stuck.
+
 ## 3. Phase-by-phase impact analysis
 
 ### P1 · Local Gallery Browser

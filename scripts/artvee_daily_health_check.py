@@ -26,6 +26,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# P7B+3: max retries must match the value the replay script uses so the
+# daily health "replayable" count agrees with what the replay would do.
+DEFAULT_MAX_RETRIES_PENDING = 3
+
 
 def run_check(args):
     base_dir = Path(args.base_dir)
@@ -288,6 +292,12 @@ def run_check(args):
     else:
         action = "attention_required"
 
+    # P7B+3: scan for pending MEDIA + probe transport.
+    # We do NOT auto-replay here. Replay is a separate step
+    # (scripts/replay_pending_media.py). We just surface counts.
+    pending_scan = _scan_pending_media(report_dir)
+    transport_probe = _probe_transport(base_dir, args.openclaw_bin)
+
     # Build JSON report
     report = {
         "date": args.date,
@@ -306,6 +316,16 @@ def run_check(args):
         },
         "online": online,
         "recommended_action": action,
+        "media_replay": {
+            "pending": pending_scan.get("pending", 0),
+            "replayable": pending_scan.get("replayable", 0),
+            "quarantined": pending_scan.get("quarantined", 0),
+            "transport_status": transport_probe.get("status", "not_checked"),
+            "transport_error_class": transport_probe.get("error_class", ""),
+            "transport_latency_ms": transport_probe.get("latency_ms", 0),
+            "transport_checked_at": transport_probe.get("checked_at", ""),
+            "transport_limited_cli": transport_probe.get("limited_cli", True),
+        },
     }
 
     # Remove raw output from checks to keep JSON clean
@@ -338,6 +358,10 @@ def run_check(args):
         f.write(f"| Near-dup clusters | {report['checks']['near_dup_clusters']['cluster_count']} |\n")
         f.write(f"| Online gallery | {report['online'].get('gallery_http_code', 'N/A')} |\n")
         f.write(f"| Online digest | {report['online'].get('digest_http_code', 'N/A')} |\n")
+        # P7B+3: media_replay summary
+        mr = report.get('media_replay', {})
+        f.write(f"| Pending MEDIA | {mr.get('pending', 0)} (replayable={mr.get('replayable', 0)}, quarantined={mr.get('quarantined', 0)}) |\n")
+        f.write(f"| OpenClaw transport | {mr.get('transport_status', 'not_checked')} ({mr.get('transport_latency_ms', 0)}ms) |\n")
         f.write(f"| **Recommended action** | **{action}** |\n\n")
         f.write("## Check Details\n\n")
         for key, check in report["checks"].items():
@@ -688,6 +712,121 @@ Action: {action}"""
     with open(tmp_json, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
     tmp_json.rename(report_json)
+
+
+# ---------------------------------------------------------------------------
+# P7B+3 helpers: pending MEDIA scan + transport probe
+# ---------------------------------------------------------------------------
+
+def _scan_pending_media(report_dir: Path) -> dict:
+    """Count ``.fallback-pending-*.json`` and archive state in report_dir.
+
+    This is a read-only scan; we never touch the pending files
+    themselves. The ``replay_pending_media.py`` script is the only
+    component that mutates / archives them.
+    """
+    pending = 0
+    replayable = 0
+    quarantined = 0
+    if not report_dir.exists():
+        return {"pending": pending, "replayable": replayable, "quarantined": quarantined}
+    try:
+        for p in sorted(report_dir.rglob(".fallback-pending-*.json")):
+            if not p.is_file():
+                continue
+            # P7B+3: skip files already archived (replayed / quarantine).
+            rel = p.relative_to(report_dir).as_posix() if report_dir in p.parents else ""
+            if rel.startswith("replayed/") or rel.startswith("quarantine/"):
+                continue
+            pending += 1
+            try:
+                doc = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                # Corrupt JSON: not safely replayable. Count as pending
+                # but not replayable.
+                continue
+            attempts = int(doc.get("attempts") or 0)
+            staged = doc.get("staged_report") or ""
+            if attempts < DEFAULT_MAX_RETRIES_PENDING and staged and Path(staged).is_file():
+                replayable += 1
+        # Count quarantine-archived pendings + sidecar records (for visibility).
+        quarantine_dir = report_dir / "quarantine"
+        if quarantine_dir.is_dir():
+            for q in sorted(quarantine_dir.glob(".fallback-pending-*.json")):
+                if q.is_file():
+                    quarantined += 1
+        for q in sorted(report_dir.rglob(".quarantine-*.json")):
+            if q.is_file() and (q.parent.name != "quarantine" or q.name.startswith(".quarantine-")):
+                if not (q.parent / ".fallback-pending-" + q.name[len(".quarantine-"):]).exists():
+                    # Sidecar that doesn't have a corresponding pending
+                    # — count it as quarantined record.
+                    quarantined += 1
+    except Exception as e:
+        # Defensive: never let the scan break the health check.
+        return {"pending": pending, "replayable": replayable, "quarantined": quarantined,
+                "scan_error": f"{type(e).__name__}: {e}"[:200]}
+    return {"pending": pending, "replayable": replayable, "quarantined": quarantined}
+
+
+def _probe_transport(base_dir: Path, openclaw_bin) -> dict:
+    """Run ``scripts/check_openclaw_transport.py`` and return its JSON.
+
+    This is a read-only probe. We never send a Telegram message.
+    """
+    script = base_dir / "scripts" / "check_openclaw_transport.py"
+    fallback = {"status": "not_checked", "error_class": "", "latency_ms": 0,
+                "checked_at": "", "limited_cli": True}
+    if not script.is_file():
+        fallback["error_class"] = "missing_script"
+        return fallback
+    cmd = [sys.executable, str(script)]
+    if openclaw_bin:
+        cmd += ["--openclaw-bin", openclaw_bin]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            cwd=str(base_dir),
+        )
+    except subprocess.TimeoutExpired:
+        return {"status": "timeout", "error_class": "subprocess_timeout", "latency_ms": 15000,
+                "checked_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "limited_cli": True}
+    except Exception as e:
+        return {"status": "error", "error_class": f"{type(e).__name__}", "latency_ms": 0,
+                "checked_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "limited_cli": True}
+    out = (result.stdout or "").strip()
+    if not out:
+        return {"status": "error", "error_class": "no_json_output", "latency_ms": 0,
+                "checked_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "limited_cli": True}
+    # The probe prints a single (possibly multi-line) JSON object on
+    # stdout. We accept the whole document rather than a single line,
+    # since JSON pretty-prints span many lines.
+    try:
+        doc = json.loads(out)
+    except Exception:
+        # Fallback: try the last {...} block (in case extra trailing
+        # text was added by future versions of the probe).
+        last_open = out.rfind("{")
+        last_close = out.rfind("}")
+        if last_open >= 0 and last_close > last_open:
+            try:
+                doc = json.loads(out[last_open:last_close + 1])
+            except Exception as e:
+                return {"status": "error", "error_class": f"json_parse:{type(e).__name__}", "latency_ms": 0,
+                        "checked_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "limited_cli": True}
+        else:
+            return {"status": "error", "error_class": "no_json_output", "latency_ms": 0,
+                    "checked_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "limited_cli": True}
+    version_probe = doc.get("probes", {}).get("version", {}) or {}
+    return {
+        "status": doc.get("status", "error"),
+        "error_class": version_probe.get("error_class", "") or "",
+        "latency_ms": version_probe.get("elapsed_ms", 0) or 0,
+        "checked_at": doc.get("checked_at", ""),
+        "limited_cli": True,  # The CLI is intentionally limited (no message send).
+    }
 
 
 def main():

@@ -46,6 +46,7 @@
 | **P7B** | Optional daily health Telegram cron | ✅ PASS | 2026-06-12 | `<workspace>/reports/artvee-gallery-p7b-daily-health-telegram-cron-20260612.md` |
 | **P7B+1** | Cron MEDIA delivery verification / failure-only fallback | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7b1-cron-media-fallback-20260613.md` |
 | **P7B+2** | Staged-only MEDIA + transport-deferred fallback (2026-06-18 regression) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p7b2-daily-health-media-staging-fix-20260618.md` |
+| **P7B+3** | Pending MEDIA replay + OpenClaw transport health check | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p7b3-pending-media-replay-20260618.md` |
 | **P7D** | v0.2.0-alpha release consolidation | ✅ PASS | 2026-06-13 | `<workspace>/reports/artvee-gallery-p7d-v0.2.0-alpha-release-20260613.md` |
 | **P7E** | v0.2.0 observation window setup | ✅ PASS | 2026-06-14 | `<workspace>/reports/artvee-gallery-p7e-v0.2-observation-window-20260614.md` |
 | **P7E+1** | Online endpoint failure diagnosis (Pages content drift) | ✅ PASS | 2026-06-15 | `<workspace>/reports/artvee-gallery-p7e1-online-endpoint-failure-20260615.md` |
@@ -630,3 +631,23 @@ publish.
 | Safety | no download / refill / batch / `--approve` / Pages push; no real secrets printed (only `${#CID}` length) |
 | Files changed | `scripts/stage_report_for_telegram_media.py` (`--print-meta`), `scripts/artvee_daily_health_check.py` (staged-only + transport-deferred + flush), `scripts/artvee_telegram_notify.py` (`_classify_error` + `error_kind`), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.5), `docs/DEVELOPMENT.md` (§ 23), `docs/PROJECT_STATUS.md` (this row + snapshot), `docs/ROADMAP.md` (P7B+2 → completed), `docs/RETROSPECTIVE.md` (§ 2.20) |
 | Report | `<workspace>/reports/artvee-gallery-p7b2-daily-health-media-staging-fix-20260618.md` |
+
+### P7B+3 pending-media-replay snapshot (2026-06-18 07:30 GMT+8)
+
+| Field | Value |
+|---|---|
+| Goal | Replace P7B+2's auto-flush-on-next-run with a dedicated, bounded, read-only-by-default replay workflow + a side-effect-free transport probe. |
+| New script | `scripts/replay_pending_media.py` — scan / validate / re-send `.fallback-pending-*.json`; default dry-run, `--apply` to actually send. |
+| New script | `scripts/check_openclaw_transport.py` — read-only CLI probe (`openclaw --version` + local TCP connect to `127.0.0.1:18789`). |
+| Daily health integration | New `media_replay` block in JSON: `pending` / `replayable` / `quarantined` / `transport_status` / `transport_latency_ms` / `transport_checked_at` / `transport_limited_cli`. Scan excludes `replayed/` and `quarantine/` so archived files are not double-counted. |
+| Cron changes | None. The 03:00 cron is strictly read + report. Replay is a separate, opt-in step; the optional 03:10 replay cron is documented but **not** installed. |
+| Dry-run | `python3 scripts/replay_pending_media.py --limit 5` → 1 plan entry, no Telegram send, no file move. |
+| Real replay | `python3 scripts/replay_pending_media.py --apply --limit 1` → Telegram message_id=25071, 25073, 25084 (three test runs, all PASS). |
+| Quarantine path | `attempts >= max_retries` → moved to `reports/runtime/daily-health/quarantine/` with `.replay-result-*.json` sidecar. Verified: attempts=3 pending → `quarantine_max_retries` → file moved + sidecar written. |
+| Transport health | `media_replay.transport_status="ok"`, `transport_latency_ms=38-43` (version probe). |
+| Daily health visibility | `pending=0, replayable=0, quarantined=1` after test runs (one quarantined synthetic pending, no real failures). |
+| Strict integrity | PASS |
+| Readiness (4/4) | PASS |
+| Safety | no download / refill / batch / `--approve` / Pages push; no tokens / chat ids / API keys printed; no MEDIA allowlist changes; staged-only path enforced; original pending files always preserved. |
+| Files changed | `scripts/replay_pending_media.py` (new), `scripts/check_openclaw_transport.py` (new), `scripts/artvee_daily_health_check.py` (`media_replay` block + helpers), `docs/MEDIA_REPLAY.md` (new), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.6, § 1 dating), `docs/DEVELOPMENT.md` (§ 24), `docs/PROJECT_STATUS.md` (this row + snapshot), `docs/ROADMAP.md` (P7B+3 → completed), `docs/RETROSPECTIVE.md` (§ 2.21). |
+| Report | `<workspace>/reports/artvee-gallery-p7b3-pending-media-replay-20260618.md` |

@@ -1,6 +1,6 @@
 # Daily Operating Playbook
 
-> Living document. Last updated: 2026-06-13 (P7B+1).
+> Living document. Last updated: 2026-06-18 (P7B+3 pending MEDIA replay + transport health).
 > This is the operational reference for the Artvee Gallery daily workflow.
 
 ---
@@ -190,6 +190,43 @@ contains all the data you need to triage.
      pending file is then unlinked.
    - Action: only intervene if the deferral is more than 24h old —
      the cron self-heals.
+   - **P7B+3 (2026-06-18)**: replay is now a **separate, opt-in step**
+     rather than auto-flushed by the next health run. This avoids
+     the 03:00 cron doing surprise work and gives operators a
+     dedicated `scripts/replay_pending_media.py` command. See
+     `docs/MEDIA_REPLAY.md` for the full workflow. The daily
+     health report now embeds a `media_replay` block listing
+     `pending`, `replayable`, `quarantined`, and
+     `transport_status` for at-a-glance visibility.
+
+### 9.6. Replay pending MEDIA (P7B+3)
+
+When `media_replay.pending > 0` in the latest daily health report:
+
+```bash
+# 1. Verify transport is healthy first.
+python3 scripts/check_openclaw_transport.py --text
+
+# 2. Plan the replay (dry-run, no send, no move).
+python3 scripts/replay_pending_media.py --limit 10
+
+# 3. Actually send.
+python3 scripts/replay_pending_media.py --apply --limit 10
+```
+
+After `--apply`, original pending files are moved to
+`reports/runtime/daily-health/replayed/` (success) or
+`quarantine/` (max-retries or invalid). A `.replay-result-*.json`
+sidecar is written next to each. Replay never deletes files and
+never sends a non-staged path.
+
+Optional dedicated cron (NOT installed by default; explicit `apply`
+required):
+
+```
+# 03:10 optional media replay — install manually after P7B+3 sign-off.
+10 3 * * * export PATH=$HOME/.local/bin:$PATH && export ARTVEE_TELEGRAM_CHAT_ID='<id>' && cd <artvee-repo> && python3 scripts/replay_pending_media.py --apply --limit 10 >> logs/daily-health-cron/replay_$(date +%Y%m%d)_031000.log 2>&1
+```
 
 ### GitHub Pages Verification Fail
 
