@@ -32,6 +32,11 @@ jobs:
           python3 -m py_compile scripts/execute_gallery_collision_migration.py
           python3 -m py_compile scripts/run_artvee_nightly_batch.py
           python3 -m py_compile scripts/download_artvee_selected.py
+          python3 -m py_compile scripts/artvee_telegram_notify.py
+          python3 -m py_compile scripts/stage_report_for_telegram_media.py
+          python3 -m py_compile scripts/artvee_daily_health_check.py
+          python3 -m py_compile scripts/replay_pending_media.py
+          python3 -m py_compile scripts/check_openclaw_transport.py
 
       - name: Check shell syntax
         run: |
