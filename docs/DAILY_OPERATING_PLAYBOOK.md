@@ -303,6 +303,57 @@ that the operator should read first:
 files already archived, not pending) **do not** trigger any failure
 action. They are documented state, not signals.
 
+### 9.8. Pages guard visibility (P8A+1)
+
+P8A originally looked for the Pages publish guard **inside the
+Artvee repo** and reported `pages_guard_available=false` even
+though PAGES-GUARD-1 had already installed the guard in the **Pages
+repo** (`conanxin.github.io`). P8A+1 fixes the detection path so
+ops status correctly reflects reality.
+
+**How to tell the two states apart**
+
+| Symptom | `pages_guard_available` | `pages.guard_smoke` | What it means |
+|---|---|---|---|
+| Guard present, smoke passes | `true` | `pass` | PAGES-GUARD-1 is installed and the read-only smoke verifies the Pages repo is clean against the artvee allowlist. **All good — do not act.** |
+| Guard present, smoke fails | `true` | `fail` | The guard ran but found a problem (e.g. an untracked change in the Pages repo). Read `pages.guard_smoke_detail.stderr_tail` and `pages.error`; decide whether to follow the recovery procedure in the Pages repo's `docs/PAGES_PUBLISH_GUARD.md`. |
+| Guard missing in Pages repo | `false` | `skipped` | The Pages repo does not contain the canonical guard files. The Pages repo is *not* expected to be checked in this state — PAGES-GUARD-1 is required for any Pages publish workflow. |
+| Pages repo missing entirely | `false` | `skipped` | `pages.repo_detected=false`. Pass `--pages-repo <pages-repo>` (or set `$ARTVEE_PAGES_REPO` / `$PAGES_REPO`); or clone the Pages repo. |
+| `--include-pages` not passed | `false` | `skipped` | The Pages section is opt-in. Re-run with `--include-pages` to populate it. |
+
+**To inspect the Pages section in the JSON report:**
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+p = sorted(Path('reports/runtime/ops').glob('artvee-ops-status-*.json'))[-1]
+data = json.loads(p.read_text(encoding='utf-8'))
+pages = data.get('pages', {})
+print('pages.guard_available:', pages.get('guard_available'))
+print('pages.guard_smoke:    ', pages.get('guard_smoke'))
+print('pages.repo_clean:     ', pages.get('repo_clean'))
+print('pages.branch:         ', pages.get('branch'))
+print('pages.head:           ', pages.get('head'))
+print('pages.origin_main:    ', pages.get('origin_main'))
+print('pages.resolved_via:   ', pages.get('resolved_via'))
+print('pages.error:          ', pages.get('error'))
+PY
+```
+
+**Pages repo resolution order** (also documented in
+`docs/POST_STABLE_OPERATIONS.md` § 7):
+
+1. CLI `--pages-repo <pages-repo>`
+2. env `ARTVEE_PAGES_REPO`
+3. env `PAGES_REPO`
+4. default: `Path.home() / "conanxin.github.io"`
+
+The script never hard-codes an absolute user-home path in
+source; the default is `Path.home()` so the path-leak CI gate
+continues to pass and the script is portable to other operators.
+
 The command is **strictly report-only** about pending MEDIA. It
 never auto-replays. To actually replay, use the dedicated P7B+3
 command (see § 9.6). The full field reference and design notes

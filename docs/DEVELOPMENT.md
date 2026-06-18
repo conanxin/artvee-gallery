@@ -684,3 +684,83 @@ bash scripts/artvee_ops_status.sh --online --include-pages --media
 See `docs/POST_STABLE_OPERATIONS.md` for the full field reference,
 recommended-action enum, troubleshooting, and "what not to automate
 yet" list.
+
+---
+
+## 26. P8A+1 Pages guard visibility
+
+P8A reported `pages_guard_available=false` even though the Pages
+publish guard was correctly installed. The bug was a
+**detection-path** mistake, not a guard implementation bug: P8A
+looked for `scripts/check-project-publish-guard.py` and
+`docs/PAGES_PUBLISH_GUARD.md` **inside the Artvee repo**, but
+PAGES-GUARD-1 had installed them in the **Pages repo**
+(`conanxin.github.io`). P8A+1 fixes the detection path.
+
+### Pages repo resolution (P8A+1)
+
+The Pages repo is resolved at runtime, in this order:
+
+1. CLI `--pages-repo <path>`
+2. env `ARTVEE_PAGES_REPO`
+3. env `PAGES_REPO`
+4. `Path.home() / "conanxin.github.io"` (default; **never
+   hard-coded in source**)
+
+`pages.resolved_via` records which source yielded the path. If a
+source points to a non-existent path, ops status falls through to
+the next candidate.
+
+### Inspecting the Pages section
+
+The most useful one-liner for an operator:
+
+```bash
+bash scripts/artvee_ops_status.sh \
+  --online \
+  --include-pages \
+  --pages-repo <pages-repo> \
+  --no-telegram
+# → records=875 retired=4 blocking=0 integrity=PASS readiness=PASS
+#   pending_media=0 transport=ok action=candidate_ready_manual_publish_optional
+```
+
+Then read the new `pages` sub-object in the JSON or the
+`## Pages guard (P8A+1)` block in the Markdown report. Key
+fields:
+
+| Field | Meaning |
+|---|---|
+| `pages.repo_detected` | Did we find a git checkout at the resolved path? |
+| `pages.repo_clean` | `true` / `false` / `unknown` / `skipped` from `git status --porcelain` (read-only) |
+| `pages.branch` / `pages.head` / `pages.origin_main` | Pages repo state (not echoed as paths in chat) |
+| `pages.guard_available` | Both `scripts/check-project-publish-guard.py` and `docs/PAGES_PUBLISH_GUARD.md` present in the Pages repo? |
+| `pages.guard_smoke` | `pass` / `fail` / `skipped` — read-only smoke of the guard against the artvee allowlist |
+| `pages.error` | If `guard_smoke=fail`, the smoke's error string |
+
+The top-level `pages_guard_available` / `pages_repo_clean` /
+`pages_guard_script` / `pages_guard_doc` fields are preserved for
+backward compatibility with any P8A-era tooling.
+
+### What P8A+1 does NOT do
+
+- Does **not** modify the Pages repo, ever.
+- Does **not** run the destructive half of the guard script.
+- Does **not** push to GitHub Pages.
+- Does **not** fail the script on a guard-smoke failure. A
+  smoke failure is recorded in `pages.error` and `pages.guard_smoke`,
+  but the rest of the ops report still runs and the script still
+  exits 0.
+- Does **not** change the recommended-action enum.
+
+### What P8A+1 does change
+
+- The `_pages_guard_available` helper was removed; it looked in
+  the wrong repo.
+- The new `_resolve_pages_repo` / `_pages_repo_clean_status` /
+  `_pages_repo_branch_head` / `_pages_guard_files` /
+  `_pages_guard_smoke` helpers live in `scripts/artvee_ops_status.py`.
+- The MD report gets a new `## Pages guard (P8A+1)` section that
+  summarises the same fields without echoing the path string.
+- The JSON report gets a new top-level `pages` sub-object with
+  the same fields.

@@ -166,22 +166,45 @@ python3 scripts/replay_pending_media.py --apply   # real send, archive
 
 See `docs/MEDIA_REPLAY.md` for the full workflow.
 
-## 7. Pages guard
+## 7. Pages guard (P8A + P8A+1)
 
 Pages guard is intentionally **read-only**. The command:
 
-* Reports `pages_guard_available=true` only if both
-  `scripts/check-project-publish-guard.py` and
-  `docs/PAGES_PUBLISH_GUARD.md` exist on disk.
-* With `--include-pages`, runs `git status --porcelain` in
-  `<pages-repo>` and reports `pages_repo_clean=true|false|unknown`.
+* **P8A+1 fix:** the guard files are looked up in the **Pages
+  repo** (e.g. `<pages-repo>/scripts/check-project-publish-guard.py`
+  and `<pages-repo>/docs/PAGES_PUBLISH_GUARD.md`), **not** in the
+  Artvee repo. PAGES-GUARD-1 installed the guard in the Pages repo
+  itself, which is its natural home; P8A originally looked inside
+  the Artvee repo and reported a false `pages_guard_available=false`.
+* Reports `pages_guard_available=true` (top-level) only if both
+  the guard script and the doc are present *in the Pages repo*.
+* With `--include-pages` and `--pages-repo <pages-repo>`, runs
+  `git status --porcelain` in `<pages-repo>` and reports
+  `pages_repo_clean=true|false|unknown`.
+* With `--include-pages` and the guard present, also runs the
+  guard in read-only mode (`--base origin/main` + the canonical
+  artvee allowlist) and reports `pages.guard_smoke=pass|fail|skipped`.
 * Never modifies the Pages repo, never runs `rsync`, never commits,
   never pushes, never executes the destructive half of any guard
-  script.
+  script. A guard-smoke failure does **not** make the script fail
+  exit code; it is recorded under `pages.error` so a transient
+  OpenClaw / Pages issue cannot prevent the rest of the report.
+
+### Pages repo resolution order
+
+1. CLI `--pages-repo <path>`
+2. env `ARTVEE_PAGES_REPO`
+3. env `PAGES_REPO`
+4. default: `Path.home() / "conanxin.github.io"`
+
+`pages.resolved_via` records which one yielded the path. If the
+user passes an explicit path that does not exist, ops status falls
+through to the next candidate and reports the resolved result
+honestly (the explicit-but-missing path is not silently accepted).
 
 If the operator needs to *act* on a Pages drift signal, they should
-read `docs/PAGES_PUBLISH_GUARD.md` (once that doc exists) and
-follow the recovery procedure manually.
+read `docs/PAGES_PUBLISH_GUARD.md` (in the Pages repo) and follow
+the recovery procedure manually.
 
 ## 8. Manual approved publish
 
@@ -210,11 +233,14 @@ After v0.2.0 stable, several things are deliberately still manual:
 * **Publishing candidate demos.** `publish_demo_refresh_candidate.sh`
   requires explicit `--approve`. The ops status command makes the
   readiness *visible*; it does not auto-approve.
-* **Pages repo restoration after content drift.** A future
-  `scripts/check-project-publish-guard.py` and a recovery doc
-  `docs/PAGES_PUBLISH_GUARD.md` are not yet implemented; until they
-  are, pages drift recovery is a manual decision based on the
-  `pages_repo_clean=false` signal.
+* **Pages repo restoration after content drift.** PAGES-GUARD-1
+  has installed `scripts/check-project-publish-guard.py` and
+  `docs/PAGES_PUBLISH_GUARD.md` *in the Pages repo*. The P8A+1
+  ops status command can now run that guard in read-only mode
+  (see § 7 above); the *destructive* half of the guard is still
+  manual, controlled by the operator following the recovery doc.
+  Pages drift recovery is a manual decision based on the
+  `pages_repo_clean=false` or `pages.guard_smoke=fail` signal.
 * **Adding new cron jobs.** The 03:00 daily health cron is the only
   cron this phase relies on. New crons are explicitly NOT installed
   by P8A.

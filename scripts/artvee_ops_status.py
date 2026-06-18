@@ -46,9 +46,25 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_OPS = REPO_ROOT / "reports" / "runtime" / "ops"
 DAILY_HEALTH_DIR = REPO_ROOT / "reports" / "runtime" / "daily-health"
 RUNTIME_REPORTS = REPO_ROOT / "reports" / "runtime"
-PAGES_REPO_DEFAULT = Path.home() / "conanxin.github.io"
+# PAGES_REPO_DEFAULT is resolved at runtime via _resolve_pages_repo(); do not
+# pin it to a hard-coded /home/... path in source. The default is
+# Path.home() / "conanxin.github.io" which is portable.
 PUBLIC_GALLERY_URL = "https://conanxin.github.io/projects/artvee-gallery-demo/"
 PUBLIC_DIGEST_URL = "https://conanxin.github.io/projects/artvee-gallery-digest/"
+
+# Canonical relative paths for the Pages publish guard inside a Pages repo.
+PAGES_GUARD_SCRIPT = "scripts/check-project-publish-guard.py"
+PAGES_GUARD_DOC = "docs/PAGES_PUBLISH_GUARD.md"
+
+# Default allowlist used for the guard smoke when --guard-allow is not
+# supplied. Mirrors docs/PAGES_PUBLISH_GUARD.md and is intentionally a list
+# of *project-relative* paths (no absolute paths).
+PAGES_GUARD_DEFAULT_ALLOW = (
+    "projects/artvee-gallery-demo",
+    "projects/artvee-gallery-digest",
+    "projects/data.json",
+)
+PAGES_GUARD_DEFAULT_BASE = "origin/main"
 
 # Recommended action enum (must match docs/P8A model)
 ACTION_HEALTHY = "healthy_no_action"
@@ -107,21 +123,142 @@ def _is_cron_installed() -> bool:
     return "P7B daily health check" in out or "artvee_daily_health_check.sh" in out
 
 
-def _pages_guard_available() -> dict[str, bool]:
+def _resolve_pages_repo(args: argparse.Namespace) -> dict[str, Any]:
+    """Resolve the Pages repo path from CLI / env / default.
+
+    Resolution order (P8A+1):
+      1. CLI --pages-repo <path>
+      2. env ARTVEE_PAGES_REPO
+      3. env PAGES_REPO
+      4. Path.home() / "conanxin.github.io"
+      5. missing (no value, repo_detected=false)
+
+    `resolved_via` reports the source that *yielded* the returned
+    path (or the closest source we attempted). When the user
+    passes --pages-repo <bad-path>, the returned `path` is the
+    resolved Path and `resolved_via="cli"` — the caller can then
+    report that the explicitly-given path was missing.
+    """
+    candidates = []
+    if getattr(args, "pages_repo", None):
+        candidates.append(("cli", args.pages_repo))
+    for env_name in ("ARTVEE_PAGES_REPO", "PAGES_REPO"):
+        val = os.environ.get(env_name, "").strip()
+        if val:
+            candidates.append((f"env:{env_name}", val))
+    # Default — never hard-code /home/... in source; the home lookup is
+    # portable.
+    candidates.append(("default", str(Path.home() / "conanxin.github.io")))
+
+    for source, raw in candidates:
+        p = Path(raw).expanduser()
+        if p.is_dir() and (p / ".git").exists():
+            return {
+                "path": str(p),
+                "resolved_via": source,
+                "exists": True,
+            }
+    # No candidate existed as a git checkout. Report the *first*
+    # candidate (the explicit override) so the caller can show what
+    # was attempted; if there was no override, fall back to the
+    # default label.
+    if not candidates:
+        return {"path": None, "resolved_via": "missing", "exists": False}
+    first_source, first_raw = candidates[0]
     return {
-        "guard_script": (REPO_ROOT / "scripts" / "check-project-publish-guard.py").exists(),
-        "guard_doc": (REPO_ROOT / "docs" / "PAGES_PUBLISH_GUARD.md").exists(),
+        "path": str(Path(first_raw).expanduser()),
+        "resolved_via": first_source,
+        "exists": False,
     }
 
 
-def _pages_repo_clean(pages_repo: Path) -> str:
-    """Read-only check whether the local Pages repo clone is clean."""
+def _pages_repo_clean_status(pages_repo: Path) -> str:
+    """Read-only check whether the local Pages repo clone is clean.
+
+    Returns one of: "true" | "false" | "unknown" | "skipped".
+    Never modifies the Pages repo.
+    """
     if not (pages_repo / ".git").exists():
         return "unknown"
     rc, out, _ = _run(["git", "status", "--porcelain"], cwd=pages_repo)
     if rc != 0:
         return "unknown"
     return "true" if not out.strip() else "false"
+
+
+def _pages_repo_branch_head(pages_repo: Path) -> tuple[str | None, str | None, str | None]:
+    """Return (branch, head, origin_main) for a Pages repo. None on error."""
+    rc1, b, _ = _run(["git", "branch", "--show-current"], cwd=pages_repo)
+    rc2, h, _ = _run(["git", "rev-parse", "--short", "HEAD"], cwd=pages_repo)
+    rc3, om, _ = _run(["git", "rev-parse", "--short", "origin/main"], cwd=pages_repo)
+    return (
+        b.strip() if rc1 == 0 else None,
+        h.strip() if rc2 == 0 else None,
+        om.strip() if rc3 == 0 else None,
+    )
+
+
+def _pages_guard_files(pages_repo: Path) -> dict[str, bool]:
+    """Whether the canonical guard files exist inside a Pages repo.
+
+    P8A+1: the PAGES-GUARD-1 guard lives in the *Pages* repo
+    (conanxin.github.io), not in the Artvee repo. Earlier P8A
+    logic looked inside the Artvee repo and reported false
+    positives. This helper checks the Pages repo only — that is
+    where the guard is installed and where it must run.
+    """
+    return {
+        "guard_script": (pages_repo / PAGES_GUARD_SCRIPT).is_file(),
+        "guard_doc": (pages_repo / PAGES_GUARD_DOC).is_file(),
+    }
+
+
+def _pages_guard_smoke(pages_repo: Path, allow: tuple[str, ...] = PAGES_GUARD_DEFAULT_ALLOW) -> dict[str, Any]:
+    """Run the guard in read-only mode against the Pages repo.
+
+    The guard is invoked with --base origin/main and the supplied
+    allowlist (default = the canonical artvee set in
+    docs/PAGES_PUBLISH_GUARD.md). It must never modify the Pages
+    repo. The function returns a structured record; callers must
+    never treat a guard failure as fatal.
+    """
+    guard = pages_repo / PAGES_GUARD_SCRIPT
+    if not guard.is_file():
+        return {
+            "ran": False,
+            "verdict": "skipped",
+            "exit_code": None,
+            "stdout_tail": "",
+            "stderr_tail": "",
+            "error": "guard script not found",
+        }
+    cmd = [sys.executable, str(guard), "--base", PAGES_GUARD_DEFAULT_BASE]
+    for entry in allow:
+        cmd += ["--allow", entry]
+    try:
+        proc = subprocess.run(
+            cmd, cwd=str(pages_repo), capture_output=True, text=True,
+            timeout=20,
+        )
+        out_tail = "\n".join((proc.stdout or "").splitlines()[-8:])
+        err_tail = "\n".join((proc.stderr or "").splitlines()[-4:])
+        verdict = "pass" if proc.returncode == 0 else "fail"
+        return {
+            "ran": True,
+            "verdict": verdict,
+            "exit_code": proc.returncode,
+            "stdout_tail": out_tail,
+            "stderr_tail": err_tail,
+            "error": None if verdict == "pass" else (err_tail or "non-zero exit"),
+        }
+    except subprocess.TimeoutExpired:
+        return {"ran": True, "verdict": "fail", "exit_code": 124,
+                "stdout_tail": "", "stderr_tail": "",
+                "error": "timeout after 20s"}
+    except Exception as e:
+        return {"ran": False, "verdict": "fail", "exit_code": None,
+                "stdout_tail": "", "stderr_tail": "",
+                "error": f"{type(e).__name__}: {e}"}
 
 
 def _latest_daily_health() -> tuple[Path | None, dict[str, Any] | None]:
@@ -204,9 +341,95 @@ def _build_status(args: argparse.Namespace) -> dict[str, Any]:
 
     pending = _scan_pending_media()
     transport = _probe_transport()
-    pages_guard = _pages_guard_available()
-    pages_repo = _pages_repo_clean(PAGES_REPO_DEFAULT) if args.include_pages else "skipped"
     cron_installed = _is_cron_installed()
+
+    # --- Pages repo + guard detection (P8A+1) --------------------------
+    # Earlier P8A only looked inside the Artvee repo for the guard
+    # files, which produced a false pages_guard_available=false even
+    # though PAGES-GUARD-1 had already shipped the guard into the
+    # conanxin.github.io Pages repo. P8A+1 resolves the Pages repo
+    # path first (CLI > env > default), then inspects the Pages repo
+    # for the canonical guard files, and optionally runs a read-only
+    # smoke. The Pages repo is *never* modified by this script.
+    pages_resolution = _resolve_pages_repo(args) if args.include_pages else {
+        "path": None, "resolved_via": "skipped", "exists": False,
+    }
+    pages: dict[str, Any]
+    if not args.include_pages:
+        pages = {
+            "included": False,
+            "repo_detected": False,
+            "repo_clean": "skipped",
+            "branch": None,
+            "head": None,
+            "origin_main": None,
+            "guard_available": False,
+            "guard_script_exists": False,
+            "guard_doc_exists": False,
+            "guard_script": None,
+            "guard_doc": None,
+            "guard_smoke": "skipped",
+            "guard_smoke_detail": {},
+            "resolved_via": "skipped",
+            "error": None,
+        }
+    else:
+        pages_path = Path(pages_resolution["path"]) if pages_resolution["exists"] else None
+        if pages_path is None:
+            pages = {
+                "included": True,
+                "repo_detected": False,
+                "repo_clean": "unknown",
+                "branch": None,
+                "head": None,
+                "origin_main": None,
+                "guard_available": False,
+                "guard_script_exists": False,
+                "guard_doc_exists": False,
+                "guard_script": None,
+                "guard_doc": None,
+                "guard_smoke": "skipped",
+                "guard_smoke_detail": {},
+                "resolved_via": pages_resolution["resolved_via"],
+                "error": f"pages repo not found at {pages_resolution['path']}",
+            }
+        else:
+            clean = _pages_repo_clean_status(pages_path)
+            branch, head, omain = _pages_repo_branch_head(pages_path)
+            files = _pages_guard_files(pages_path)
+            guard_ok = bool(files["guard_script"] and files["guard_doc"])
+            if guard_ok and not args.no_guard_smoke:
+                allow = tuple(args.guard_allow) if args.guard_allow else PAGES_GUARD_DEFAULT_ALLOW
+                smoke = _pages_guard_smoke(pages_path, allow=allow)
+            elif not guard_ok:
+                smoke = {
+                    "ran": False, "verdict": "skipped",
+                    "exit_code": None, "stdout_tail": "", "stderr_tail": "",
+                    "error": "guard files missing",
+                }
+            else:
+                smoke = {
+                    "ran": False, "verdict": "skipped",
+                    "exit_code": None, "stdout_tail": "", "stderr_tail": "",
+                    "error": "smoke skipped via --no-guard-smoke",
+                }
+            pages = {
+                "included": True,
+                "repo_detected": True,
+                "repo_clean": clean,
+                "branch": branch,
+                "head": head,
+                "origin_main": omain,
+                "guard_available": guard_ok,
+                "guard_script_exists": files["guard_script"],
+                "guard_doc_exists": files["guard_doc"],
+                "guard_script": PAGES_GUARD_SCRIPT if files["guard_script"] else None,
+                "guard_doc": PAGES_GUARD_DOC if files["guard_doc"] else None,
+                "guard_smoke": smoke.get("verdict", "skipped"),
+                "guard_smoke_detail": smoke,
+                "resolved_via": pages_resolution["resolved_via"],
+                "error": smoke.get("error") if smoke.get("verdict") == "fail" else None,
+            }
 
     online_gallery = None
     online_digest = None
@@ -263,20 +486,27 @@ def _build_status(args: argparse.Namespace) -> dict[str, Any]:
         "transport_error_class": transport.get("error_class", ""),
         "daily_health_cron_installed": cron_installed,
         "latest_health_report": str(daily_path) if daily_path else None,
-        "latest_health_telegram_status": str(
-            daily_telegram.get("text_summary", {}).get("sent")
-            if daily_telegram.get("text_summary", {}).get("attempted")
-            else "not_attempted"
-        ) if daily_telegram else "unknown",
+        "latest_health_telegram_status": (
+            str(
+                daily_telegram.get("text_summary", {}).get("sent")
+                if daily_telegram.get("text_summary", {}).get("attempted")
+                else "not_attempted"
+            )
+            if daily_telegram
+            else "unknown"
+        ),
         "daily_health_media_replay": daily_media_replay,
         "public_gallery_url": PUBLIC_GALLERY_URL,
         "public_digest_url": PUBLIC_DIGEST_URL,
         "online_gallery_status": online_gallery,
         "online_digest_status": online_digest,
-        "pages_guard_available": pages_guard["guard_script"] and pages_guard["guard_doc"],
-        "pages_guard_script": pages_guard["guard_script"],
-        "pages_guard_doc": pages_guard["guard_doc"],
-        "pages_repo_clean": pages_repo,
+        # Top-level compatibility fields (preserved from P8A).
+        "pages_guard_available": pages["guard_available"],
+        "pages_guard_script": bool(pages["guard_script_exists"]),
+        "pages_guard_doc": bool(pages["guard_doc_exists"]),
+        "pages_repo_clean": pages["repo_clean"],
+        # New structured Pages sub-object (P8A+1).
+        "pages": pages,
         "recommended_action": recommended,
     }
 
@@ -337,12 +567,47 @@ def _md(status: dict[str, Any]) -> str:
     )
 
 
+def _md_pages_block(pages: dict[str, Any]) -> str:
+    """Render the P8A+1 pages sub-object as a small markdown block.
+
+    Never echoes a real Pages repo path. The path is summarised
+    via `resolved_via` (`cli` / `env:ARTVEE_PAGES_REPO` /
+    `env:PAGES_REPO` / `default` / `missing` / `skipped`).
+    """
+    if not pages.get("included", False):
+        return ""
+    rv = pages.get("resolved_via", "skipped")
+    if not pages.get("repo_detected", False):
+        return (
+            "\n## Pages guard (P8A+1)\n\n"
+            f"- included: true\n"
+            f"- resolved_via: `{rv}`\n"
+            f"- repo_detected: false\n"
+            f"- error: `{pages.get('error') or 'pages repo not found'}`\n"
+        )
+    smoke = pages.get("guard_smoke_detail") or {}
+    return (
+        "\n## Pages guard (P8A+1)\n\n"
+        f"- repo_detected: {pages.get('repo_detected')}\n"
+        f"- resolved_via: `{rv}`\n"
+        f"- branch: `{pages.get('branch')}`\n"
+        f"- head: `{pages.get('head')}`\n"
+        f"- origin_main: `{pages.get('origin_main')}`\n"
+        f"- repo_clean: {pages.get('repo_clean')}\n"
+        f"- guard_available: {pages.get('guard_available')}\n"
+        f"- guard_script: `{pages.get('guard_script')}`\n"
+        f"- guard_doc: `{pages.get('guard_doc')}`\n"
+        f"- guard_smoke: {pages.get('guard_smoke')}\n"
+        f"- guard_smoke.ran: {smoke.get('ran')}\n"
+        f"- guard_smoke.exit_code: {smoke.get('exit_code')}\n"
+    )
+
 def _write_outputs(status: dict[str, Any]) -> tuple[Path, Path]:
     RUNTIME_OPS.mkdir(parents=True, exist_ok=True)
     json_path = RUNTIME_OPS / f"artvee-ops-status-{status['date']}.json"
     md_path = RUNTIME_OPS / f"artvee-ops-status-{status['date']}.md"
     json_path.write_text(json.dumps(status, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    md_path.write_text(_md(status), encoding="utf-8")
+    md_path.write_text(_md(status) + _md_pages_block(status.get("pages") or {}), encoding="utf-8")
     return json_path, md_path
 
 
@@ -398,7 +663,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--online", action="store_true",
                    help="Probe public gallery/digest URLs (HEAD)")
     p.add_argument("--include-pages", action="store_true",
-                   help="Run a read-only Pages repo clean check")
+                   help="Run a read-only Pages repo clean check + guard detect")
+    p.add_argument("--pages-repo", default=None,
+                   help="Path to the Pages repo (e.g. ~/conanxin.github.io). "
+                        "Resolution order: --pages-repo > $ARTVEE_PAGES_REPO > "
+                        "$PAGES_REPO > default. The Pages repo is read-only.")
+    p.add_argument("--guard-allow", action="append", default=None,
+                   help="Extra --allow entry for the guard smoke "
+                        "(repeatable). Default is the canonical artvee set "
+                        "from docs/PAGES_PUBLISH_GUARD.md.")
+    p.add_argument("--no-guard-smoke", action="store_true",
+                   help="Skip running the guard's read-only smoke (default: run it).")
     p.add_argument("--include-pending-media", action="store_true",
                    help="(Reserved) include pending media scan — always on")
     p.add_argument("--media", action="store_true",

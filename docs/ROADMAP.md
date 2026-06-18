@@ -639,7 +639,19 @@ _superseded by P7D · v0.2.0-alpha release consolidation above (this is the impl
 - Verification: dry-run (--no-telegram --online --include-pages) PASS; real Telegram + MEDIA send PASS (message_id=25149, transport healthy at 37–43ms, no side effects). Pending MEDIA scan matches daily health exactly (`pending=0, replayable=0, quarantined=1`). Online gallery + digest both 200; Pages repo clean=true.
 - Safety: no download / refill / batch / `--approve` / Pages push; no `images/`, `metadata/`, `thumbs/`, `dist/`, `digests/`, `logs/`, `inbox/`, `web/data/`, `index/`, `reports/runtime/`, `tmp/` modification; no tokens / chat ids / secrets printed; raw report path never sent to OpenClaw (always staged).
 - Files: `scripts/artvee_ops_status.{sh,py}`, `docs/POST_STABLE_OPERATIONS.md`, `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.7 + status-report + dating), `docs/DEVELOPMENT.md` (§ 25), `docs/PROJECT_STATUS.md` (P8A row + snapshot), `docs/RETROSPECTIVE.md` (§ 2.22), `README.md` (light link addition).
-- See `<workspace>/reports/artvee-gallery-p8a-post-stable-ops-polish-20260618.md`.
+
+### P8A+1 · Pages guard visibility fix ✅ PASS (2026-06-18 10:23)
+- P8A's `pages_guard_available` was always `false` because it looked for `scripts/check-project-publish-guard.py` and `docs/PAGES_PUBLISH_GUARD.md` **inside the Artvee repo**. PAGES-GUARD-1 had installed them in the **Pages repo** (`conanxin.github.io`). Wrong-scope check, not a guard implementation bug.
+- Fix: resolve the Pages repo path (CLI `--pages-repo` > `$ARTVEE_PAGES_REPO` > `$PAGES_REPO` > `Path.home() / "conanxin.github.io"`) → inspect *that* repo for the canonical files → optionally run a read-only guard smoke with the artvee allowlist (`projects/artvee-gallery-demo`, `projects/artvee-gallery-digest`, `projects/data.json`).
+- Default uses `Path.home()` rather than a hard-coded absolute
+  user-home path so the path-leak CI gate keeps passing and the
+  script stays portable.
+- New JSON sub-object `pages.{repo_detected, repo_clean, branch, head, origin_main, guard_available, guard_script_exists, guard_doc_exists, guard_script, guard_doc, guard_smoke, guard_smoke_detail, resolved_via, error}`. Top-level P8A compat fields preserved.
+- New CLI flags: `--pages-repo <path>`, `--guard-allow <entry>` (repeatable), `--no-guard-smoke`.
+- Verified: `pages_guard_available=true`, `pages.guard_smoke=pass`, Pages repo `git status --porcelain` empty, HEAD unchanged, Telegram + MEDIA send returned message_id=**25188**.
+- Safety: same as P8A (read-only with respect to the Pages repo; no download / refill / batch / `--approve` / Pages push).
+- Files: `scripts/artvee_ops_status.py` (detection rewrite), `docs/POST_STABLE_OPERATIONS.md` (§ 7 + § 9), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.8), `docs/DEVELOPMENT.md` (§ 26), `docs/PROJECT_STATUS.md` (row + snapshot), `docs/RETROSPECTIVE.md` (§ 2.23).
+- See `<workspace>/reports/artvee-gallery-p8a1-pages-guard-visibility-20260618.md`.
 
 ### Next (post-P8A, v0.2.x polish)
 - **P8B** content product polish — promote the `KNOWN_RETIRED` table into the public demo's UI; per-artist collection view; tune the digest `--max-per-artist` and `--exclude-risk` defaults if user feedback warrants it.

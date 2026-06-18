@@ -54,6 +54,7 @@
 | **P7F** | v0.2.0 stable readiness review (3-day observation complete, all green) | ✅ PASS | 2026-06-16 | `<workspace>/reports/artvee-gallery-p7f-v0.2-stable-readiness-20260616.md` |
 | **v0.2.0 stable release** | v0.2.0 stable cut (tag + GitHub Release) after 3-day green observation | ✅ PASS | 2026-06-16 | `<workspace>/reports/artvee-gallery-v0.2.0-stable-release-20260616.md` |
 | **P8A** | Post-stable ops status command (one-shot health aggregator) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8a-post-stable-ops-polish-20260618.md` |
+| **P8A+1** | Pages guard visibility fix (Pages repo detection) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8a1-pages-guard-visibility-20260618.md` |
 
 ### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
 
@@ -674,3 +675,30 @@ publish.
 | Safety | no download / refill / batch / `--approve` / Pages push; no `images/`, `metadata/`, `thumbs/`, `dist/`, `digests/`, `logs/`, `inbox/`, `web/data/`, `index/`, `reports/runtime/`, `tmp/` modification; no tokens / chat ids / secrets printed; raw report path never sent to OpenClaw (always staged via `stage_report_for_telegram_media`). |
 | Files changed | `scripts/artvee_ops_status.py` (new), `scripts/artvee_ops_status.sh` (new), `docs/POST_STABLE_OPERATIONS.md` (new), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.7 + status-report + dating), `docs/DEVELOPMENT.md` (§ 25), `docs/PROJECT_STATUS.md` (P8A row + snapshot), `docs/ROADMAP.md` (P8A + Next), `docs/RETROSPECTIVE.md` (§ 2.22), `README.md` (light link addition). |
 | Report | `<workspace>/reports/artvee-gallery-p8a-post-stable-ops-polish-20260618.md` |
+
+### P8A+1 pages-guard-visibility snapshot (2026-06-18 10:23 GMT+8)
+
+**Goal** — fix the detection path that made P8A's
+`pages_guard_available` always report `false` even though the
+guard was correctly installed. **Not** a guard implementation
+change; the guard was already where it should be. P8A+1 only
+fixes the ops-status-side detection.
+
+| Field | Value |
+|---|---|
+| Date | 2026-06-18 |
+| Pre-fix symptom | `pages_guard_available=false` in P8A ops status JSON, despite the guard being installed in the Pages repo |
+| Root cause | P8A looked for `scripts/check-project-publish-guard.py` and `docs/PAGES_PUBLISH_GUARD.md` **inside the Artvee repo**. PAGES-GUARD-1 had installed them in the **Pages repo** (`conanxin.github.io`). Wrong-scope check. |
+| Fix shape | Resolve the Pages repo path (CLI > env > default) → inspect *that* repo for the canonical files → optionally run a read-only guard smoke with the artvee allowlist |
+| Pages repo resolution | `--pages-repo <pages-repo>` > `$ARTVEE_PAGES_REPO` > `$PAGES_REPO` > `Path.home() / "conanxin.github.io"` |
+| New JSON sub-object | `pages.{repo_detected, repo_clean, branch, head, origin_main, guard_available, guard_script_exists, guard_doc_exists, guard_script, guard_doc, guard_smoke, guard_smoke_detail, resolved_via, error}` |
+| New CLI flags | `--pages-repo <path>`, `--guard-allow <entry>` (repeatable), `--no-guard-smoke` |
+| Top-level compat | `pages_guard_available`, `pages_guard_script`, `pages_guard_doc`, `pages_repo_clean` still emitted |
+| Pre-fix verify | P8A (before fix) reported `pages_guard_available=false`; P8A+1 reports `pages_guard_available=true` with `pages.guard_smoke=pass` |
+| Post-fix verify | `bash scripts/artvee_ops_status.sh --online --include-pages --pages-repo <pages-repo> --no-telegram` exits 0; `pages.guard_smoke=pass`; Pages repo `git status --porcelain` empty; HEAD unchanged |
+| Telegram + MEDIA verify | `bash scripts/artvee_ops_status.sh --online --include-pages --pages-repo <pages-repo> --media` → message_id=**25188** (verified via `/tmp/artvee_notify_*.log`) |
+| Strict integrity | PASS |
+| Readiness (4/4) | PASS |
+| Safety | no download / refill / batch / `--approve` / Pages push; cron line untouched; no real paths / tokens / chat_ids printed; `Path.home()` used instead of a hard-coded absolute user-home path; no tracked runtime files added |
+| Files changed | `scripts/artvee_ops_status.py` (Pages guard detection), `docs/POST_STABLE_OPERATIONS.md` (§ 7 + § 9), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.8), `docs/DEVELOPMENT.md` (§ 26), `docs/PROJECT_STATUS.md` (row + this snapshot), `docs/ROADMAP.md` (P8A+1 → completed), `docs/RETROSPECTIVE.md` (§ 2.23) |
+| Report | `<workspace>/reports/artvee-gallery-p8a1-pages-guard-visibility-20260618.md` |

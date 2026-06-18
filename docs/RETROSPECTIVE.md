@@ -355,6 +355,63 @@ the cron already emits, with at least a count and a
 status. Operators should never have to `find` and `cat`
 files to know whether anything is stuck.
 
+### 2.22 (P8A+1) Ops status should detect cross-repo guards via explicit repo configuration, not assume local repo scope
+
+P8A's `pages_guard_available` was always `false`, even though
+the Pages publish guard was correctly installed and operational.
+The bug was a **detection-path** mistake: P8A's helper looked for
+`scripts/check-project-publish-guard.py` and
+`docs/PAGES_PUBLISH_GUARD.md` **inside the Artvee repo**, but
+PAGES-GUARD-1 had installed them in the **Pages repo**
+(`conanxin.github.io`). The natural home of a guard script is
+the repo it is supposed to protect, not the consuming project.
+P8A made the wrong assumption.
+
+Three lessons emerged:
+
+1. **Cross-repo facts need explicit cross-repo config.** Any
+   signal that lives in *another* repository must be resolved
+   via an explicit configuration point (CLI flag, env var, or
+   well-defined default). It must *not* be silently looked up in
+   the local repo. The P8A+1 fix introduced
+   `--pages-repo <pages-repo>` / `$ARTVEE_PAGES_REPO` /
+   `$PAGES_REPO` with a `Path.home() / "conanxin.github.io"`
+   default — that is the explicit cross-repo configuration
+   point.
+
+2. **`Path.home()` is the right default; hard-coded paths are
+   the wrong default.** A script that hard-codes an absolute
+   user-home path in source fails the path-leak CI gate and is
+   not portable to any other operator. Using `Path.home()` keeps
+   the path-leak gate green and the script copy-pasteable. P8A
+   had defaulted to `Path.home() / "conanxin.github.io"` already;
+   P8A+1 just *used* it correctly.
+
+3. **A "false negative" guard detection is worse than "guard
+   missing".** When P8A reported `pages_guard_available=false`,
+   the operator had no way to know whether the guard was
+   uninstalled (real problem) or whether P8A was looking in the
+   wrong place (detection bug). The two states require very
+   different fixes. P8A+1 separates them: `pages.repo_detected`
+   tells you the repo was found, `pages.guard_available` tells
+   you the guard files are present, and `pages.guard_smoke`
+   tells you the guard actually runs. Three independent bits
+   instead of one.
+
+**Rule**: any cross-repo fact (a guard in another repo, a
+status of another service, a peer repo's HEAD) must be exposed
+through explicit configuration, never assumed to live in the
+caller's repo. The CLI surface and the env vars are the
+configuration. `Path.home()` is the default; hard-coded paths
+are an anti-pattern.
+
+**Operational rule**: when a status field can be one of
+several states (repo-missing / guard-missing / guard-installed
+/ guard-smoke-failed), report each state independently.
+Collapsing them into a single boolean is a debugging
+anti-pattern — the operator cannot tell which path is broken
+and ends up reading source code.
+
 ## 3. Phase-by-phase impact analysis
 
 ### P1 · Local Gallery Browser
