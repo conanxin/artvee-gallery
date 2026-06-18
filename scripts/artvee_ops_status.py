@@ -123,6 +123,49 @@ def _is_cron_installed() -> bool:
     return "P7B daily health check" in out or "artvee_daily_health_check.sh" in out
 
 
+def _is_media_replay_cron_installed() -> bool:
+    rc, out, _ = _run(["crontab", "-l"])
+    if rc != 0:
+        return False
+    return "P8D media replay cron" in out or "artvee_media_replay_cron.sh" in out
+
+
+def _read_media_replay_cron_summary() -> dict[str, Any]:
+    """Read the latest media-replay cron summary if it exists (P8D).
+
+    Reads the most recent reports/runtime/media-replay/cron-*.json.
+    Returns a dict; missing file yields an explicit unknown field.
+    """
+    import glob
+    base = Path(REPO_ROOT) / "reports" / "runtime" / "media-replay"
+    if not base.exists():
+        return {"available": False, "path": "", "date": "", "outcome": "unknown", "started_at": "", "ended_at": "", "pending_before": None, "transport_status": "", "lock_file": str(base / ".media-replay.lock"), "lock_held": False}
+    files = sorted(glob.glob(str(base / "cron-*.json")))
+    if not files:
+        return {"available": False, "path": "", "date": "", "outcome": "unknown", "started_at": "", "ended_at": "", "pending_before": None, "transport_status": "", "lock_file": str(base / ".media-replay.lock"), "lock_held": False}
+    latest = files[-1]
+    try:
+        data = json.loads(Path(latest).read_text())
+    except Exception as e:
+        return {"available": False, "path": latest, "date": "", "outcome": "parse_error", "started_at": "", "ended_at": "", "pending_before": None, "transport_status": "", "lock_file": str(base / ".media-replay.lock"), "lock_held": (base / ".media-replay.lock").exists(), "parse_error": str(e)}
+    lock_path = Path(data.get("lock_file") or (base / ".media-replay.lock"))
+    return {
+        "available": True,
+        "path": latest,
+        "date": data.get("date", ""),
+        "outcome": data.get("outcome", "unknown"),
+        "started_at": data.get("started_at", ""),
+        "ended_at": data.get("ended_at", ""),
+        "pending_before": data.get("pending_before"),
+        "transport_status": data.get("transport_status", ""),
+        "lock_file": str(lock_path),
+        "lock_held": lock_path.exists(),
+        "limit": data.get("limit"),
+        "max_retries": data.get("max_retries"),
+        "replay_quarantined": data.get("replay_quarantined", 0),
+    }
+
+
 def _resolve_pages_repo(args: argparse.Namespace) -> dict[str, Any]:
     """Resolve the Pages repo path from CLI / env / default.
 
@@ -342,6 +385,8 @@ def _build_status(args: argparse.Namespace) -> dict[str, Any]:
     pending = _scan_pending_media()
     transport = _probe_transport()
     cron_installed = _is_cron_installed()
+    media_replay_cron_installed = _is_media_replay_cron_installed()
+    media_replay_cron_summary = _read_media_replay_cron_summary()
 
     # --- Pages repo + guard detection (P8A+1) --------------------------
     # Earlier P8A only looked inside the Artvee repo for the guard
@@ -485,6 +530,8 @@ def _build_status(args: argparse.Namespace) -> dict[str, Any]:
         "transport_latency_ms": transport.get("latency_ms", 0),
         "transport_error_class": transport.get("error_class", ""),
         "daily_health_cron_installed": cron_installed,
+        "media_replay_cron_installed": media_replay_cron_installed,
+        "media_replay_cron_summary": media_replay_cron_summary,
         "latest_health_report": str(daily_path) if daily_path else None,
         "latest_health_telegram_status": (
             str(
@@ -550,6 +597,9 @@ def _md(status: dict[str, Any]) -> str:
         f"| OpenClaw transport | {status['transport_status']} "
         f"({status['transport_latency_ms']}ms) |\n"
         f"| Daily health cron installed | {status['daily_health_cron_installed']} |\n"
+        f"| Media replay cron installed | {status['media_replay_cron_installed']} |\n"
+        f"| Media replay cron last run | {status['media_replay_cron_summary'].get('date') or '-'} "
+        f"({status['media_replay_cron_summary'].get('outcome', 'unknown')}) |\n"
         f"| Pages guard available | {pg} |\n"
         f"| Pages repo clean | {prc} |\n"
         f"| **Recommended action** | **{rc}** |\n\n"

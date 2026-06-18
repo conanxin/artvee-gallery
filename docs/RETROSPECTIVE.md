@@ -975,3 +975,60 @@ text-only table (P8B) to a cards + filters grid (P8C):
    self-test: if the documentation is hard to write without
    mentioning the forbidden substring, the wording is
    probably too literal.
+
+### 2.23 (P8D) Optional > automatic. Always.
+
+After P7B+3 shipped the manual replay workflow, the obvious
+"next step" was: "automate it — schedule a cron that calls
+`replay_pending_media.py --apply` every day." P8D rejected
+that, on principle:
+
+1. **Pending MEDIA is a recovery signal, not a steady-state
+   signal.** A daily cron that *always* calls replay
+   transforms an alert ("you have 2 deferred MEDIA waiting")
+   into a background task ("the cron will handle it"). When
+   the cron later fails for any reason, the operator
+   eventually stops *checking* pending and just *trusts* it.
+
+2. **Auto-install widens the blast radius.** A typo in the
+   cron wrapper that mis-archives a healthy MEDIA goes
+   unnoticed because the cron ran "successfully". With a
+   manual workflow, the operator sees the plan before
+   approving; with an auto-cron, the plan never surfaces.
+
+3. **Operators should opt in once they trust the flow.**
+   "Optional + opt-in + one-command install" is the right
+   ergonomic. P8D ships the cron command in
+   `install_media_replay_cron.sh --dry-run` so the operator
+   sees exactly what would be added before running
+   `--install`.
+
+**Rule**: any "review" / "summary" / "maintenance" step that
+was previously manual should stay manual until the operator
+explicitly asks for automation. The cron is a *shortcut*, not
+a *replacement*. Shortcuts that replace the underlying habit
+slowly erode it.
+
+**Operational rule**: when you do install an "optional" cron,
+make the install idempotent + marker-block-based + removable
+in one command. P8D follows the same `MARKER_BEGIN / MARKER_END`
++ `sed`-in-place pattern P7B's `install_daily_health_cron.sh`
+uses, so the operator can `--install` twice or `--remove`
+without touching any other cron entry.
+
+**Rule for transport-aware crons**: a cron that *acts* (not
+just reports) must check transport before acting. P8D's
+wrapper calls `check_openclaw_transport.py` by default; if
+transport ≠ ok, it skips with `outcome=skipped_transport_unavailable`
+and does **not** burn replay attempts. Without this check, a
+4-hour gateway outage would quietly quarantine every pending
+MEDIA. The transport pre-flight is the difference between a
+"recovery" tool and a "destruction" tool.
+
+**Rule for "silent success" crons**: pending=0 should be
+silent. A cron that sends "nothing to do!" every day is
+spam; the operator eventually mutes it. P8D's wrapper writes
+a summary JSON to disk on every run (so ops status can read
+it), but never sends a Telegram message when pending=0. The
+operator still gets visibility via the 03:00 daily-health
+cron's `media_replay` block.

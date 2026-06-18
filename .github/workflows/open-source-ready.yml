@@ -43,6 +43,11 @@ jobs:
         run: |
           bash -n scripts/serve_artvee_gallery.sh
           bash -n scripts/artvee_nightly_wrapper.sh
+          bash -n scripts/artvee_media_replay_cron.sh
+          bash -n scripts/install_media_replay_cron.sh
+          bash -n scripts/install_daily_health_cron.sh
+          bash -n scripts/artvee_daily_health_check.sh
+          bash -n scripts/artvee_ops_status.sh
 
       - name: Open-source readiness check
         run: |

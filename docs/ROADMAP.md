@@ -681,3 +681,24 @@ _superseded by P7D · v0.2.0-alpha release consolidation above (this is the impl
 - **P8D** optional media replay cron — *only* if the operator explicitly opts in. P7B+3 documents the cron line; P8D would add a one-click installer for it. Not installed by default.
 - **P8E** public search/filter polish — extend the P8C filters with cross-archive full-text search (typed in the search box) and a per-pick lightbox when a card thumbnail is clicked. Defers until the rolling history has at least 14 days so search has enough signal.
 - **v0.2.1 patch release** — bundle P7B+1 / P7B+2 / P7B+3 / P8A / P8A+1 / P8B / P8C into a single patch release after 7 days of clean observation. No release has been cut from the current `main`.
+
+### P8D · Optional media replay cron ✅ PASS (2026-06-18 14:10)
+- New `scripts/artvee_media_replay_cron.sh` (thin shell wrapper around the existing `replay_pending_media.py --apply`) + `scripts/install_media_replay_cron.sh` (idempotent marker-block installer).
+- The wrapper adds three things the manual replay never had: (1) `flock -n` concurrency guard on `reports/runtime/media-replay/.media-replay.lock`; (2) optional transport pre-flight via `check_openclaw_transport.py` so a dead gateway doesn't burn attempts; (3) always writes a `reports/runtime/media-replay/cron-<date>.json` summary JSON.
+- `pending=0` is **silent** — only writes the summary JSON. Never sends a "0 pending" notification.
+- `pending>0` + `transport=ok` → hands off to `replay_pending_media.py --apply` (the same staged-only P7B+3 flow the operator uses manually). The wrapper itself does not call the Telegram notifier.
+- `pending>0` + `transport=down` → skips replay, summary outcome `skipped_transport_unavailable`. Pending stays for the next 03:10 tick.
+- Default schedule: `CRON_TZ=Asia/Shanghai 10 3 * * *` — 10 minutes after the 03:00 P7B daily-health cron. Default args: `--limit 5 --max-retries 3`.
+- Idempotent install: marker block `# >>> Artvee P8D media replay cron BEGIN … # <<< Artvee P8D media replay cron END`. `--remove` only deletes the P8D block; P7B daily-health cron, refill, batch, etc. are all preserved.
+- **Optional, opt-in** — not installed by default. Operator explicitly authorized install at session end.
+- Ops status delta: new `media_replay_cron_installed` (bool, from `crontab -l` marker scan) + `media_replay_cron_summary` (latest summary object) + 2 new MD rows. The summary is always readable even if the cron is not installed (an on-demand manual run of the wrapper writes one).
+- CI delta: new `bash -n` entries for both shell scripts in `open-source-ready.yml`.
+- Verification: dry-run PASS; install --dry-run PASS; install --install idempotent PASS (re-run replaces in place); --remove only removes P8D block; ops status reports `media_replay_cron_installed=true` + `media_replay_cron_summary.outcome=dry_run_completed`. Ready for the first 03:10 tick.
+- Safety: no download / refill / batch / `--approve` / Pages push / retired retry / MEDIA allowlist widen; no tokens / chat_ids / secrets printed; no hardcoded user-home paths; `flock -n` prevents overlapping runs; transport down ≠ spam (skipped silently).
+- Files: `scripts/artvee_media_replay_cron.sh` (new), `scripts/install_media_replay_cron.sh` (new), `scripts/artvee_ops_status.py` (new helper + summary field + 2 MD rows), `.github/workflows/open-source-ready.yml` (2 new bash -n entries), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.9), `docs/POST_STABLE_OPERATIONS.md` (§ 6.1), `docs/MEDIA_REPLAY.md` (§ 10), `docs/DEVELOPMENT.md` (§ 27), `docs/PROJECT_STATUS.md` (P8D row + snapshot), `docs/ROADMAP.md` (P8D entry), `docs/RETROSPECTIVE.md` (§ 2.23), `README.md` (light link addition).
+- See `<workspace>/reports/artvee-gallery-p8d-optional-media-replay-cron-20260618.md`.
+
+### Next (post-P8D, v0.2.x polish)
+- **P8E** public search/filter polish — extend the P8C filters with cross-archive full-text search (typed in the search box) and a per-pick lightbox when a card thumbnail is clicked. Defers until the rolling history has at least 14 days so search has enough signal.
+- **v0.2.1 patch release** — bundle P7B+1 / P7B+2 / P7B+3 / P8A / P8A+1 / P8B / P8C / P8D into a single patch release after 7 days of clean observation. No release has been cut from the current `main`.
+- **Morning briefing cron (06:00)** — simple wrapper around `artvee_ops_status.sh --date $(date +%F) --media` if the operator wants a daily morning report. Explicitly out of scope for v0.2.x.

@@ -764,3 +764,106 @@ backward compatibility with any P8A-era tooling.
   summarises the same fields without echoing the path string.
 - The JSON report gets a new top-level `pages` sub-object with
   the same fields.
+
+## 27. P8D Optional media replay cron
+
+P7B+3 introduced the manual `replay_pending_media.py --apply`
+workflow. P8D wraps it as an **optional** cron job that
+operators can opt into via a one-line installer. The cron is
+strictly optional and **not installed by default**.
+
+### What P8D adds
+
+| file | purpose |
+|---|---|
+| `scripts/artvee_media_replay_cron.sh` | thin shell wrapper around `replay_pending_media.py --apply`. Adds `flock -n` concurrency guard, optional transport pre-flight, summary JSON. |
+| `scripts/install_media_replay_cron.sh` | idempotent marker-block cron installer. Supports `--install / --remove / --dry-run / --time / --timezone`. |
+| `scripts/artvee_ops_status.py` (delta) | new `media_replay_cron_installed` (boolean) + `media_replay_cron_summary` (object) fields. MD report adds two summary rows. |
+| `.github/workflows/open-source-ready.yml` (delta) | new `bash -n` entries for the two new shell scripts. |
+
+### Why not just embed in P7B daily-health cron
+
+The P7B daily-health cron already scans `.fallback-pending-*.json`
+files and reports `media_replay.pending` in its block. P8D is a
+*separate* cron for three reasons:
+
+1. **Time offset matters.** The daily-health cron runs at 03:00
+   and reports a snapshot. The P8D cron runs at 03:10 — 10
+   minutes after — to give any transport blip time to recover.
+2. **Different scope.** Daily health is *report-only* by design
+   (P7A durability: "alert, don't act"). P8D *acts* by calling
+   `replay_pending_media.py --apply`. Mixing report-only and
+   action cron entries in the same script is hard to reason
+   about.
+3. **Optional install.** The P8D install is opt-in. Operators
+   who want to keep replay 100% manual don't install P8D; ops
+   status still shows `media_replay_cron_installed=false` and
+   `media_replay_cron_summary.available=true` (from the manual
+   on-demand run that created the summary).
+
+### Concurrency guard
+
+`flock -n` on `reports/runtime/media-replay/.media-replay.lock`
+means a slow previous run (e.g. 5 sends × ~3 s each) cannot be
+preempted by the next 03:10 cron tick. The losing run exits 0
+with `outcome=skipped_locked`; the next run picks up where the
+loser left off.
+
+### Transport pre-flight
+
+By default, the wrapper calls `check_openclaw_transport.py`
+before invoking replay. If transport ≠ ok, the wrapper exits
+0 with `outcome=skipped_transport_unavailable` and does **not**
+burn attempts (every replay attempt increments `attempts`; 3
+attempts → quarantine). This prevents a transport outage from
+quietly quarantining every pending MEDIA. `--no-transport-check`
+skips this for operators who want to attempt anyway.
+
+### Idempotent install
+
+The installer uses a `MARKER_BEGIN / MARKER_END` pair
+(`# >>> Artvee P8D media replay cron BEGIN … # <<< Artvee P8D media replay cron END`)
+and `sed` to remove the block in-place before re-adding. This
+is the same pattern P7B's `install_daily_health_cron.sh` uses.
+Running `--install` twice replaces the block; running `--remove`
+only deletes the P8D block, leaving the P7B daily-health cron,
+the refill cron, the batch cron, etc. all intact.
+
+### End-to-end test
+
+Manual run:
+
+```bash
+bash scripts/artvee_media_replay_cron.sh --dry-run
+bash scripts/artvee_media_replay_cron.sh
+cat reports/runtime/media-replay/cron-$(date +%F).json
+```
+
+Real install:
+
+```bash
+bash scripts/install_media_replay_cron.sh --dry-run
+bash scripts/install_media_replay_cron.sh --install
+crontab -l | sed -n '/Artvee P8D media replay cron/,/END/p'
+```
+
+Ops status integration:
+
+```bash
+bash scripts/artvee_ops_status.sh --no-telegram \
+  | grep -E 'media.replay|Media replay'
+```
+
+### What P8D does NOT do
+
+* Does not trigger Artvee download / refill / nightly batch.
+* Does not retry retired URLs.
+* Does not push GitHub Pages or run `--approve`.
+* Does not modify `images/`, `metadata/`, `thumbs/`, `manifest`,
+  `index/`, `web/data/`, `dist/`, `digests/`, `inbox/`.
+* Does not commit / push runtime outputs (`reports/runtime/...`).
+* Does not print tokens, chat IDs, or secrets.
+* Does not widen the OpenClaw MEDIA allowlist.
+* Does not send a "0 pending" notification (silent on healthy days).
+* Does not retry on transport failure (skips; pending stays).
+* Does not run more than once concurrently (`flock -n`).

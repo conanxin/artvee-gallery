@@ -57,6 +57,7 @@
 | **P8A+1** | Pages guard visibility fix (Pages repo detection) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8a1-pages-guard-visibility-20260618.md` |
 | **P8B** | Content product polish (info card + digest history archive) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8b-content-product-polish-20260618.md` |
 | **P8C** | Public digest archive navigation polish (cards + filters + history schema) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8c-public-digest-archive-navigation-20260618.md` |
+| **P8D** | Optional media replay cron (P8D cron wrapper + idempotent installer) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8d-optional-media-replay-cron-20260618.md` |
 
 ### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
 
@@ -766,3 +767,27 @@ under the standard `confirm_demo_refresh` → `publish_demo_refresh`
 | Safety | no download / refill / batch; no full images / metadata / thumbs uploaded; no force push; no rollback of other Pages commits; cron line untouched; no real paths / tokens / chat_ids printed; no `artvee_ops_status.py` / `install_daily_health_cron.sh` modification; no `web/` / `images/` / `metadata/` / `thumbs/` / `web/data/` modification; runtime logs / reports / dist / tmp not committed |
 | Files changed | `scripts/export_artvee_digest_public_page.py` (cards + filters + 256 thumbs + history schema), `scripts/confirm_demo_refresh.sh` (P8C archive QA), `docs/DIGEST_HISTORY.md` (§ 9 navigation polish), `docs/POST_STABLE_OPERATIONS.md` (§ 12.3), `docs/PROJECT_STATUS.md` (P8C row + this snapshot), `docs/ROADMAP.md` (P8C entry + Next), `docs/RETROSPECTIVE.md` (§ 2.25 lesson). Plus the P8B uncommitted-folded changes to `scripts/export_artvee_gallery_public_demo.py` (info card) and 5 docs (P8B path-leak cleanup). No `artvee_ops_status.py`, no `install_daily_health_cron.sh` |
 | Report | `<workspace>/reports/artvee-gallery-p8c-public-digest-archive-navigation-20260618.md` |
+
+### P8D optional-media-replay-cron snapshot (2026-06-18 14:10 GMT+8)
+
+| Field | Value |
+|---|---|
+| Goal | Optional, opt-in 03:10 cron that flushes deferred MEDIA 10 minutes after the 03:00 daily-health cron, using the existing staged-only P7B+3 replay flow. |
+| New script | `scripts/artvee_media_replay_cron.sh` (thin shell wrapper around `replay_pending_media.py --apply`) + `scripts/install_media_replay_cron.sh` (idempotent marker-block installer). |
+| Default schedule | `CRON_TZ=Asia/Shanghai 10 3 * * *` |
+| Default args | `--limit 5 --max-retries 3` (matches P7B+3 defaults) |
+| Concurrency guard | `flock -n` on `reports/runtime/media-replay/.media-replay.lock` |
+| Transport pre-flight | on by default; if `check_openclaw_transport.py` != ok, skip replay (pending stays for next run) |
+| Summary writes | always writes `reports/runtime/media-replay/cron-<date>.json` (used by ops status `media_replay_cron_summary` field) |
+| Ops status delta | new `media_replay_cron_installed` (bool, from `crontab -l` marker scan) + `media_replay_cron_summary` (latest summary object) |
+| CI delta | new `bash -n` entries for the two new shell scripts in `open-source-ready.yml` |
+| pending_media_before_first_run | 2 (1 quarantine test fixture + 1 replayable from P7B+3) |
+| replay_pending_media dry-run | plan only, no sends |
+| Install --dry-run | preview-only, no crontab modification |
+| Install --install | idempotent; replaces P8D block in place |
+| Remove | deletes only P8D block; P7B daily-health cron, refill, batch untouched |
+| Cron installed at session end | yes (per user explicit authorization) |
+| Recommended action | `candidate_ready_manual_publish_optional` (unchanged from P8A) |
+| Safety | no download / refill / batch / Pages push / --approve / retired retry / MEDIA allowlist widen; no tokens / chat_ids / secrets printed; no hardcoded user-home paths; `flock -n` prevents overlapping runs |
+| Files changed | `scripts/artvee_media_replay_cron.sh` (new), `scripts/install_media_replay_cron.sh` (new), `scripts/artvee_ops_status.py` (new helper + summary field + 2 MD rows), `.github/workflows/open-source-ready.yml` (2 new bash -n entries), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.9), `docs/POST_STABLE_OPERATIONS.md` (§ 6.1), `docs/MEDIA_REPLAY.md` (§ 10), `docs/DEVELOPMENT.md` (§ 27), `docs/PROJECT_STATUS.md` (P8D row + snapshot), `docs/ROADMAP.md` (P8D entry + Next), `docs/RETROSPECTIVE.md` (§ 2.23), `README.md` (light link addition). |
+| Report | `<workspace>/reports/artvee-gallery-p8d-optional-media-replay-cron-20260618.md` |

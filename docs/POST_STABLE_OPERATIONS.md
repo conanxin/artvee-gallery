@@ -156,6 +156,14 @@ MEDIA. It never auto-replays. The fields it exposes:
   with `attempts < 3` and a still-existing staged file
 * `quarantined_media_count` — pendings archived to
   `reports/runtime/daily-health/quarantine/`
+* `media_replay_cron_installed` — whether the optional P8D cron
+  is registered (`crontab -l` marker scan)
+* `media_replay_cron_summary` — the latest
+  `reports/runtime/media-replay/cron-*.json` summary:
+  `date`, `outcome` (`noop_zero_pending` / `replayed_pending` /
+  `skipped_locked` / `skipped_transport_unavailable` /
+  `dry_run_completed` / `error_helper_import`),
+  `pending_before`, `transport_status`, `lock_held`, etc.
 
 To actually replay, use the dedicated P7B+3 command:
 
@@ -165,6 +173,40 @@ python3 scripts/replay_pending_media.py --apply   # real send, archive
 ```
 
 See `docs/MEDIA_REPLAY.md` for the full workflow.
+
+### 6.1 Optional media replay cron (P8D)
+
+The P8D cron is **optional** and **not installed by default**.
+It exists for operators who want pending MEDIA to flush
+automatically 10 minutes after the 03:00 daily-health cron.
+
+| aspect | value |
+|---|---|
+| Default time | `10 3 * * *` (10 minutes after P7B 03:00 daily health) |
+| Timezone | `CRON_TZ=Asia/Shanghai` |
+| Cron command | `cd <artvee-repo> && bash scripts/artvee_media_replay_cron.sh --limit 5 --max-retries 3 >> logs/media-replay-cron/media_replay_cron.log 2>&1` |
+| Default args | `--limit 5 --max-retries 3` |
+| Concurrency guard | `flock -n` on `reports/runtime/media-replay/.media-replay.lock` |
+| Transport pre-flight | on by default; if `check_openclaw_transport.py` ≠ ok, skip replay (pending stays for next run, no Telegram fallback spam) |
+| `pending=0` behavior | silent — only writes `reports/runtime/media-replay/cron-<date>.json` |
+| Side effects on success | `replay_pending_media.py --apply` runs, sends via staged-only MEDIA, moves pendings to `replayed/` or `quarantine/` |
+| Side effects on failure | (a) transport down → log + skip; (b) transport up but send fails → `replay_pending_media.py` increments `attempts`; quarantine at 3 |
+| NEVER | trigger download / refill / nightly batch / Pages push / `--approve` / retired URL retry / Telegram fallback text / MEDIA allowlist widen |
+
+**Install (idempotent marker-block based):**
+
+```bash
+bash scripts/install_media_replay_cron.sh --dry-run      # preview
+bash scripts/install_media_replay_cron.sh --install     # install with defaults
+bash scripts/install_media_replay_cron.sh --install --time "15 3 * * *"
+bash scripts/install_media_replay_cron.sh --remove       # preserves other cron blocks
+```
+
+The installer wraps its cron entry between
+`# >>> Artvee P8D media replay cron BEGIN … # <<< Artvee P8D media replay cron END`
+so re-installing replaces in-place, and `--remove` only deletes the
+P8D block (P7B daily-health cron, refill / batch cron, etc. are
+untouched).
 
 ## 7. Pages guard (P8A + P8A+1)
 

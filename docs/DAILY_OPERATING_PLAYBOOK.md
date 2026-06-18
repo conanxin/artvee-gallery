@@ -1,6 +1,6 @@
 # Daily Operating Playbook
 
-> Living document. Last updated: 2026-06-18 (P8A post-stable ops status command + P7B+3 pending MEDIA replay + transport health).
+> Living document. Last updated: 2026-06-18 (P8D optional media replay cron + P8A+1 Pages guard visibility + P8A post-stable ops status command + P7B+3 pending MEDIA replay + transport health).
 > This is the operational reference for the Artvee Gallery daily workflow.
 
 ---
@@ -358,6 +358,83 @@ The command is **strictly report-only** about pending MEDIA. It
 never auto-replays. To actually replay, use the dedicated P7B+3
 command (see § 9.6). The full field reference and design notes
 live in `docs/POST_STABLE_OPERATIONS.md`.
+
+### 9.9. Optional media replay cron (P8D)
+
+P8D adds an **optional** 03:10 cron that flushes deferred MEDIA
+*after* the 03:00 daily health cron has had a chance to write
+any deferred fallback files. The cron:
+
+* Reuses the staged-only P7B+3 replay flow (same `replay_pending_media.py --apply` + `artvee_telegram_notify.send_text` path the operator uses manually).
+* `pending=0` is **silent** — only writes a local summary JSON to `reports/runtime/media-replay/cron-<date>.json`. Never sends a "0 pending" notification. Never spams the operator on healthy days.
+* `transport_check` is on by default; if the OpenClaw transport is down, the cron skips replay (pending stays for next run), writes a `skipped_transport_unavailable` summary, and exits 0 — so cron never pages on transport outage either.
+* Uses `flock -n` on `reports/runtime/media-replay/.media-replay.lock` to prevent overlapping runs.
+* Never triggers download / refill / nightly batch / Pages push / `--approve`. Never retries retired URLs. Never widens the MEDIA allowlist.
+
+**Install (idempotent, marker-block based):**
+
+```bash
+cd <artvee-repo>
+
+# Dry-run preview
+bash scripts/install_media_replay_cron.sh --dry-run
+
+# Install with defaults (CRON_TZ=Asia/Shanghai, 10 3 * * *, --limit 5, --max-retries 3)
+bash scripts/install_media_replay_cron.sh --install
+
+# Custom time
+bash scripts/install_media_replay_cron.sh --install --time "15 3 * * *"
+
+# Remove (preserves other blocks: P7B daily-health cron, etc.)
+bash scripts/install_media_replay_cron.sh --remove
+```
+
+The installer wraps the cron command in a marker block
+(`# >>> Artvee P8D media replay cron BEGIN … # <<< Artvee P8D media replay cron END`)
+and is fully idempotent — running `--install` twice replaces the
+block in-place; `--remove` only deletes the P8D block and leaves
+the P7B daily-health cron intact.
+
+**Verify it ran (ops status reads the summary):**
+
+```bash
+# After 03:10, ops status will report:
+#   Media replay cron installed | True
+#   Media replay cron last run | 2026-06-19 (replayed_pending)  (or noop_zero_pending)
+
+bash scripts/artvee_ops_status.sh --no-telegram
+```
+
+**Run the wrapper manually:**
+
+```bash
+# Dry-run
+bash scripts/artvee_media_replay_cron.sh --dry-run
+
+# Apply (same args the cron uses)
+bash scripts/artvee_media_replay_cron.sh
+
+# Inspect the summary
+cat reports/runtime/media-replay/cron-$(date +%F).json
+```
+
+**Why P8D is *optional*** (not in P7B daily-health cron):
+
+The P7B daily-health cron already does a MEDIA-fallback scan as
+part of its primary job. P8D is a *follow-up* that flushes
+*anything P7B deferred* 10 minutes later, when transport has
+had a chance to recover. It is on-demand (default: not
+installed) so operators can opt in once they trust the
+replay flow. If you don't install it, P8A still reports
+`pending_media_count>0` and the operator can replay manually
+via § 9.6.
+
+**Safety**:
+
+* Installer has zero secret / chat_id / token output (no env vars baked into the cron command).
+* The cron command path is `${HOME}`-relative so it works on any operator's machine.
+* The wrapper has no hard-coded user-home paths.
+* `flock -n` means even if a slow flush overlaps, only one run touches `reports/runtime/.../replayed/` / `quarantine/` at a time.
 
 ### GitHub Pages Verification Fail
 

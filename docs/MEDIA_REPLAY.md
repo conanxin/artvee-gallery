@@ -209,3 +209,62 @@ The replay workflow is intentionally constrained:
 * `docs/DAILY_OPERATING_PLAYBOOK.md` — operational procedures.
 * `docs/RETROSPECTIVE.md` — lesson: transport failures should be
   recoverable, not silent.
+
+## 10. Optional replay cron (P8D)
+
+P7B+3 left replay as a manual workflow. P8D adds an **optional**
+cron wrapper that operators can opt into:
+
+```bash
+# Preview the cron block that would be added to crontab
+bash scripts/install_media_replay_cron.sh --dry-run
+
+# Install with defaults (CRON_TZ=Asia/Shanghai, 10 3 * * *)
+bash scripts/install_media_replay_cron.sh --install
+
+# Custom schedule
+bash scripts/install_media_replay_cron.sh --install --time "15 3 * * *"
+
+# Remove (preserves P7B daily-health cron, refill, batch, etc.)
+bash scripts/install_media_replay_cron.sh --remove
+```
+
+**Why "optional" / not "auto-installed"**:
+
+* Pending MEDIA is a *recovery* signal, not a *steady-state*
+  signal. Auto-installing the cron would make "0 pending"
+  disappear from the operator's view — and a missed replay
+  (because the cron failed) would be silent.
+* The 03:00 daily-health cron already does a MEDIA-fallback
+  scan as part of its primary job. Adding a second cron that
+  also touches MEDIA means operators must understand two
+  failure surfaces.
+* Some operators want to gate replay on manual approval
+  (e.g. "I'm going to review each .fallback-pending-*.json
+  before sending"). Auto-installing removes that option.
+
+**Wrapper behavior** (`scripts/artvee_media_replay_cron.sh`):
+
+| state | outcome | side effect |
+|---|---|---|
+| `pending=0` | `noop_zero_pending` | writes `cron-<date>.json` only |
+| `pending>0`, transport=ok | `replayed_pending` | runs `replay_pending_media.py --apply` |
+| `pending>0`, transport=down | `skipped_transport_unavailable` | writes summary; pending stays for next run |
+| flock held by another run | `skipped_locked` | writes summary; pending stays |
+| helper import fails | `error_helper_import` | writes summary; pending stays |
+| `--dry-run` | `dry_run_completed` | no `--apply`; reports plan |
+
+**Default args**: `--limit 5 --max-retries 3`.
+
+**Manual run**:
+
+```bash
+bash scripts/artvee_media_replay_cron.sh --dry-run
+bash scripts/artvee_media_replay_cron.sh --limit 5
+bash scripts/artvee_media_replay_cron.sh --max-retries 3
+bash scripts/artvee_media_replay_cron.sh --no-transport-check
+```
+
+The wrapper always writes a summary JSON. Ops status reads the
+latest summary so an operator can confirm the cron ran without
+tailing log files.
