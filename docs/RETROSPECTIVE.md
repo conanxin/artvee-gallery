@@ -744,3 +744,50 @@ the former only tells them to start guessing.
   (the local data is fine; the public site is missing the path).
   See `docs/DAILY_OPERATING_PLAYBOOK.md` § 12 for the recovery
   playbook.
+
+### 2.22 (P8A) Post-stable needs one on-demand command, not more cron
+
+After v0.2.0 stable shipped, the natural temptation was to add
+more scheduled jobs: a morning briefing, a weekly digest review,
+a Pages drift monitor. P8A rejected that.
+
+The 03:00 daily health cron already covers continuous monitoring
+(Telegram fallback, pending MEDIA scan, transport probe, online
+checks). Adding a 06:00 ops status cron would have:
+
+1. **Duplicated the 03:00 read** for one piece of state the
+   operator could see on demand.
+2. **Created another schedule to maintain** (time-zone, log path,
+   failure alert destination).
+3. **Promoted "review" into a scheduled event**, which means the
+   operator eventually stops *looking at* the report and just
+   *trusts* it.
+
+Instead, P8A adds a single on-demand command that an operator
+runs at the keyboard when they want a snapshot. It is strictly
+read-only, never sends a Telegram message by default, never
+touches the Pages repo (even with `--include-pages`, it only
+runs `git status --porcelain`), and never auto-replays pending
+MEDIA. With `--media` it sends one Telegram + MEDIA via the
+same staged-only path the daily health check uses; the raw
+report path is never sent to OpenClaw.
+
+**Rule**: a "review" or "summary" command is almost always
+better as an on-demand script than a cron. Crons should
+*monitor*; operators should *review*. Conflating the two
+slowly turns alerts into noise.
+
+**Operational rule**: a single canonical `recommended_action`
+enum (with first-match-wins priority) is the right level of
+abstraction for an on-demand report. Freeform text recommendations
+get paraphrased, mis-copied, and ignored. A closed enum with
+6 values is small enough to memorize and large enough to cover
+the actual decision space (PASS / candidate / 4 different
+"attention required" branches).
+
+**Rule for layering**: the ops status command *imports* the same
+helpers the daily health check uses (`_scan_pending_media`,
+`check_openclaw_transport`, `stage_report_for_telegram_media`,
+`send_text`) rather than re-implementing the logic. If a count
+ever drifts between the two reports, it is a bug; there is no
+intentional divergence to debug.

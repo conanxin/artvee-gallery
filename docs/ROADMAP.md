@@ -629,3 +629,20 @@ build-script label fix remains.
 - Current scope: preparation only, no implementation.
 
 _superseded by P7D · v0.2.0-alpha release consolidation above (this is the implementation of the original P7D marker)._
+
+### P8A · Post-stable ops status command ✅ PASS (2026-06-18 08:30)
+- New `scripts/artvee_ops_status.sh` (shell wrapper) + `scripts/artvee_ops_status.py` (Python core). One read-only command that aggregates repo state, records, integrity, readiness, candidate readiness, pending MEDIA, OpenClaw transport health, Pages guard availability, and live public-demo HTTP status into a single JSON + Markdown report.
+- Default mode is strictly read-only + no Telegram. With `--online` it adds `curl --head` probes of the public gallery / digest URLs. With `--include-pages` it adds a read-only `git status` check of the local `<pages-repo>` clone (never rsyncs / commits / pushes). With `--media` it sends the report via Telegram + staged MEDIA (the same staged-only path the daily health check uses; the raw report path is never sent).
+- Reuses existing helpers to keep counts consistent: `artvee_daily_health_check._scan_pending_media` (imported directly) for pending/quarantined MEDIA, `check_openclaw_transport.py` for transport health, `stage_report_for_telegram_media.stage_report` for the optional MEDIA send, `artvee_telegram_notify.send_text` for the Telegram send.
+- One canonical `recommended_action` enum (stable; first-match-wins priority: integrity > readiness > pages_drift > media_pending > candidate_ready > healthy). The enum is documented in `docs/POST_STABLE_OPERATIONS.md` § 5.
+- No new cron installed. The ops status command is on-demand; the 03:00 daily health cron still owns continuous monitoring. If a future morning-briefing cron is desired, it can simply wrap `artvee_ops_status.sh --date $(date +%F) --media` — explicitly out of scope for v0.2.x.
+- Verification: dry-run (--no-telegram --online --include-pages) PASS; real Telegram + MEDIA send PASS (message_id=25149, transport healthy at 37–43ms, no side effects). Pending MEDIA scan matches daily health exactly (`pending=0, replayable=0, quarantined=1`). Online gallery + digest both 200; Pages repo clean=true.
+- Safety: no download / refill / batch / `--approve` / Pages push; no `images/`, `metadata/`, `thumbs/`, `dist/`, `digests/`, `logs/`, `inbox/`, `web/data/`, `index/`, `reports/runtime/`, `tmp/` modification; no tokens / chat ids / secrets printed; raw report path never sent to OpenClaw (always staged).
+- Files: `scripts/artvee_ops_status.{sh,py}`, `docs/POST_STABLE_OPERATIONS.md`, `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.7 + status-report + dating), `docs/DEVELOPMENT.md` (§ 25), `docs/PROJECT_STATUS.md` (P8A row + snapshot), `docs/RETROSPECTIVE.md` (§ 2.22), `README.md` (light link addition).
+- See `<workspace>/reports/artvee-gallery-p8a-post-stable-ops-polish-20260618.md`.
+
+### Next (post-P8A, v0.2.x polish)
+- **P8B** content product polish — promote the `KNOWN_RETIRED` table into the public demo's UI; per-artist collection view; tune the digest `--max-per-artist` and `--exclude-risk` defaults if user feedback warrants it.
+- **P8C** public digest archive — a permanent index of every published digest; useful for search-engine discovery and for "what was on this day last year?" lookups.
+- **P8D** optional media replay cron — *only* if the operator explicitly opts in. P7B+3 documents the cron line; P8D would add a one-click installer for it. Not installed by default.
+- **v0.2.1 patch release** if needed — bundle P7B+1 / P7B+2 / P7B+3 / P8A into a single patch release after 7 days of clean observation.

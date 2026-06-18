@@ -53,6 +53,7 @@
 | **P7E+2** | Public demo restore after Pages content drift | ✅ PASS | 2026-06-15 | `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md` |
 | **P7F** | v0.2.0 stable readiness review (3-day observation complete, all green) | ✅ PASS | 2026-06-16 | `<workspace>/reports/artvee-gallery-p7f-v0.2-stable-readiness-20260616.md` |
 | **v0.2.0 stable release** | v0.2.0 stable cut (tag + GitHub Release) after 3-day green observation | ✅ PASS | 2026-06-16 | `<workspace>/reports/artvee-gallery-v0.2.0-stable-release-20260616.md` |
+| **P8A** | Post-stable ops status command (one-shot health aggregator) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8a-post-stable-ops-polish-20260618.md` |
 
 ### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
 
@@ -651,3 +652,25 @@ publish.
 | Safety | no download / refill / batch / `--approve` / Pages push; no tokens / chat ids / API keys printed; no MEDIA allowlist changes; staged-only path enforced; original pending files always preserved. |
 | Files changed | `scripts/replay_pending_media.py` (new), `scripts/check_openclaw_transport.py` (new), `scripts/artvee_daily_health_check.py` (`media_replay` block + helpers), `docs/MEDIA_REPLAY.md` (new), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.6, § 1 dating), `docs/DEVELOPMENT.md` (§ 24), `docs/PROJECT_STATUS.md` (this row + snapshot), `docs/ROADMAP.md` (P7B+3 → completed), `docs/RETROSPECTIVE.md` (§ 2.21). |
 | Report | `<workspace>/reports/artvee-gallery-p7b3-pending-media-replay-20260618.md` |
+
+### P8A post-stable-ops-polish snapshot (2026-06-18 08:30 GMT+8)
+
+| Field | Value |
+|---|---|
+| Goal | One read-only command that answers "is everything OK right now?" without waiting for the 03:00 cron. Aggregates repo state, records, integrity, readiness, candidate readiness, pending MEDIA, OpenClaw transport, Pages guard, and online URLs. |
+| New script | `scripts/artvee_ops_status.sh` (shell wrapper) + `scripts/artvee_ops_status.py` (Python core). |
+| Default mode | Strictly read-only. No Telegram. No online probe. No Pages-repo touch. |
+| Optional flags | `--online` (HEAD probes), `--include-pages` (read-only Pages repo clean check), `--media` (Telegram + staged MEDIA), `--date` (custom), `--json` (stdout). |
+| Output | `reports/runtime/ops/artvee-ops-status-<date>.{json,md}` (runtime, .gitignore'd). |
+| Pending MEDIA scan | Reuses `artvee_daily_health_check._scan_pending_media` via direct import so counts never drift. |
+| Transport probe | Reuses `check_openclaw_transport.py` (no Telegram message). |
+| Pages guard | `pages_guard_available = (guard_script exists) AND (guard_doc exists)`. `pages_repo_clean` only with `--include-pages`. Never rsyncs / commits / pushes. |
+| Real Telegram send | Verified: `message_id=25149`, transport healthy at 41–43ms, no side effects, raw report path was staged before send. |
+| recommended_action enum | Canonical set: `healthy_no_action` / `candidate_ready_manual_publish_optional` / `attention_required_pages_content_drift` / `attention_required_media_pending` / `attention_required_integrity_failure` / `attention_required_readiness_failure`. First-match-wins priority. |
+| Current recommended_action | `candidate_ready_manual_publish_optional` (both candidates ready, no failures). |
+| Cron changes | None. The 03:00 daily health cron is the only cron. The ops status command is on-demand; a future 06:00 morning briefing is explicitly out of scope for v0.2.x. |
+| Strict integrity | PASS |
+| Readiness | PASS |
+| Safety | no download / refill / batch / `--approve` / Pages push; no `images/`, `metadata/`, `thumbs/`, `dist/`, `digests/`, `logs/`, `inbox/`, `web/data/`, `index/`, `reports/runtime/`, `tmp/` modification; no tokens / chat ids / secrets printed; raw report path never sent to OpenClaw (always staged via `stage_report_for_telegram_media`). |
+| Files changed | `scripts/artvee_ops_status.py` (new), `scripts/artvee_ops_status.sh` (new), `docs/POST_STABLE_OPERATIONS.md` (new), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.7 + status-report + dating), `docs/DEVELOPMENT.md` (§ 25), `docs/PROJECT_STATUS.md` (P8A row + snapshot), `docs/ROADMAP.md` (P8A + Next), `docs/RETROSPECTIVE.md` (§ 2.22), `README.md` (light link addition). |
+| Report | `<workspace>/reports/artvee-gallery-p8a-post-stable-ops-polish-20260618.md` |

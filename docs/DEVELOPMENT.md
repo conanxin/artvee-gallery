@@ -611,3 +611,76 @@ python3 scripts/replay_pending_media.py --apply --limit 1
 
 See `docs/MEDIA_REPLAY.md` for the full schema and operations
 quick-reference.
+
+## 25. P8A Post-stable ops status command
+
+After v0.2.0 stable, the operator needs one command that answers
+*"is everything OK right now?"* without waiting for the 03:00 cron.
+That command is `scripts/artvee_ops_status.sh` (shell wrapper around
+`scripts/artvee_ops_status.py`).
+
+### Design
+
+* **Single read-only aggregator.** It does not download, refill, run
+  nightly batch, push Pages, approve candidates, or replay pending
+  MEDIA. It only reads state already on disk and (optionally) probes
+  public URLs with `curl --head`.
+* **Reuses existing helpers instead of duplicating logic.** It calls:
+  * `artvee_status_report.json` for `records` / `known_retired` /
+    `blocking_unresolved` / `unresolved_phase`.
+  * The latest `artvee-daily-health-*.json` for `readiness` /
+    `integrity` / `candidate_state` / `digest_history` /
+    `near_dup_clusters` / `nightly_batch` / `latest_health_*`.
+  * `artvee_daily_health_check._scan_pending_media` (imported
+    directly) for `pending_media_*` and `quarantined_media_count`
+    so counts never drift from what the cron reports.
+  * `check_openclaw_transport.py` for `transport_status` /
+    `transport_latency_ms` (no Telegram message, no side effect).
+  * `crontab -l` for `daily_health_cron_installed`.
+  * `stage_report_for_telegram_media.stage_report` +
+    `artvee_telegram_notify.send_text` for the optional `--media`
+    send. The MD report is **always** staged via the same path
+    the daily health check uses; the raw report path is never
+    passed to `openclaw message send` (this preserves the P7B+2
+    staged-only invariant).
+* **One canonical `recommended_action` enum.** First-match-wins
+  priority: `integrity_failure` > `readiness_failure` > `pages_drift`
+  > `media_pending` > `candidate_ready` > `healthy`. The enum is
+  *stable*; adding values requires a docs + script change.
+* **Pages guard is read-only.** Reports `pages_guard_available`
+  based on file presence only. With `--include-pages`, runs
+  `git status --porcelain` in the Pages repo and reports
+  `true|false|unknown`. Never runs `rsync`, never commits, never
+  pushes, never executes the destructive half of any guard script.
+
+### Why this is a separate command, not a cron
+
+* The 03:00 daily health cron already covers continuous monitoring
+  (Telegram fallback, pending MEDIA scan, transport probe, online
+  checks). Adding a 06:00 ops status cron would mostly duplicate
+  that — and the values rarely change between 03:00 and 06:00.
+* The ops status command is for **operator review** at the
+  keyboard. It runs on demand, gives a one-page Markdown report
+  to look at, and is gone.
+* If a future "morning briefing" cron is desired, it can simply
+  wrap this command with `--date $(date +%F) --media`. That is
+  explicitly out of scope for v0.2.x.
+
+### End-to-end test (real Telegram send)
+
+```bash
+export ARTVEE_TELEGRAM_CHAT_ID='<telegram-chat-id>'
+
+# 1. No-Telegram default.
+bash scripts/artvee_ops_status.sh --online --include-pages
+# → records=875 retired=4 blocking=0 integrity=PASS readiness=PASS
+#   pending_media=0 transport=ok action=candidate_ready_manual_publish_optional
+
+# 2. Real send (verified message_id=25149, 2026-06-18).
+bash scripts/artvee_ops_status.sh --online --include-pages --media
+# → telegram: ok=True status=ok message_id=25149
+```
+
+See `docs/POST_STABLE_OPERATIONS.md` for the full field reference,
+recommended-action enum, troubleshooting, and "what not to automate
+yet" list.

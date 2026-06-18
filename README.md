@@ -267,6 +267,7 @@ For the full rationale and a risk surface, see
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local dev loop, syntax checks, readiness check, what **not** to run |
 | [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) | Current phase markers and last-known-good snapshot |
 | [docs/DAILY_OPERATING_PLAYBOOK.md](docs/DAILY_OPERATING_PLAYBOOK.md) | Daily operating timeline, commands, failure playbook, quick reference |
+| [docs/POST_STABLE_OPERATIONS.md](docs/POST_STABLE_OPERATIONS.md) | Post-stable ops status command (one-shot health aggregator) |
 | [docs/DIGEST_HISTORY.md](docs/DIGEST_HISTORY.md) | 30-day digest history and near-dup-aware selection |
 | [docs/NEAR_DUPLICATE_REVIEW.md](docs/NEAR_DUPLICATE_REVIEW.md) | Near-duplicate review workflow |
 | [docs/GALLERY_DATA_SCHEMA.md](docs/GALLERY_DATA_SCHEMA.md) | Field-level schema for `web/data/*.json` |

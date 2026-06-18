@@ -37,6 +37,7 @@ jobs:
           python3 -m py_compile scripts/artvee_daily_health_check.py
           python3 -m py_compile scripts/replay_pending_media.py
           python3 -m py_compile scripts/check_openclaw_transport.py
+          python3 -m py_compile scripts/artvee_ops_status.py
 
       - name: Check shell syntax
         run: |

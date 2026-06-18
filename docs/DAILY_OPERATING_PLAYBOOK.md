@@ -1,6 +1,6 @@
 # Daily Operating Playbook
 
-> Living document. Last updated: 2026-06-18 (P7B+3 pending MEDIA replay + transport health).
+> Living document. Last updated: 2026-06-18 (P8A post-stable ops status command + P7B+3 pending MEDIA replay + transport health).
 > This is the operational reference for the Artvee Gallery daily workflow.
 
 ---
@@ -94,6 +94,46 @@ python3 scripts/build_artvee_status_report.py \
   --out-json reports/runtime/artvee-status-report.json \
   --out-md reports/runtime/artvee-status-report.md
 ```
+
+### Ops status (post-stable, P8A)
+
+After v0.2.0 stable, the canonical one-shot "is everything OK?"
+command is:
+
+```bash
+bash scripts/artvee_ops_status.sh --online --include-pages
+```
+
+This aggregates repo state, records, integrity, readiness,
+candidate readiness, pending MEDIA, OpenClaw transport health,
+Pages guard availability, and live public-demo HTTP status into
+one JSON + Markdown report. It is **strictly read-only by
+default**; it never downloads, refills, runs nightly batch,
+pushes Pages, or replays pending MEDIA. Add `--media` to send
+the report via Telegram + staged MEDIA (the same path the daily
+health check uses).
+
+| task | command |
+|---|---|
+| One-shot ops snapshot (no Telegram) | `bash scripts/artvee_ops_status.sh --online --include-pages` |
+| Send report to Telegram + MEDIA | `bash scripts/artvee_ops_status.sh --online --include-pages --media` |
+| Custom date | `bash scripts/artvee_ops_status.sh --date 2026-06-18` |
+| JSON to stdout (for piping) | `bash scripts/artvee_ops_status.sh --json` |
+
+Output: `reports/runtime/ops/artvee-ops-status-<date>.{json,md}`.
+The script and the full field reference live in
+`docs/POST_STABLE_OPERATIONS.md`.
+
+The ops status command is **complementary to** (not a replacement
+for) the 03:00 daily health cron:
+
+* **Daily health cron** is continuous monitoring: it runs every day
+  at 03:00, writes to `reports/runtime/daily-health/`, optionally
+  sends a Telegram summary, and owns the transport probe + the
+  pending MEDIA scan.
+* **Ops status** is on-demand review: it runs when the operator is
+  already at the keyboard, gives one Markdown report to look at,
+  and never alters the daily health schedule.
 
 ### Integrity check (standalone)
 
@@ -227,6 +267,46 @@ required):
 # 03:10 optional media replay — install manually after P7B+3 sign-off.
 10 3 * * * export PATH=$HOME/.local/bin:$PATH && export ARTVEE_TELEGRAM_CHAT_ID='<id>' && cd <artvee-repo> && python3 scripts/replay_pending_media.py --apply --limit 10 >> logs/daily-health-cron/replay_$(date +%Y%m%d)_031000.log 2>&1
 ```
+
+### 9.7. Ops status command (P8A)
+
+P8A adds a single on-demand command that answers *"is everything
+OK right now?"* without touching cron, without sending Telegram by
+default, and without writing anything outside `reports/runtime/ops/`:
+
+```bash
+# Default — no Telegram, no online probe, no Pages-repo touch.
+bash scripts/artvee_ops_status.sh
+
+# Full picture — adds online gallery/digest HEAD probes and a
+# read-only Pages-repo clean check.
+bash scripts/artvee_ops_status.sh --online --include-pages
+
+# Send the report via Telegram + staged MEDIA (same path as the
+# daily health check; never sends the raw report path).
+bash scripts/artvee_ops_status.sh --online --include-pages --media
+```
+
+The `recommended_action` field is a single canonical enum value
+that the operator should read first:
+
+| enum | meaning | operator action |
+|---|---|---|
+| `healthy_no_action` | everything green | nothing |
+| `candidate_ready_manual_publish_optional` | both candidates ready, no failures | review + manual publish (see § 9.7) |
+| `attention_required_media_pending` | pending MEDIA > 0 | see § 9.6 (replay) |
+| `attention_required_pages_content_drift` | online gallery / digest returned 404 | see P7E+2 in § 9.5.x above |
+| `attention_required_integrity_failure` | strict integrity FAIL | `python3 scripts/check_gallery_integrity.py --strict` |
+| `attention_required_readiness_failure` | readiness FAIL | `python3 scripts/check_open_source_ready.py` |
+
+`known_retired=4` and `quarantined_media_count>0` (a count of
+files already archived, not pending) **do not** trigger any failure
+action. They are documented state, not signals.
+
+The command is **strictly report-only** about pending MEDIA. It
+never auto-replays. To actually replay, use the dedicated P7B+3
+command (see § 9.6). The full field reference and design notes
+live in `docs/POST_STABLE_OPERATIONS.md`.
 
 ### GitHub Pages Verification Fail
 
