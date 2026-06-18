@@ -270,3 +270,145 @@ After v0.2.0 stable, several things are deliberately still manual:
 * `docs/MEDIA_REPLAY.md` — pending MEDIA replay workflow (P7B+3)
 * `docs/DEVELOPMENT.md` § 25 — script design notes
 * `docs/RETROSPECTIVE.md` § 2.22 — design lessons
+
+## 12. Public content polish (P8B)
+
+P8B ships two product-facing changes to the public Pages
+bundle: a *product info card* on the Gallery page, and a
+*30-day digest history archive* on the Digest page. Both
+changes are applied at **export time**, not by editing
+`web/` or `digests/`; this keeps the local UI and the public
+bundle as two separate surfaces with their own code paths.
+
+### 12.1 Gallery info card
+
+`scripts/export_artvee_gallery_public_demo.py` injects a
+small info card at the top of the public `index.html` (right
+after the existing `.brand` block, before the `.stats`
+block). The card surfaces:
+
+* demo title (`Artvee Gallery Demo`)
+* release version (auto-detected via `git describe --tags --abbrev=0`; falls back to `v0.2.0`)
+* Last-updated date (`stats_src.last_downloaded_at` cast to `YYYY-MM-DD`)
+* public-record count + honest "Source archive: local-first
+  full archive, not fully published" disclosure
+* canonical links (Daily Digest / GitHub repo / `<release>`
+  / About this demo)
+
+Constraints enforced at the export layer:
+
+* No local-absolute path, no `metadata/`, no `images/`, no
+  home-directory substring, no local project-root substring
+  in any public text file (enforced by the post-export leak
+  check).
+* No front-end framework dependency — the card uses inline
+  CSS so the existing `style.css` does not need to grow.
+* The injection is **idempotent** — re-running the export
+  does not stack cards.
+
+### 12.2 Digest history archive
+
+`scripts/export_artvee_digest_public_page.py` now writes
+two new files alongside the existing digest bundle:
+
+* `archive.html` — a 30-day rolling table (date / strategy /
+  picks / categories / near-dup cluster). Text-only by
+  design; the per-pick 512-thumb is reached from
+  `data/digests.json` and the per-day digest HTML.
+* `data/digest-history.json` — a *public-safe* projection of
+  `reports/runtime/digest-history.json`. The `digest_path`
+  field (which contains a local-absolute path even after the
+  digest builder's substring redaction) is **stripped**
+  before going public; everything else (`date`, `picks[].{id,
+  artist, category, near_dup_cluster_id}`, `strategy`,
+  `updated_at`, `window_days`) is preserved.
+
+The archive page is **honest** about the history size: if
+the digest has only run for N days, the page shows
+"History entries currently available: N" rather than a
+fabricated 30 days. When the rolling history fills, the
+note disappears.
+
+### 12.3 QA additions in `confirm_demo_refresh.sh`
+
+* P8B archive QA: asserts `archive.html` +
+  `data/digest-history.json` exist, parse, and contain no
+  forbidden substrings. The QA also asserts that no
+  `digest_path` field leaks into the public history.
+* Digest size budget: 5MB soft / 10MB hard. A digest bundle
+  is text + 1-5 thumbs; if it ever grows past 10MB something
+  has gone wrong (a full image slipped in, or 1000 picks
+  were exported by mistake).
+
+### 12.4 The split between `web/` and the public bundle
+
+| Surface | Source of truth | Modified by |
+|---|---|---|
+| Local UI (this repo) | `web/index.html`, `web/app.js`, `web/style.css` | Hand-edited, committed to Artvee |
+| Local digest | `digests/artvee-digest-*.md` + `.html` | `build_artvee_daily_digest.py` (deterministic) |
+| Public Gallery bundle | `dist/artvee-gallery-public-demo/` | `export_artvee_gallery_public_demo.py` |
+| Public Digest bundle | `dist/artvee-gallery-digest-public/` | `export_artvee_digest_public_page.py` |
+| Live Pages | `conanxin.github.io/projects/artvee-gallery-{demo,digest}/` | `publish_demo_refresh_candidate.sh --approve` + Pages guard |
+
+The export layer is the **only** place where the public
+bundle is touched. `web/` is for the local-first
+single-user experience; the export layer is for the
+public-curated subset. Mixing them in either direction
+would either leak internal strings or strip them from the
+local UI. P8B keeps that boundary clean by treating the
+export layer as a separate pipeline with its own
+allow-list, leak check, and redaction-aware projection.
+
+### 12.5 What P8B does *not* do
+
+* Does **not** publish the full local archive. The
+  Gallery card says so explicitly.
+* Does **not** fabricate archive rows. If the history
+  is short, the archive page says so explicitly.
+* Does **not** push to GitHub Pages without an explicit
+  `--approve` to `publish_demo_refresh_candidate.sh`.
+  The Pages guard (`scripts/check-project-publish-guard.py`
+  in the Pages repo) is a separate, independent check
+  that the publish helper does not auto-invoke.
+* Does **not** widen the Pages allowlist. The allowlist
+  remains `projects/artvee-gallery-demo`,
+  `projects/artvee-gallery-digest`, and `projects/data.json`.
+
+### 12.6 P8C public archive navigation polish
+
+P8C extends P8B's archive by adding **digest cards**,
+**client-side filters**, and **history schema polish** while
+keeping the same allow-list and the same `readiness` /
+`strict integrity` gates:
+
+* `scripts/export_artvee_digest_public_page.py` now writes
+  `archive.html` (cards + filters), `archive.js` (~4.3 KB,
+  vanilla, no framework, no external CDN), and the same
+  `data/digest-history.json` with a richer top-level
+  `summary` block.
+* `scripts/confirm_demo_refresh.sh` archive QA now asserts
+  `day_cards == history_entries`, all 5 nav/filter IDs
+  present in `archive.html`, `archive.js` size ≥ 1 KB and
+  references `applyFilters` + `populateSelect`, and that
+  `assets/thumbs/256/` is non-empty.
+* `data/digest-history.json` schema additions (P8C):
+  - `generated_at` (alias of `updated_at`)
+  - `history_entries` (count)
+  - `available_range.{first_date, latest_date}`
+  - `summary.{total_days, total_picks, unique_artists, top_categories}`
+  - `entries[]` shape **unchanged** from P8B for backward
+    compatibility
+* The archive page is fully readable with JS disabled.
+* Bundle size stays well under the P8B 5MB soft / 10MB hard
+  budget (320 KB for the 2026-06-18 candidate: 7 day-cards,
+  15 × 256 thumbs, archive.html 19 KB, archive.js 4.3 KB).
+* P8C caught and fixed 8 P8B stragglers in docs that
+  triggered the `readiness` path-leak check (P8B had left
+  literal project-root / home-dir substrings in 5 docs
+  while describing the leak-check policy). P8C rewrote
+  the meta-descriptions to refer to the abstract
+  *project-root* / *home-dir* substrings.
+
+P8C does **not** widen the Pages allowlist, does **not** add
+external CDNs, does **not** depend on a JS framework, and
+does **not** require a rebuild of the local gallery data.

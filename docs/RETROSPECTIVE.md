@@ -412,6 +412,70 @@ Collapsing them into a single boolean is a debugging
 anti-pattern — the operator cannot tell which path is broken
 and ends up reading source code.
 
+### 2.23 (P8B) Public product polish needs both a UX card *and* a redaction-aware history export
+
+P8B shipped two seemingly unrelated things: a *visible product
+info card* on the public Gallery page, and a *digest history
+archive* on the public Digest page. They share one underlying
+theme — *the public bundle is a different surface than the local
+archive, and that surface needs its own code path*.
+
+Three lessons emerged:
+
+1. **A public product card is part of the export, not part of
+   `web/`.** The Gallery `web/index.html` is the *local* UI
+   (subtitle: "数据来自 index/artworks.csv + metadata/"). The
+   public bundle's `dist/.../index.html` is a *different*
+   surface and the differences (no `metadata/` substring, no
+   `images/` substring, plus the new info card with v0.2.0 /
+   Last updated / 100 public demo records / canonical links)
+   must be applied at export time, not by editing `web/`.
+   Mixing the two surfaces in one file would either leak
+   internal-only strings to the public, or pollute the local
+   UI with public-only artifacts. P8B keeps the export
+   layer responsible for the public surface.
+
+2. **A history export is not a JSON copy.** The digest
+   builder's `digest-history.json` already goes through a
+   redaction pass (the digest builder strips
+   `<home>/<user>/<machine>/...` substrings), but the
+   redacted value still looks like `<redacted>conanxin/<redacted>/...`
+   — a recognisable local-absolute path. The digest builder
+   *had to* keep enough of the path for the operator to
+   navigate the local file tree; the public bundle must not.
+   P8B strips the `digest_path` field entirely before writing
+   `data/digest-history.json`, and the post-export leak check
+   re-asserts that nothing local-absolute slipped through.
+   The same pattern should apply to any future "history"
+   export: a separate output pipeline with its own
+   leak-aware projection of the data.
+
+3. **An honest archive shows what it has.** The archive page
+   surfaces a "History entries currently available: 7" notice
+   rather than padding the table to a fake 30 days. When the
+   rolling history has not yet filled the window, the user
+   sees the actual number. This is the same honesty principle
+   as "Source archive: local-first full archive, not fully
+   published" on the Gallery card: the public surface should
+   never claim a richer state than the data actually
+   supports.
+
+**Rule**: the public bundle is not a "publish the local
+state" operation; it is a "publish a curated, leak-aware
+projection of the local state" operation. Every field that
+is included must pass through the redaction + leak-check
+pipeline, and every visible number that depends on
+incomplete data must be honest about that incompleteness.
+
+**Operational rule**: when a redaction pipeline already
+exists (here: the digest builder's substring replacement),
+it is tempting to assume the redacted output is safe to
+publish. It is not — redaction that is *sufficient for
+operator navigation* may still be *visible as a local
+path pattern* in the public bundle. Treat the public export
+as a separate pipeline with its own allow-list and
+post-write leak check.
+
 ## 3. Phase-by-phase impact analysis
 
 ### P1 · Local Gallery Browser
@@ -848,3 +912,66 @@ helpers the daily health check uses (`_scan_pending_media`,
 `send_text`) rather than re-implementing the logic. If a count
 ever drifts between the two reports, it is a bug; there is no
 intentional divergence to debug.
+
+### 2.25 (P8C) A public archive should be honest, navigable, and data-minimized
+
+Three lessons from promoting the digest archive from a
+text-only table (P8B) to a cards + filters grid (P8C):
+
+1. **Honest first, navigable second, frameworked last.** A
+   public archive is only useful if visitors can scan it
+   without doing the math. P8B's text table was honest ("7 of
+   30 days") but barely navigable. P8C added **digest cards**
+   (one per day) and a **summary chip row** (Total days /
+   Total picks / Unique artists / Available range / Top
+   categories) so a visitor can answer the "what's here?"
+   question in one glance — without scrolling. Only after
+   that did P8C add the **filter row** (Artist / Category /
+   Search) and the **Jump to latest** button. The honest
+   summary stayed at the top, the filters stayed at the
+   bottom, and the cards stayed in the middle. Reading order
+   tracks usefulness for a *new* visitor.
+
+2. **The page is the data, JS is sugar.** The archive page is
+   fully readable with JavaScript disabled. Every card and
+   meta chip is server-rendered from
+   `data/digest-history.json`; the vanilla `archive.js` only
+   adds the filter wiring and the `#no-results` notice. This
+   has two payoffs: (a) the page degrades gracefully on any
+   browser that blocks the script (corporate proxies,
+   NoScript, archive crawlers); (b) the cards remain
+   semantically rich for any future consumer that wants to
+   skip the JS and read the DOM directly. Both payoffs fall
+   out for free from "do the data work in the exporter, do
+   the interactivity in the script".
+
+3. **A history export's summary should live in the export,
+   not in every consumer.** P8C moved the archive summary
+   (total_days / total_picks / unique_artists /
+   top_categories / available_range) into a top-level
+   `summary` block in `data/digest-history.json` itself, so
+   downstream consumers don't have to recompute them every
+   time. P8B had only the per-entry shape; P8C keeps that
+   shape (backward compatible) and adds the summary on top.
+   The exporter is the only place that knows the data well
+   enough to compute the summary cheaply and consistently —
+   once the summary lives in the JSON, every reader gets
+   the same numbers.
+
+4. **Readiness checks can be tripped by honest documentation.**
+   P8B had passed, but 8 path-leak stragglers (the literal
+   project-root / home-dir substrings used in the readiness
+   grep) had been left in 5 docs while *describing* the
+   path-leak check policy. P8C's preflight caught them
+   (readiness FAIL) and rewrote the meta-descriptions to
+   refer to the abstract *project-root* / *home-dir*
+   substrings. The lesson: a `readiness` check is supposed
+   to keep *real* paths out of the public bundle, not to
+   keep *any* mention of those substrings out of the
+   documentation. The fix is to describe the policy in
+   terms of *what it does* (strips local-absolute paths)
+   rather than *what it forbids* (a literal substring that
+   re-appears in the description). This is also a useful
+   self-test: if the documentation is hard to write without
+   mentioning the forbidden substring, the wording is
+   probably too literal.

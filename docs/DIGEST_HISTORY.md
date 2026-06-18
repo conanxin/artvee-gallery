@@ -99,7 +99,7 @@ rm reports/runtime/digest-history.json
 
 ## 8. Integration with public demo
 
-The digest builder itself does not push to GitHub Pages. The public digest page is refreshed through the existing candidate flow (`confirm_demo_refresh.sh` + `publish_demo_refresh_candidate.sh`). The history file is a **local-only runtime artifact**; it does not travel to the public Pages repo.
+The digest builder itself does not push to GitHub Pages. The public digest page is refreshed through the existing candidate flow (`confirm_demo_refresh.sh` + `publish_demo_refresh_candidate.sh`). The history file is a **local-only runtime artifact** that the public Pages repo never sees directly.
 
 ### P6F+1 Approved publish (2026-06-12)
 
@@ -108,7 +108,80 @@ The first approved publish after P6F shipped at commit `f419d31` on `conanxin.gi
 - Digest: `https://conanxin.github.io/projects/artvee-gallery-digest/` (5 picks, 5 unique artists, 3 categories)
 - The digest page includes `data/digests.json` with the `picks` array (including `near_dup_cluster_id` for each pick), demonstrating the near-dup awareness is live on the public surface.
 
+### P8B Public archive (2026-06-18)
+
+P8B surfaces the 30-day history as a real public page so the visitor
+can browse *every day's picks* without waiting for tomorrow's digest.
+The flow:
+
+1. `scripts/build_artvee_daily_digest.py` writes / appends to
+   `reports/runtime/digest-history.json` every day (already
+   established in P6F).
+2. `scripts/export_artvee_digest_public_page.py` reads the
+   history file, strips the `digest_path` field (which contains
+   a local-absolute path even after the digest builder's
+   redaction), and emits:
+   - `data/digest-history.json` — a *public-safe* copy (no
+     `digest_path`, no `metadata/`, no `images/`, no local
+     project-root substring, no absolute paths).
+   - `archive.html` — a 30-day rolling table (date / strategy /
+     picks / categories / near-dup cluster). Text-only by
+     design; the per-pick 512-thumb is reached from
+     `data/digests.json` and the per-day digest HTML.
+3. The existing `confirm_demo_refresh.sh` adds a P8B archive QA
+   step that asserts `archive.html` + `data/digest-history.json`
+   exist, parse, and contain no forbidden substrings.
+4. `scripts/publish_demo_refresh_candidate.sh --approve` rsyncs
+   the digest candidate (now including `archive.html` and
+   `data/digest-history.json`) into the Pages repo.
+
+The archive page is **honest** about the history size: if the
+digest has only run for N days, the page shows "History
+entries currently available: N" rather than a fabricated 30
+days. When the rolling history fills, the note disappears.
+
+## 9. P8C navigation polish (cards + filters)
+
+P8C upgraded the archive page from P8B's text-only table to a
+**digest cards** layout with a **client-side filter** row.
+
+Per-day card shape:
+
+* Top row: date `<code>` + pick count + strategy chip
+* Second row: category chips (one per unique category in the
+  pick set) + near-dup cluster chip (when at least one pick
+  carries a `near_dup_cluster_id`)
+* Body: a 5-column auto-fill grid of pick thumbnails (256
+  variant, lazy-loaded) with artist + category + near-dup
+  cluster labels. Each pick image has `onerror="visibility:hidden"`
+  so a single missing 256 thumb never 404s the page.
+
+Filter row (vanilla `archive.js`, no framework, no external
+CDN, ~4.3 KB):
+
+* **Artist** `<select>` — populated dynamically from all
+  cards' `data-artists` pipe-joined list
+* **Category** `<select>` — same pattern over `data-categories`
+* **Search** `<input type="text">` — matches date / strategy /
+  pick-id substrings, all stored on `data-search`
+* **Clear** button — resets all three
+* **Jump to latest** — smooth-scrolls to the first visible
+  `.day-card`
+
+The page is **fully readable with JS disabled** — every card
+and meta chip is server-rendered. JS only adds interactivity.
+The `#no-results` notice is hidden by default and only appears
+when filters hide every card.
+
+The `data/digest-history.json` schema gained a `summary` block
+(`total_days` / `total_picks` / `unique_artists` /
+`top_categories`) and a top-level `available_range`
+(`first_date` / `latest_date`) so downstream consumers don't
+have to recompute them. The `entries[]` shape is unchanged
+from P8B for backward compatibility; only the `digest_path`
+field is stripped.
+
 ---
 
-*Document version: P6F-1.0*  
-*Last updated: 2026-06-12*
+*Document version: P8C-1.0*  
+*Last updated: 2026-06-18*

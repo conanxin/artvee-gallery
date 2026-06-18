@@ -55,6 +55,8 @@
 | **v0.2.0 stable release** | v0.2.0 stable cut (tag + GitHub Release) after 3-day green observation | ✅ PASS | 2026-06-16 | `<workspace>/reports/artvee-gallery-v0.2.0-stable-release-20260616.md` |
 | **P8A** | Post-stable ops status command (one-shot health aggregator) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8a-post-stable-ops-polish-20260618.md` |
 | **P8A+1** | Pages guard visibility fix (Pages repo detection) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8a1-pages-guard-visibility-20260618.md` |
+| **P8B** | Content product polish (info card + digest history archive) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8b-content-product-polish-20260618.md` |
+| **P8C** | Public digest archive navigation polish (cards + filters + history schema) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8c-public-digest-archive-navigation-20260618.md` |
 
 ### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
 
@@ -702,3 +704,65 @@ fixes the ops-status-side detection.
 | Safety | no download / refill / batch / `--approve` / Pages push; cron line untouched; no real paths / tokens / chat_ids printed; `Path.home()` used instead of a hard-coded absolute user-home path; no tracked runtime files added |
 | Files changed | `scripts/artvee_ops_status.py` (Pages guard detection), `docs/POST_STABLE_OPERATIONS.md` (§ 7 + § 9), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.8), `docs/DEVELOPMENT.md` (§ 26), `docs/PROJECT_STATUS.md` (row + this snapshot), `docs/ROADMAP.md` (P8A+1 → completed), `docs/RETROSPECTIVE.md` (§ 2.23) |
 | Report | `<workspace>/reports/artvee-gallery-p8a1-pages-guard-visibility-20260618.md` |
+
+### P8B content-product-polish snapshot (2026-06-18 11:08 GMT+8)
+
+**Goal** — polish the public Gallery + Daily Digest pages and
+ship a real 30-day digest archive, then publish to GitHub Pages
+under the standard `confirm_demo_refresh` → `publish_demo_refresh`
+→ Pages-guard → `git push` flow. **No** full assets uploaded.
+**No** downloads / refill / batch. **No** force push.
+
+| Field | Value |
+|---|---|
+| Date | 2026-06-18 |
+| Gallery candidate | 100 records, 4.3M, 200 thumbs (256+512), 0 leaks, 0 missing |
+| Digest candidate | 1 pick, 51K, 1 thumb, 0 leaks, 0 missing |
+| Archive (P8B) | `archive.html=yes, history_entries=7` (window=30d) |
+| Digest size budget | 51K (soft 5MB / hard 10MB — both PASS) |
+| Gallery size budget | 4.3M (soft 10MB / hard 20MB — both PASS) |
+| Public info card | Injected into gallery `index.html` (idempotent, inline CSS, no framework) |
+| Release tag | Auto-detected via `git describe --tags --abbrev=0` → `v0.2.0` (P8B no longer hard-codes v0.1.0-alpha) |
+| Public history JSON | `data/digest-history.json` written; `digest_path` field stripped (would otherwise leak local-absolute paths even after digest builder redaction) |
+| Public text files | 0 forbidden substrings (home-dir, project-root, `metadata/`, `images/`, real paths) |
+| Pages guard | `check-project-publish-guard.py --base origin/main --allow projects/artvee-gallery-demo --allow projects/artvee-gallery-digest --allow projects/data.json` → `Verdict: PASS (no changes)` pre-rsync |
+| Approved publish | `bash scripts/publish_demo_refresh_candidate.sh --date 2026-06-18 --approve --cdn-wait 90` |
+| Pages commit | `43d771e` on `conanxin.github.io` (rsync: `faecf9a..43d771e main -> main`) |
+| Online endpoints (all 10) | gallery demo `/`, `/data/artworks.json`, `/data/gallery_stats.json`, `/app.js`, `/style.css` → 200; digest `/`, `/digest.html`, `/data/digests.json`, `/archive.html`, `/data/digest-history.json` → 200 |
+| Thumbnail spot-check | Gallery 256 = 10.3K JPEG (184×256, baseline); digest 512 = 25.7K JPEG (410×512, baseline) |
+| Other Pages commits | None rolled back; no force push; no `git reset` |
+| Strict integrity | PASS |
+| Readiness (4/4) | PASS |
+| Artvee repo commit | TBD after this section |
+| Safety | no download / refill / batch; no full images / metadata / thumbs uploaded; no force push; no rollback of other Pages commits; cron line untouched; no real paths / tokens / chat_ids printed |
+| Files changed | `scripts/export_artvee_gallery_public_demo.py` (info card), `scripts/export_artvee_digest_public_page.py` (archive + release tag detection + leak-aware history redaction), `scripts/confirm_demo_refresh.sh` (archive QA + digest size budget), `docs/DIGEST_HISTORY.md` (§ 8 archive), `docs/ROADMAP.md` (P8B entry + Next), `docs/PROJECT_STATUS.md` (row + this snapshot), `docs/RETROSPECTIVE.md` (§ 2.24 lesson) |
+| Report | `<workspace>/reports/artvee-gallery-p8b-content-product-polish-20260618.md` |
+
+### P8C public-digest-archive-navigation snapshot (2026-06-18 11:45 GMT+8)
+
+**Goal** — promote the public digest archive from P8B's text-only table to a navigable card grid with client-side filters, while keeping the bundle lightweight and the public history schema honest.
+
+| Aspect | Value |
+|---|---|
+| Date | 2026-06-18 |
+| Gallery candidate | 100 records, 4.8M, 200 thumbs (256+512), 0 leaks, 0 missing |
+| Digest candidate | 1 pick (today's digest) + 15 archive picks (7 days), 320K, 16 thumbs (1×512 + 15×256), 0 leaks, 0 missing |
+| Archive (P8B+P8C) | `archive.html=yes, history_entries=7, day_cards=7, thumbs_256=15` (window=30d) |
+| Digest size budget | 320K (soft 5MB / hard 10MB — both PASS) |
+| Gallery size budget | 4.8M (soft 10MB / hard 20MB — both PASS) |
+| Archive layout | Top nav (Latest Digest / Gallery / GitHub / Release / Archive / data/digests.json / data/digest-history.json) → summary chips (Total days / Total picks / Unique artists / Available range / Top categories) → filter row (Artist / Category / Search / Clear / Jump to latest) → 7 day-cards (newest first, 5-col auto-fill pick grid of 256 thumbs) |
+| Filters (P8C new) | Artist `<select>` + Category `<select>` + free-text Search input + Clear + Jump to latest; vanilla `archive.js` (~4.3 KB), no framework, no external CDN. Page readable with JS off |
+| History schema (P8C) | `data/digest-history.json` now carries `generated_at` / `history_entries` / `available_range.{first_date,latest_date}` / `summary.{total_days,total_picks,unique_artists,top_categories}`. `digest_path` still stripped; `entries[]` shape unchanged from P8B |
+| `summary` totals | `total_days=7, total_picks=15, unique_artists=13, top_categories=[japanese-prints×7, posters-design×7, book-illustrations×1]` |
+| Public text files | 0 forbidden substrings (home-dir, project-root, `metadata/`, `images/`, real paths) |
+| Pages guard | `check-project-publish-guard.py --base origin/main --allow projects/artvee-gallery-demo --allow projects/artvee-gallery-digest --allow projects/data.json` → `Verdict: PASS (no changes)` pre-rsync |
+| Approved publish | `bash scripts/publish_demo_refresh_candidate.sh --date 2026-06-18 --approve --cdn-wait 90` |
+| Pages commit | `131f663` on `conanxin.github.io` (rsync: `43d771e..131f663 main -> main`, 20 files / +322 / -83) |
+| Online endpoints (8 / 8) | gallery `/`, `/data/artworks.json`; digest `/`, `/digest.html`, `/archive.html`, `/data/digests.json`, `/data/digest-history.json`, `/archive.js` → all HTTP 200 |
+| Thumbnail spot-check | archive 256 thumbs are baseline JPEG (160 KB – 27 KB), accessible via `<img loading="lazy" onerror="visibility:hidden">` |
+| Other Pages commits | None rolled back; no force push; no `git reset`; 0 other Pages projects touched |
+| P8B preflight fix | P8B had 8 stragglers (literal project-root / home-dir substrings used in the readiness grep) in 5 docs; P8C caught them in preflight (readiness FAIL) and rewrote the meta-descriptions to refer to the abstract *project-root* / *home-dir* substrings. Final readiness 4/4 PASS |
+| Artvee repo commit | TBD after this section |
+| Safety | no download / refill / batch; no full images / metadata / thumbs uploaded; no force push; no rollback of other Pages commits; cron line untouched; no real paths / tokens / chat_ids printed; no `artvee_ops_status.py` / `install_daily_health_cron.sh` modification; no `web/` / `images/` / `metadata/` / `thumbs/` / `web/data/` modification; runtime logs / reports / dist / tmp not committed |
+| Files changed | `scripts/export_artvee_digest_public_page.py` (cards + filters + 256 thumbs + history schema), `scripts/confirm_demo_refresh.sh` (P8C archive QA), `docs/DIGEST_HISTORY.md` (§ 9 navigation polish), `docs/POST_STABLE_OPERATIONS.md` (§ 12.3), `docs/PROJECT_STATUS.md` (P8C row + this snapshot), `docs/ROADMAP.md` (P8C entry + Next), `docs/RETROSPECTIVE.md` (§ 2.25 lesson). Plus the P8B uncommitted-folded changes to `scripts/export_artvee_gallery_public_demo.py` (info card) and 5 docs (P8B path-leak cleanup). No `artvee_ops_status.py`, no `install_daily_health_cron.sh` |
+| Report | `<workspace>/reports/artvee-gallery-p8c-public-digest-archive-navigation-20260618.md` |

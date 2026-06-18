@@ -109,8 +109,14 @@ GALLERY_THUMB_TARGET=200
 GALLERY_SOFT_LIMIT_MB=10
 GALLERY_HARD_LIMIT_MB=20
 DIGEST_SELECT_TARGET=5
+# P8B digest size budgets — page is text-only + 1-5 thumbs; 5MB
+# soft / 10MB hard keeps the bundle honest.
+DIGEST_SOFT_LIMIT_MB=5
+DIGEST_HARD_LIMIT_MB=10
 GALLERY_SOFT_LIMIT_BYTES=$((GALLERY_SOFT_LIMIT_MB * 1024 * 1024))
 GALLERY_HARD_LIMIT_BYTES=$((GALLERY_HARD_LIMIT_MB * 1024 * 1024))
+DIGEST_SOFT_LIMIT_BYTES=$((DIGEST_SOFT_LIMIT_MB * 1024 * 1024))
+DIGEST_HARD_LIMIT_BYTES=$((DIGEST_HARD_LIMIT_MB * 1024 * 1024))
 
 # ----------------------------------------------------------------------------
 # 工具函数
@@ -479,6 +485,8 @@ DIGEST_THUMB=0
 DIGEST_LEAKS=0
 DIGEST_MISSING=0
 DIGEST_SIZE_BYTES=0
+DIGEST_HISTORY_ENTRIES=0
+DIGEST_ARCHIVE_PRESENT=0
 DIGEST_FINAL_STATUS="PASS"
 
 if [[ $DRY_RUN -eq 0 ]]; then
@@ -592,6 +600,173 @@ PY
 
     if [[ "$DIGEST_FINAL_STATUS" == "PASS" ]]; then
         _log "  ✅ Digest QA PASS"
+        # P8B + P8C: verify the archive page + archive.js +
+        # digest-history.json are present and that the history has
+        # at least one entry. The archive is optional (a fresh
+        # clone with no history yet is allowed), but if the files
+        # are present they must be parseable and not contain
+        # forbidden substrings. P8C adds:
+        #   - archive.js presence + sanity (must be > 1KB and
+        #     reference filter-* IDs)
+        #   - archive.html day-card count vs history entry count
+        #   - assets/thumbs/256/ contains a thumb for at least
+        #     one archive pick (else cards would all be hidden)
+        if [[ -s "$DIGEST_OUT/archive.html" ]]; then
+            DIGEST_ARCHIVE_PRESENT=1
+            if [[ -s "$DIGEST_OUT/data/digest-history.json" ]]; then
+                mapfile -t QA_D_ARCHIVE < <("$PYTHON_BIN" - "$DIGEST_OUT" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+base = Path(sys.argv[1])
+hist_p = base / 'data' / 'digest-history.json'
+arch_p = base / 'archive.html'
+js_p   = base / 'archive.js'
+thumbs256_dir = base / 'assets' / 'thumbs' / '256'
+
+if not hist_p.is_file():
+    print("MISSING_HISTORY")
+    sys.exit(0)
+try:
+    data = json.loads(hist_p.read_text(encoding='utf-8'))
+except Exception as e:
+    print(f"PARSE_ERROR:{e}")
+    sys.exit(0)
+
+entries = data.get('entries', []) if isinstance(data, dict) else []
+print(f"ENTRIES={len(entries)}")
+print(f"HISTORY_ENTRIES={data.get('history_entries', '?')}")
+print(f"SUMMARY_DAYS={data.get('summary', {}).get('total_days', '?')}")
+print(f"SUMMARY_PICKS={data.get('summary', {}).get('total_picks', '?')}")
+print(f"SUMMARY_ARTISTS={data.get('summary', {}).get('unique_artists', '?')}")
+print(f"AVAIL_RANGE={data.get('available_range', {})}")
+
+# Walk all string values for forbidden substrings.
+forbidden = ['/home/', '~/', 'metadata/', 'images/']
+leaks = 0
+def walk(o):
+    global leaks
+    if isinstance(o, dict):
+        for v in o.values():
+            walk(v)
+    elif isinstance(o, list):
+        for v in o:
+            walk(v)
+    elif isinstance(o, str):
+        for f in forbidden:
+            if f in o:
+                leaks += 1
+                return
+walk(data)
+print(f"LEAKS={leaks}")
+# Sanity: digest_path must not appear in any entry.
+hit_dp = any('digest_path' in (e or {}) for e in entries)
+print(f"LEAKED_DIGEST_PATH={'yes' if hit_dp else 'no'}")
+
+# Archive.html day-card count
+if arch_p.is_file():
+    html = arch_p.read_text(encoding='utf-8', errors='ignore')
+    cards = len(re.findall(r'<section class="day-card"', html))
+    print(f"DAY_CARDS={cards}")
+    # P8C nav sanity
+    has_latest = "Latest Digest" in html
+    has_gallery = "Gallery Demo" in html
+    has_release = "Release" in html or "releases/tag" in html
+    has_filter_ids = all(s in html for s in [
+        'id="filter-artist"', 'id="filter-category"',
+        'id="filter-search"', 'id="filter-clear"',
+        'id="jump-latest"',
+    ])
+    print(f"HAS_NAV_LATEST={'yes' if has_latest else 'no'}")
+    print(f"HAS_NAV_GALLERY={'yes' if has_gallery else 'no'}")
+    print(f"HAS_NAV_RELEASE={'yes' if has_release else 'no'}")
+    print(f"HAS_FILTER_IDS={'yes' if has_filter_ids else 'no'}")
+    # 256-thumbs presence
+    if thumbs256_dir.is_dir():
+        n256 = sum(1 for _ in thumbs256_dir.glob('*.jpg'))
+    else:
+        n256 = 0
+    print(f"THUMBS_256_COUNT={n256}")
+else:
+    print("DAY_CARDS=0")
+    print("HAS_NAV_LATEST=no")
+    print("HAS_NAV_GALLERY=no")
+    print("HAS_NAV_RELEASE=no")
+    print("HAS_FILTER_IDS=no")
+    print("THUMBS_256_COUNT=0")
+
+# Archive.js sanity
+if js_p.is_file():
+    jstxt = js_p.read_text(encoding='utf-8', errors='ignore')
+    print(f"ARCHIVE_JS_SIZE={len(jstxt)}")
+    print(f"ARCHIVE_JS_HAS_FILTER={'yes' if 'applyFilters' in jstxt and 'populateSelect' in jstxt else 'no'}")
+else:
+    print("ARCHIVE_JS_SIZE=0")
+    print("ARCHIVE_JS_HAS_FILTER=no")
+PY
+                )
+                for line in "${QA_D_ARCHIVE[@]}"; do
+                    case "$line" in
+                        ENTRIES=*|HISTORY_ENTRIES=*|SUMMARY_*) : ;;
+                        MISSING_HISTORY|PARSE_ERROR=*)
+                            _log "  ⚠️ archive: $line"
+                            DIGEST_FINAL_STATUS="FAIL"
+                            ;;
+                    esac
+                done
+                # Local leak in archive data
+                ARCHIVE_LEAKS=$(printf '%s\n' "${QA_D_ARCHIVE[@]}" | sed -n 's/^LEAKS=//p' | head -1)
+                if [[ "${ARCHIVE_LEAKS:-0}" -ne 0 ]]; then
+                    _log "  ⚠️ archive local path leaks=$ARCHIVE_LEAKS"
+                    DIGEST_FINAL_STATUS="FAIL"
+                fi
+                LEAKED_DP=$(printf '%s\n' "${QA_D_ARCHIVE[@]}" | sed -n 's/^LEAKED_DIGEST_PATH=//p' | head -1)
+                if [[ "$LEAKED_DP" == "yes" ]]; then
+                    _log "  ⚠️ archive still contains digest_path (should be stripped)"
+                    DIGEST_FINAL_STATUS="FAIL"
+                fi
+                DIGEST_HISTORY_ENTRIES=$(printf '%s\n' "${QA_D_ARCHIVE[@]}" | sed -n 's/^ENTRIES=//p' | head -1)
+                if [[ -z "${DIGEST_HISTORY_ENTRIES:-}" ]]; then
+                    DIGEST_HISTORY_ENTRIES=0
+                fi
+                if [[ "$DIGEST_HISTORY_ENTRIES" -lt 1 ]]; then
+                    # Empty history is allowed (fresh clone) but warn.
+                    _log "  ℹ️ archive history has 0 entries (fresh clone or just enabled)"
+                fi
+                # P8C: day-card count vs history count
+                DAY_CARDS=$(printf '%s\n' "${QA_D_ARCHIVE[@]}" | sed -n 's/^DAY_CARDS=//p' | head -1)
+                if [[ "${DAY_CARDS:-0}" -ne "${DIGEST_HISTORY_ENTRIES:-0}" ]]; then
+                    _log "  ⚠️ archive day-cards ($DAY_CARDS) != history entries ($DIGEST_HISTORY_ENTRIES)"
+                    DIGEST_FINAL_STATUS="FAIL"
+                fi
+                # P8C: nav sanity
+                for k in HAS_NAV_LATEST HAS_NAV_GALLERY HAS_NAV_RELEASE HAS_FILTER_IDS ARCHIVE_JS_HAS_FILTER; do
+                    v=$(printf '%s\n' "${QA_D_ARCHIVE[@]}" | sed -n "s/^${k}=//p" | head -1)
+                    if [[ "$v" != "yes" ]]; then
+                        _log "  ⚠️ P8C archive QA missing: $k=$v"
+                        DIGEST_FINAL_STATUS="FAIL"
+                    fi
+                done
+                # P8C: archive.js size
+                JS_SIZE=$(printf '%s\n' "${QA_D_ARCHIVE[@]}" | sed -n 's/^ARCHIVE_JS_SIZE=//p' | head -1)
+                if [[ "${JS_SIZE:-0}" -lt 1024 ]]; then
+                    _log "  ⚠️ archive.js too small: $JS_SIZE bytes"
+                    DIGEST_FINAL_STATUS="FAIL"
+                fi
+                # P8C: 256 thumbs present
+                T256=$(printf '%s\n' "${QA_D_ARCHIVE[@]}" | sed -n 's/^THUMBS_256_COUNT=//p' | head -1)
+                if [[ "${T256:-0}" -lt 1 ]]; then
+                    _log "  ℹ️ archive 256-thumbs=0 (all cards will hide image — check digest picks have 256 variants)"
+                else
+                    _log "  ℹ️ archive 256-thumbs=$T256"
+                fi
+            else
+                _log "  ℹ️ archive.html present but no data/digest-history.json"
+            fi
+        else
+            _log "  ℹ️ archive.html not present (P8B archive disabled or no history yet)"
+        fi
     fi
 else
     DIGEST_FINAL_STATUS="SKIP"
@@ -606,6 +781,18 @@ CURRENT_STAGE="finalize"
 OVERALL="PASS"
 if [[ "$GALLERY_FINAL_STATUS" != "PASS" && "$GALLERY_FINAL_STATUS" != "SKIP" ]]; then
     OVERALL="FAIL"
+fi
+# P8B: digest size budget (5MB soft / 10MB hard). A digest bundle
+# is text + 1-5 thumbs; if it ever grows past 10MB something has
+# gone wrong (a full image slipped in, or 1000 picks were exported
+# by mistake). Soft is a warning, hard is a FAIL.
+if [[ $DRY_RUN -eq 0 ]]; then
+    if [[ "$DIGEST_SIZE_BYTES" -gt "$DIGEST_HARD_LIMIT_BYTES" ]]; then
+        _log "  ⚠️ digest size=${DIGEST_SIZE_BYTES}B > hard limit ${DIGEST_HARD_LIMIT_BYTES}B"
+        DIGEST_FINAL_STATUS="FAIL"
+    elif [[ "$DIGEST_SIZE_BYTES" -gt "$DIGEST_SOFT_LIMIT_BYTES" ]]; then
+        _log "  ⚠️ digest size=${DIGEST_SIZE_BYTES}B > soft limit ${DIGEST_SOFT_LIMIT_BYTES}B"
+    fi
 fi
 if [[ "$DIGEST_FINAL_STATUS" != "PASS" && "$DIGEST_FINAL_STATUS" != "SKIP" ]]; then
     OVERALL="FAIL"
@@ -660,6 +847,7 @@ if [[ $DRY_RUN -eq 0 ]]; then
         echo "| Selected | $DIGEST_SELECTED (target: $DIGEST_SELECT_TARGET) |"
         echo "| Thumbs | $DIGEST_THUMB |"
         echo "| Size | $DIGEST_SIZE_HUMAN ($DIGEST_SIZE_BYTES bytes) |"
+        echo "| Archive (P8B+P8C) | archive.html=$([ "$DIGEST_ARCHIVE_PRESENT" = "1" ] && echo "yes" || echo "no"), history_entries=$DIGEST_HISTORY_ENTRIES, day_cards=$DAY_CARDS, thumbs_256=$T256 |"
         echo "| Local path leaks | $DIGEST_LEAKS |"
         echo "| Missing thumbs | $DIGEST_MISSING |"
         echo "| Final status | $DIGEST_FINAL_STATUS |"
@@ -720,7 +908,7 @@ if [[ $DRY_RUN -eq 0 ]]; then
                 TELEGRAM_MSG="✅ Artvee Demo Refresh Candidate
 日期: $DATE
 Gallery: PASS, records=$GALLERY_RECORDS, thumbs=$((GALLERY_THUMB_256+GALLERY_THUMB_512)), size=$GALLERY_SIZE_HUMAN
-Digest: PASS, selected=$DIGEST_SELECTED, thumbs=$DIGEST_THUMB, size=$DIGEST_SIZE_HUMAN
+Digest: PASS, selected=$DIGEST_SELECTED, thumbs=$DIGEST_THUMB, size=$DIGEST_SIZE_HUMAN, archive_entries=$DIGEST_HISTORY_ENTRIES
 Guards: duplicate_source_url=$GALLERY_DUPE_SOURCE_URL, Le_rêve=$GALLERY_LE_REVE, leaks=$((GALLERY_LEAKS+DIGEST_LEAKS)), missing=$((GALLERY_MISSING+DIGEST_MISSING))
 $RETIRED_LINE
 Publish: not pushed, manual approval required

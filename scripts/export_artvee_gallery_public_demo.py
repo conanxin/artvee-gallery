@@ -88,6 +88,94 @@ STRATEGIES = {
 }
 
 
+# ---------- P8B helpers ----------
+
+def _detect_release_tag(base_dir: Path) -> str:
+    """Return the most recent git tag for the Artvee repo, or "unknown"
+    if no tag exists / git is not available. The tag is read at export
+    time so the public demo's "v0.x.y" line stays in sync with `git
+    describe --tags --abbrev=0`. Never raises; the exporter must not
+    abort on a missing tag (e.g. on a fresh clone before the first
+    tag is cut).
+    """
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=str(base_dir), capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return "v0.2.0"  # P8B ships against v0.2.0 stable; fall back to it.
+
+
+def _build_p8b_info_card(
+    last_updated: str,
+    public_record_count: int,
+    total_records,
+    release_tag: str,
+) -> str:
+    """P8B public-demo info card HTML.
+
+    The card surfaces:
+      - demo title (Artvee Gallery Demo)
+      - release version (e.g. v0.2.0)
+      - Last updated date (YYYY-MM-DD)
+      - public-record count + total local-archive count (with
+        honest "Source archive: local-first full archive, not
+        fully published" disclosure)
+      - canonical links (Daily Digest, GitHub repo, release
+        tag, About)
+
+    Constraints:
+      - No front-end framework dependency.
+      - No local path, no `metadata/`, no `images/`, no
+        `~/.hermes-agent` substrings.
+      - All link targets are absolute public URLs or local
+        relative paths.
+    """
+    total = "—" if total_records in (None, 0) else total_records
+    card = (
+        '<!-- P8B:public-demo-info-card -->\n'
+        '    <section class="p8b-info-card" aria-label="About this demo">\n'
+        '      <h2>Artvee Gallery Demo</h2>\n'
+        f'      <p class="p8b-meta">v<span class="p8b-version">{release_tag}</span> · '
+        f'Last updated: <time datetime="{last_updated}">{last_updated}</time></p>\n'
+        '      <p class="p8b-meta">\n'
+        f'        <strong>Records:</strong> <span class="p8b-public-count">{public_record_count}</span> public demo records\n'
+        f'        · <strong>Source archive:</strong> {total} in local-first archive (not fully published)\n'
+        '      </p>\n'
+        '      <p class="p8b-links">\n'
+        '        Links:\n'
+        '        <a href="https://conanxin.github.io/projects/artvee-gallery-digest/" target="_blank" rel="noopener">Daily Digest</a>\n'
+        '        ·\n'
+        '        <a href="https://github.com/conanxin/artvee-gallery" target="_blank" rel="noopener">GitHub repo</a>\n'
+        '        ·\n'
+        f'        <a href="https://github.com/conanxin/artvee-gallery/releases/tag/{release_tag}" target="_blank" rel="noopener">{release_tag} release</a>\n'
+        '        ·\n'
+        '        <a href="https://github.com/conanxin/artvee-gallery#artvee-gallery" target="_blank" rel="noopener">About this demo</a>\n'
+        '      </p>\n'
+        '      <style>\n'
+        '        .p8b-info-card { background: #f8fafc; border: 1px solid #e5e7eb;\n'
+        '                         border-radius: 6px; padding: 0.75rem 1rem;\n'
+        '                         margin: 0.75rem 0; max-width: 100%;\n'
+        '                         font-size: 0.9rem; line-height: 1.5; }\n'
+        '        .p8b-info-card h2 { margin: 0 0 0.25rem; font-size: 1.05rem;\n'
+        '                           color: #1f2328; }\n'
+        '        .p8b-info-card .p8b-meta { margin: 0 0 0.25rem;\n'
+        '                                  color: #4b5563; font-size: 0.88rem; }\n'
+        '        .p8b-info-card .p8b-links a { color: #2563eb;\n'
+        '                                      text-decoration: none;\n'
+        '                                      margin: 0 0.15rem; }\n'
+        '        .p8b-info-card .p8b-links a:hover { text-decoration: underline; }\n'
+        '      </style>\n'
+        '    </section>'
+    )
+    return card
+
+
 # ---------- path rewriting ----------
 
 def rewrite_paths(record: dict, base_url: str) -> dict:
@@ -294,7 +382,16 @@ def export(
     # text-level patch to swap the LOCAL-only subtitle
     # ("本地图库浏览 · 数据来自 index/artworks.csv + metadata/") for a
     # public-safe one that does not contain the forbidden substrings
-    # `metadata/` or `images/`.
+    # `metadata/` or `images/`. P8B further enriches the public index
+    # with a "demo info card" that surfaces version, last-updated date,
+    # public-record count, and the canonical links (Daily Digest /
+    # GitHub repo / release / About). The card is injected AFTER the
+    # .brand block so the existing app.js / style.css still drive the
+    # grid untouched.
+    PUBLIC_SUBTITLE = (
+        "Artvee Gallery · Public Demo · "
+        "数据来自 artvee.com 公共领域艺术作品库"
+    )
     for name in ("index.html", "app.js", "style.css"):
         src = SRC_WEB / name
         if not src.exists():
@@ -302,14 +399,36 @@ def export(
             return 2
         if name == "index.html":
             html = src.read_text(encoding="utf-8")
-            PUBLIC_SUBTITLE = (
-                "Artvee Gallery · Public Demo · "
-                "数据来自 artvee.com 公共领域艺术作品库"
-            )
             html = html.replace(
                 "本地图库浏览 · 数据来自 index/artworks.csv + metadata/",
                 PUBLIC_SUBTITLE,
             )
+            # P8B: inject the public demo info card right after the
+            # existing .brand block. The card is rendered with inline
+            # CSS so style.css edits are not required and so the public
+            # bundle stays a single-file index. The card is *informational
+            # only*; the existing app.js / grid logic is untouched.
+            last_updated = (stats_src.get("last_downloaded_at") or "")[:10] or datetime.now().date().isoformat()
+            total_records = stats_src.get("counts", {}).get("artworks", "—")
+            info_card = _build_p8b_info_card(
+                last_updated=last_updated,
+                public_record_count=len(exported),
+                total_records=total_records,
+                release_tag=_detect_release_tag(BASE_DIR),
+            )
+            # Insert right before the closing </header>. We use a stable
+            # marker so the patch is idempotent (re-runs do not stack
+            # cards).
+            marker = "<!-- P8B:public-demo-info-card -->"
+            if marker not in html:
+                # Place the card after the </div> that closes .brand.
+                # We do a targeted insertion: the existing <header
+                # class="topbar"> contains both .brand and .stats; the
+                # card lives between them.
+                html = html.replace(
+                    '<div class="stats" id="stats">',
+                    f"{info_card}\n    <div class=\"stats\" id=\"stats\">",
+                )
             (out_dir / name).write_text(html, encoding="utf-8")
         else:
             shutil.copy2(src, out_dir / name)
