@@ -56,6 +56,8 @@ print_help() {
 USAGE
 }
 
+GALLERY_RECORD_TARGET="${GALLERY_RECORD_TARGET:-100}"
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --date)
@@ -69,6 +71,10 @@ while [[ $# -gt 0 ]]; do
         --no-telegram)
             NO_TELEGRAM=1
             shift
+            ;;
+        --gallery-limit)
+            GALLERY_RECORD_TARGET="$2"
+            shift 2
             ;;
         --help|-h)
             print_help
@@ -104,7 +110,7 @@ GALLERY_OUT="$CANDIDATE_BASE/$DATE/gallery"
 DIGEST_OUT="$CANDIDATE_BASE/$DATE/digest"
 
 # 阈值 (per brief)
-GALLERY_RECORD_TARGET=100
+# GALLERY_RECORD_TARGET is now configurable via --gallery-limit N (default 100)
 GALLERY_THUMB_TARGET=200
 GALLERY_SOFT_LIMIT_MB=10
 GALLERY_HARD_LIMIT_MB=20
@@ -269,7 +275,7 @@ if [[ $DRY_RUN -eq 0 ]]; then
     rm -rf "$GALLERY_OUT"
     mkdir -p "$GALLERY_OUT"
     if ! "$PYTHON_BIN" "$BASE_DIR/scripts/export_artvee_gallery_public_demo.py" \
-            --limit 100 \
+            --limit "$GALLERY_RECORD_TARGET" \
             --strategy diverse \
             --base-url . \
             --exclude-duplicate-source-url-groups \
