@@ -222,6 +222,13 @@ bash scripts/install_media_replay_cron.sh --dry-run
 # Install with defaults (CRON_TZ=Asia/Shanghai, 10 3 * * *)
 bash scripts/install_media_replay_cron.sh --install
 
+# P8D+1: CRON_TZ and PATH are now baked on their own lines above the
+# schedule. The earlier template had `CRON_TZ=Asia/Shanghai 10 3 * * *`
+# (7 fields) which cron silently rejected — symptom was an empty
+# logs/media-replay-cron/ + missing reports/runtime/media-replay/cron-*.json.
+# If you see those symptoms on a fresh install, re-run --install; the
+# template now produces a parseable 5-field schedule.
+
 # Custom schedule
 bash scripts/install_media_replay_cron.sh --install --time "15 3 * * *"
 
@@ -255,6 +262,17 @@ bash scripts/install_media_replay_cron.sh --remove
 | `--dry-run` | `dry_run_completed` | no `--apply`; reports plan |
 
 **Default args**: `--limit 5 --max-retries 3`.
+
+**P8D+1 observability guarantee**: every cron run writes a
+`reports/runtime/media-replay/cron-<date>.json` summary regardless
+of outcome (`noop_zero_pending`, `replayed_pending`,
+`skipped_transport_unavailable`, `skipped_locked`, `dry_run_completed`,
+`error_helper_import`). The `--no-op / no Telegram` design is
+preserved (no zero-pending notifications), but the local summary
+is always written so ops status can detect a *missing* cron run
+vs a *silent no-op* cron run. If `cron-<date>.json` is missing
+for a day the cron was scheduled to run, treat that as a real
+failure (not a no-op).
 
 **Manual run**:
 

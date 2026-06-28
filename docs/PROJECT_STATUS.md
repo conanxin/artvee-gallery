@@ -58,6 +58,7 @@
 | **P8B** | Content product polish (info card + digest history archive) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8b-content-product-polish-20260618.md` |
 | **P8C** | Public digest archive navigation polish (cards + filters + history schema) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8c-public-digest-archive-navigation-20260618.md` |
 | **P8D** | Optional media replay cron (P8D cron wrapper + idempotent installer) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8d-optional-media-replay-cron-20260618.md` |
+| **P8D+1** | Cron PATH hardening + unified installer for refill/batch/confirm + 03:10 media-replay cron activation fix (CRON_TZ=PATH= on own lines, dedup legacy lines) | ✅ PASS | 2026-06-29 | `<workspace>/reports/artvee-gallery-p8d1-cron-path-media-replay-fix-20260629.md` |
 
 ### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
 
@@ -791,3 +792,24 @@ under the standard `confirm_demo_refresh` → `publish_demo_refresh`
 | Safety | no download / refill / batch / Pages push / --approve / retired retry / MEDIA allowlist widen; no tokens / chat_ids / secrets printed; no hardcoded user-home paths; `flock -n` prevents overlapping runs |
 | Files changed | `scripts/artvee_media_replay_cron.sh` (new), `scripts/install_media_replay_cron.sh` (new), `scripts/artvee_ops_status.py` (new helper + summary field + 2 MD rows), `.github/workflows/open-source-ready.yml` (2 new bash -n entries), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.9), `docs/POST_STABLE_OPERATIONS.md` (§ 6.1), `docs/MEDIA_REPLAY.md` (§ 10), `docs/DEVELOPMENT.md` (§ 27), `docs/PROJECT_STATUS.md` (P8D row + snapshot), `docs/ROADMAP.md` (P8D entry + Next), `docs/RETROSPECTIVE.md` (§ 2.23), `README.md` (light link addition). |
 | Report | `<workspace>/reports/artvee-gallery-p8d-optional-media-replay-cron-20260618.md` |
+
+### P8D+1 cron-PATH-and-media-replay-activation snapshot (2026-06-29 07:05 GMT+8)
+
+| Field | Value |
+|---|---|
+| Trigger | 2026-06-29 cron diagnostic: 03:10 media-replay cron produced zero logs and zero summary; refill/batch/confirm produced normal data but Telegram notifier logged NOTIFY_FAIL on every run. |
+| Root cause A (P0) | `crontab -l` line for the P8D media-replay had `CRON_TZ=Asia/Shanghai 10 3 * * * cd ...` (7 fields). Cron parses any leading `Name=value` as a per-line env var, not a schedule column, so the 7-field line was silently rejected. Result: no log, no summary. |
+| Root cause B (P1) | The same `CRON_TZ=`-on-schedule bug was present in the P8D installer template. The pre-P7B refill / batch / confirm-refresh cron lines had no `PATH=` at all, so under cron's minimal `PATH` (no `$HOME/.local/bin`) the OpenClaw binary used by the Telegram notifier was unresolvable. The data products were unaffected; only Telegram was dropped. |
+| Fix A | `scripts/install_media_replay_cron.sh` template now emits `CRON_TZ=Asia/Shanghai` and `PATH=$HOME/.local/bin:...` on their own lines, followed by a clean 5-field schedule. |
+| Fix B | New `scripts/install_artvee_cron.sh` (P8D+1 unified installer) emits the refill / batch / confirm-refresh block under one marker with the same `CRON_TZ=` + `PATH=` env-var lines. Idempotent; `--remove` only deletes the P8D+1 block. |
+| Cleanup | Surgically removed 13 legacy lines (legacy refill/batch/confirm + their venv-python commented siblings + decorative comment header) so the new block is the only schedule for those three jobs — preventing tomorrow's 01:30 / 02:00 / 02:30 double-runs. |
+| Verification A | `crontab -l` now has exactly 1 instance each of: refill, batch, confirm-refresh, media-replay; 1 P7B marker block; 1 P8D marker block; 1 P8D+1 marker block. |
+| Verification B | `bash scripts/artvee_media_replay_cron.sh --dry-run --limit 5 --max-retries 3` under a cron-like `env -i ... PATH=$HOME/.local/bin:...` returned `exit 0`, wrote `reports/runtime/media-replay/cron-2026-06-29.json` with `outcome=dry_run_completed`, `transport_status=ok`. |
+| Verification C | Same wrapper run without `--dry-run` returned `exit 0`, `outcome=replayed_pending` (2 existing pending files, neither replayable), `transport_status=ok`. No Telegram sent (no fresh pending). |
+| Strict integrity | PASS (no duplicates, 1089 records) |
+| Open-source readiness | PASS (4/4 sub-checks) |
+| P7B daily health | Already had `export PATH=$HOME/.local/bin:$PATH` — unchanged. |
+| P8D installer rerun | Idempotent — re-running `--install` from the patched template replaces the block with the fixed syntax. |
+| Safety | no download / refill / batch / Pages push / --approve / retired retry / MEDIA allowlist widen; no tokens / chat_ids / secrets printed; legacy pre-fix crontab backed up to `logs/artvee-cron/crontab.before_*` (3 timestamps). |
+| Files changed | `scripts/install_media_replay_cron.sh` (template fix), `scripts/install_artvee_cron.sh` (new), `docs/DAILY_OPERATING_PLAYBOOK.md` (P8D+1 section), `docs/MEDIA_REPLAY.md` (P8D+1 observability guarantee), `docs/POST_STABLE_OPERATIONS.md` (P8D+1 note under § 6.1), `docs/PROJECT_STATUS.md` (P8D+1 row + snapshot), `docs/ROADMAP.md` (P8D+1 entry), `docs/RETROSPECTIVE.md` (§ 2.24 lesson). |
+| Report | `<workspace>/reports/artvee-gallery-p8d1-cron-path-media-replay-fix-20260629.md` |

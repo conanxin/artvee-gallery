@@ -1032,3 +1032,71 @@ a summary JSON to disk on every run (so ops status can read
 it), but never sends a Telegram message when pending=0. The
 operator still gets visibility via the 03:00 daily-health
 cron's `media_replay` block.
+
+### 2.24 (P8D+1) Cron schedule lines are 5 fields, not 7. CRON_TZ and PATH go on their own lines.
+
+The 2026-06-29 cron diagnostic caught a silent regression: the
+03:10 media-replay cron had been installed (in a real crontab)
+but produced zero logs and zero summary for at least one full
+day. Investigation found the cron line in `crontab -l` was:
+
+```
+CRON_TZ=Asia/Shanghai 10 3 * * * cd <artvee-repo> && bash scripts/artvee_media_replay_cron.sh --limit 5 --max-retries 3 >> ...
+```
+
+— i.e. **7 fields** instead of 5. Vixie-cron parses any leading
+`Name=value` as a per-line env var assignment, so this line
+looked like `CRON_TZ=Asia/Shanghai`, with the *real* schedule
+parsed as `10 3 * * * cd <artvee-repo>` (the `cd` and the
+rest of the line were misread as `dom`/`mon`/`dow` fields, and
+the line was silently rejected because the field count did not
+parse). No error, no log, no summary — the cron just never
+fired.
+
+The same bug was present in the installer's template, so a
+fresh `--install` would have re-installed the broken line.
+Two compounding lessons:
+
+1. **`Name=value` belongs on its own line above the schedule.**
+   The pre-P7B refill/batch/confirm-refresh lines had a *bare*
+   `CRON_TZ=Asia/Shanghai` (no leading 7-field bug) but no
+   `PATH=` line at all. The P7B daily-health line had
+   `export PATH=...` inline *as part of the command* and worked.
+   Two different conventions in the same crontab, neither fully
+   correct. P8D+1 unifies on: env vars on their own lines,
+   `CRON_TZ=Asia/Shanghai` then `PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin`
+   then a clean 5-field schedule. The installer templates
+   (`install_media_replay_cron.sh`, the new
+   `install_artvee_cron.sh`) are the single source of truth.
+
+2. **A cron that produces no logs is not "silent success" —
+   it is silent *failure*.** The P8D `noop_zero_pending` design
+   explicitly does *not* send a "0 pending" Telegram. But it
+   *does* always write `reports/runtime/media-replay/cron-<date>.json`
+   on every run, including no-op runs. That on-disk summary is
+   the only way ops status can tell a *real no-op* (cron ran,
+   found nothing to do, wrote a summary) from a *silent failure*
+   (cron never ran, no summary, the operator is in the dark).
+   P8D+1 makes this contract explicit in the docs ("If
+   `cron-<date>.json` is missing for a day the cron was
+   scheduled to run, treat that as a real failure, not a no-op").
+
+**Rule**: cron schedule lines are exactly 5 (or 6, for `@`-prefixed
+or named) fields. `Name=value` env-var assignments must be on
+their own lines, above or below the schedule. When a cron's
+on-disk artifact directory is empty after a scheduled run,
+the bug is in the *crontab* (or the installer's template), not
+in the wrapper — never "fix" the wrapper to "always write
+something"; the wrapper is correct, the line is not being run.
+
+**Diagnostic trap**: a Bash heredoc diagnostic that sets
+`TODAY="$(date +%F)"` in the parent shell and then calls
+`python3 <<'PY' ... os.environ.get("TODAY") ... PY` will
+*always* show the env var as missing, because `os.environ` is
+not inherited by `<<'PY'` heredocs that don't `export`. Either
+`export TODAY=...` before the heredoc, or compute today/ymd
+inside the Python block. The first 2026-06-29 diagnostic
+incorrectly reported "ALL_EXPECTED_ARTIFACTS_MISSING" because
+of this; a second pass that used `os.environ.setdefault(...)`
+or re-derived the date inside Python gave the correct "all
+present" verdict.

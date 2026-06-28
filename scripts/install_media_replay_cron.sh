@@ -66,6 +66,10 @@ if [[ "${REPO_DIR}" == "${HOME_DIR}"/* ]]; then
   REPO_DIR="~${REPO_DIR#${HOME_DIR}}"
 fi
 
+# P8D+1 fix: CRON_TZ=... must be on its own line above the schedule
+# (cron treats any leading "Name=value" as a per-line env var, not a
+# schedule column). Prepending it to the schedule produced a 7-field
+# line that cron silently rejects → no logs, no summary.
 CRON_BLOCK="${MARKER_BEGIN}
 # Artvee Optional Media Replay (P8D)
 # Runs 10 minutes after the P7B daily-health cron (which runs at 0 3).
@@ -73,7 +77,12 @@ CRON_BLOCK="${MARKER_BEGIN}
 # It never sends a zero-pending notification, never retries retired URLs,
 # and never runs nightly batch / Pages publish / approve.
 # It only invokes the staged-only P7B+3 replay flow.
-CRON_TZ=${CRON_TZ} ${CRON_TIME} cd ${REPO_DIR} && bash scripts/artvee_media_replay_cron.sh --limit 5 --max-retries 3 >> logs/media-replay-cron/media_replay_cron.log 2>&1
+# CRON environment: PATH must include \$HOME/.local/bin so the OpenClaw
+# binary used by check_openclaw_transport.py is resolvable. set -a below
+# exports all assignments on this line as env vars for the cron job.
+CRON_TZ=${CRON_TZ}
+PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+${CRON_TIME} cd ${REPO_DIR} && bash scripts/artvee_media_replay_cron.sh --limit 5 --max-retries 3 >> logs/media-replay-cron/media_replay_cron.log 2>&1
 ${MARKER_END}"
 
 # Read current crontab

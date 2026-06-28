@@ -1,6 +1,6 @@
 # Daily Operating Playbook
 
-> Living document. Last updated: 2026-06-18 (P8D optional media replay cron + P8A+1 Pages guard visibility + P8A post-stable ops status command + P7B+3 pending MEDIA replay + transport health).
+> Living document. Last updated: 2026-06-29 (P8D+1 cron PATH hardening + unified installer for refill/batch/confirm + 03:10 media-replay cron activation fix).
 > This is the operational reference for the Artvee Gallery daily workflow.
 
 ---
@@ -67,6 +67,45 @@ bash scripts/install_daily_health_cron.sh --remove
 
 # Change time (e.g., to 09:00)
 bash scripts/install_daily_health_cron.sh --install --time "0 9 * * *"
+```
+
+### Refill / Batch / Confirm-refresh cron (P8D+1 unified installer)
+
+The three pre-P7B Artvee cron lines (01:30 refill, 02:00 batch,
+02:30 confirm refresh) used to be hand-maintained and were missing
+`PATH` / `CRON_TZ`. P8D+1 introduces a single source of truth:
+
+```bash
+# Install (or replace) the P8D+1 unified block
+bash scripts/install_artvee_cron.sh --install
+
+# Preview the new crontab without applying
+bash scripts/install_artvee_cron.sh --dry-run
+
+# Remove the P8D+1 block (leaves P7B and P8D marker blocks intact)
+bash scripts/install_artvee_cron.sh --remove
+```
+
+The installer bakes two env-var lines above the schedules:
+
+* `CRON_TZ=Asia/Shanghai` — must be on its own line. Prepending it to
+  the schedule (e.g. `CRON_TZ=Asia/Shanghai 30 1 * * * ...`) produces
+  a 7-field line that **cron silently rejects** (this was the root
+  cause of the 2026-06-29 03:10 media-replay cron producing zero
+  artifacts).
+* `PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin` — required so
+  the OpenClaw binary used by the Telegram notifier is resolvable
+  under cron's minimal default PATH. Without this, every run logs
+  `NOTIFY_FAIL: OpenClaw binary not found` (the data products are
+  still produced; only the Telegram notification is dropped).
+
+The P7B daily-health installer and the P8D media-replay installer
+both already export `PATH=...` the same way. After upgrading, verify
+all five Artvee lines resolve to a single canonical schedule:
+
+```bash
+crontab -l | grep -E 'artvee_nightly_wrapper|confirm_demo_refresh|daily_health_check|media_replay_cron'
+# expect 4 distinct lines, no duplicates
 ```
 
 ### Generate candidate manually

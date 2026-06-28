@@ -176,7 +176,22 @@ See `docs/MEDIA_REPLAY.md` for the full workflow.
 
 ### 6.1 Optional media replay cron (P8D)
 
-The P8D cron is **optional** and **not installed by default**.
+The P8D cron is **optional** and **not installed by default** (it is
+opt-in via `bash scripts/install_media_replay_cron.sh --install`).
+When installed, it runs at 03:10 (10 minutes after the 03:00
+daily-health cron) under `CRON_TZ=Asia/Shanghai`, and only fires
+when there is deferred pending MEDIA from a previous transport
+failure.
+
+> **P8D+1 (2026-06-29)**: the installer template was fixed to put
+> `CRON_TZ=` and `PATH=` on their own lines above the schedule. The
+> previous template produced `CRON_TZ=Asia/Shanghai 10 3 * * * cd ...`
+> (7 fields) which cron silently rejected — symptom was an empty
+> `logs/media-replay-cron/` and no `reports/runtime/media-replay/cron-*.json`.
+> Re-running `--install` from the patched template produces a
+> 5-field schedule that cron actually accepts. Refill / batch /
+> confirm-refresh gained the same `CRON_TZ=` / `PATH=` lines via the
+> new `scripts/install_artvee_cron.sh` (P8D+1 unified installer).
 It exists for operators who want pending MEDIA to flush
 automatically 10 minutes after the 03:00 daily-health cron.
 
