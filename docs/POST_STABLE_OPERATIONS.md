@@ -313,7 +313,7 @@ After v0.2.0 stable, several things are deliberately still manual:
 | `readiness=UNKNOWN` | no daily health report yet | run the daily health check first; ops status depends on it for the readiness / integrity / candidate fields |
 | `transport_status=error` | OpenClaw gateway not running or PATH wrong | see `docs/MEDIA_REPLAY.md` § 6 — does not block ops status, but you should fix before sending the next Telegram |
 | `pages_repo_clean=unknown` | `<pages-repo>` not a git repo, or `--include-pages` not passed | re-run with `--include-pages`; or check the path |
-| `telegram: status=skipped error=chat id resolve...` | `ARTVEE_TELEGRAM_CHAT_ID` not set | set the env var (or use the cron-style invocation); see `scripts/install_daily_health_cron.sh` for the canonical line |
+| `telegram: status=skipped error=chat id resolve...` | `ARTVEE_TELEGRAM_CHAT_ID` not set or env file missing | set the env var or create `$HOME/.config/artvee-gallery/telegram.env`; see `docs/DAILY_OPERATING_PLAYBOOK.md` § 8 |
 | `recommended_action=attention_required_integrity_failure` | strict integrity check failed | run `python3 scripts/check_gallery_integrity.py --strict` to see why; fix and re-run |
 | `recommended_action=attention_required_pages_content_drift` | online 404 | re-run `bash scripts/publish_demo_refresh_candidate.sh --dry-run`; do not auto-publish |
 | `recommended_action=attention_required_media_pending` | real pending MEDIA exists | inspect `reports/runtime/daily-health/.fallback-pending-*.json`; if staged path still valid, `python3 scripts/replay_pending_media.py --apply` |

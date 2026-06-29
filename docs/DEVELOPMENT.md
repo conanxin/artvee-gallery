@@ -867,3 +867,91 @@ bash scripts/artvee_ops_status.sh --no-telegram \
 * Does not send a "0 pending" notification (silent on healthy days).
 * Does not retry on transport failure (skips; pending stays).
 * Does not run more than once concurrently (`flock -n`).
+---
+
+## 28. P8D+2 Telegram notifier chat-id configuration hardening
+
+P8D+1 fixed cron PATH and CRON_TZ, but the 2026-06-30 next-day
+verification showed that the notifier still failed in cron with
+`Telegram chat id not found`. The interactive shell worked because
+`.bashrc` had `ARTVEE_TELEGRAM_CHAT_ID` set; cron does not source
+`.bashrc`.
+
+### Chat-id resolution order (P8D+2)
+
+`scripts/artvee_telegram_notify.py` now resolves chat id from:
+
+1. `--chat-id` CLI argument
+2. `ARTVEE_TELEGRAM_CHAT_ID` environment variable
+3. `$HOME/.config/artvee-gallery/telegram.env` (private env file, chmod 600)
+4. `$HOME/.openclaw/openclaw.json` `channels.telegram.defaultChatId`
+5. `$HOME/.openclaw/openclaw.json` `channels.telegram.targets[0]`
+6. Hard error with clear instructions
+
+The private env file is the cron-safe fallback: it is repo-external,
+not in git, and readable by the notifier without interactive session
+state.
+
+### Creating the private env file
+
+```bash
+mkdir -p $HOME/.config/artvee-gallery
+echo 'ARTVEE_TELEGRAM_CHAT_ID=<your-chat-id>' > $HOME/.config/artvee-gallery/telegram.env
+chmod 600 $HOME/.config/artvee-gallery/telegram.env
+```
+
+### Verifying resolution (no send)
+
+```bash
+cd <artvee-repo>
+python3 scripts/artvee_telegram_notify.py --check-config
+# → {"env_ARTVEE_TELEGRAM_CHAT_ID": {"present": false, "len": 0},
+#    "env_file": {"path": "...", "exists": true},
+#    "openclaw_config": {"exists": true},
+#    "resolved": true, "resolved_len": 10}
+```
+
+### Cron installer changes
+
+Both `install_artvee_cron.sh` and `install_daily_health_cron.sh` now
+emit `ARTVEE_TELEGRAM_ENV_FILE=$HOME/.config/artvee-gallery/telegram.env`
+as a cron env var above the schedule lines. The actual chat id is
+**never baked into the crontab**.
+
+Example crontab output (P8D+2):
+
+```
+CRON_TZ=Asia/Shanghai
+PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+ARTVEE_TELEGRAM_ENV_FILE=$HOME/.config/artvee-gallery/telegram.env
+30 1 * * * cd $HOME/artvee-gallery && bash scripts/artvee_nightly_wrapper.sh refill >> logs/wrapper_refill.log 2>&1
+```
+
+### Cron-like verification
+
+```bash
+cd <artvee-repo>
+mkdir -p logs/notify-test
+env -i \
+  HOME="$HOME" USER="$USER" LOGNAME="$USER" \
+  SHELL=/bin/bash \
+  PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+  ARTVEE_TELEGRAM_ENV_FILE="$HOME/.config/artvee-gallery/telegram.env" \
+  bash -lc 'cd "$HOME/artvee-gallery" && \
+    python3 scripts/artvee_telegram_notify.py \
+      --text "Artvee P8D+2 cron-like env test: notifier config OK" --wait' \
+  > logs/notify-test/p8d2_cronlike_test.log 2>&1
+echo "exit=$?"
+tail -5 logs/notify-test/p8d2_cronlike_test.log
+```
+
+Expected: `NOTIFY_OK`, exit 0, no secrets in log.
+
+### Safety
+
+- No secrets in tracked files or crontab.
+- Private env file is chmod 600 and repo-external.
+- `--check-config` prints only `resolved: true/false` and length, never the value.
+- The notifier's `_check_config()` diagnostic is safe to log or print.
+
+---

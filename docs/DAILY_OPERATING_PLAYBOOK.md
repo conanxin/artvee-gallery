@@ -1,6 +1,6 @@
 # Daily Operating Playbook
 
-> Living document. Last updated: 2026-06-29 (P8D+1 cron PATH hardening + unified installer for refill/batch/confirm + 03:10 media-replay cron activation fix).
+> Living document. Last updated: 2026-06-30 (P8D+2 Telegram notifier chat-id configuration hardening).
 > This is the operational reference for the Artvee Gallery daily workflow.
 
 ---
@@ -531,19 +531,41 @@ via § 9.6.
 
 ---
 
-## 8. Telegram notify troubleshooting (P7A+1)
+## 8. Telegram notify troubleshooting (P7A+1 / P8D+2)
 
 If the health check reports `telegram_notify.openclaw_status: missing`,
 common causes are:
 
-1. **PATH difference** — cron may not have `\u003cuser-home\u003e/.local/bin` in PATH.
+1. **PATH difference** — cron may not have `$HOME/.local/bin` in PATH.
    Fix: add `export PATH="$HOME/.local/bin:$PATH"` to the cron script,
    or pass `--openclaw-bin <openclaw-bin>` explicitly.
 2. **ARTVEE_OPENCLAW_BIN env var** — set it in `.bashrc` or the cron
    environment to an absolute path.
-3. **Interactive vs cron** — test with `bash scripts/artvee_daily_health_check.sh --no-telegram`
+3. **Chat id missing (P8D+2)** — the notifier cannot resolve the Telegram
+   chat id. Resolution order:
+   - `--chat-id` CLI argument
+   - `ARTVEE_TELEGRAM_CHAT_ID` environment variable
+   - `$HOME/.config/artvee-gallery/telegram.env` (private env file, chmod 600)
+   - `$HOME/.openclaw/openclaw.json` `channels.telegram.defaultChatId`
+   - `$HOME/.openclaw/openclaw.json` `channels.telegram.targets[0]`
+   
+   To fix: create `$HOME/.config/artvee-gallery/telegram.env`:
+   ```bash
+   mkdir -p $HOME/.config/artvee-gallery
+   echo 'ARTVEE_TELEGRAM_CHAT_ID=<your-chat-id>' > $HOME/.config/artvee-gallery/telegram.env
+   chmod 600 $HOME/.config/artvee-gallery/telegram.env
+   ```
+   Then re-run the cron installers so `ARTVEE_TELEGRAM_ENV_FILE` is set
+   in the cron environment:
+   ```bash
+   bash scripts/install_artvee_cron.sh --install
+   bash scripts/install_daily_health_cron.sh --install
+   ```
+   The cron lines will include `ARTVEE_TELEGRAM_ENV_FILE=$HOME/.config/artvee-gallery/telegram.env`
+   but will NOT contain the actual chat id (secret hygiene).
+4. **Interactive vs cron** — test with `bash scripts/artvee_daily_health_check.sh --no-telegram`
    to confirm the rest of the pipeline works, then debug Telegram separately.
-4. **MEDIA path** — reports must be staged to an OpenClaw-allowed directory
+5. **MEDIA path** — reports must be staged to an OpenClaw-allowed directory
    before attachment. The `stage_report_for_telegram_media.py` helper handles this.
    If it fails, the notifier falls back to plain text.
 
@@ -590,7 +612,7 @@ env -i \
   HOME="$HOME" USER="$USER" LOGNAME="$USER" \
   SHELL=/bin/bash \
   PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
-  ARTVEE_TELEGRAM_CHAT_ID="<telegram-chat-id>" \
+  ARTVEE_TELEGRAM_ENV_FILE="$HOME/.config/artvee-gallery/telegram.env" \
   bash -lc 'cd <artvee-repo> && bash scripts/artvee_daily_health_check.sh --online --media' \
   >> logs/daily-health-cron/daily_health_cronlike_test.log 2>&1
 echo "exit=$?"

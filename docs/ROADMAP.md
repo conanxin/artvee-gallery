@@ -711,7 +711,31 @@ _superseded by P7D · v0.2.0-alpha release consolidation above (this is the impl
 - Files: `scripts/install_media_replay_cron.sh` (template fix), `scripts/install_artvee_cron.sh` (new), `docs/DAILY_OPERATING_PLAYBOOK.md` (P8D+1 section), `docs/MEDIA_REPLAY.md` (P8D+1 observability guarantee), `docs/POST_STABLE_OPERATIONS.md` (P8D+1 note under § 6.1), `docs/PROJECT_STATUS.md` (P8D+1 row + snapshot), `docs/ROADMAP.md` (P8D+1 entry), `docs/RETROSPECTIVE.md` (§ 2.24 lesson).
 - See `<workspace>/reports/artvee-gallery-p8d1-cron-path-media-replay-fix-20260629.md`.
 
-### Next (post-P8D+1, v0.2.x polish)
+### Next (post-P8D+2, v0.2.x polish)
 - **P8E** public search/filter polish — extend the P8C filters with cross-archive full-text search (typed in the search box) and a per-pick lightbox when a card thumbnail is clicked. Defers until the rolling history has at least 14 days so search has enough signal.
-- **v0.2.1 patch release** — bundle P7B+1 / P7B+2 / P7B+3 / P8A / P8A+1 / P8B / P8C / P8D into a single patch release after 7 days of clean observation. No release has been cut from the current `main`.
+- **v0.2.1 patch release** — bundle P7B+1 / P7B+2 / P7B+3 / P8A / P8A+1 / P8B / P8C / P8D / P8D+1 / P8D+2 into a single patch release after 7 days of clean observation. No release has been cut from the current `main`.
 - **Morning briefing cron (06:00)** — simple wrapper around `artvee_ops_status.sh --date $(date +%F) --media` if the operator wants a daily morning report. Explicitly out of scope for v0.2.x.
+
+### P8D+2 · Telegram notifier chat-id configuration hardening ✅ PASS (2026-06-30 07:03)
+- **Problem**: 2026-06-30 03:00 daily health cron and 01:30/02:00 refill/batch wrappers all logged `NOTIFY_FAIL` / `NOTIFY_ERROR: Telegram chat id not found`. The P8D+1 fix had corrected PATH and CRON_TZ, but the notifier still could not resolve the chat id in the cron environment.
+- **Root cause**: `artvee_telegram_notify.py` resolution order was: `--chat-id` > `ARTVEE_TELEGRAM_CHAT_ID` env > `$HOME/.openclaw/openclaw.json` `defaultChatId` > `targets[0]`. The OpenClaw config had `telegram.enabled=true` and `botToken` but **no `defaultChatId` or `targets`**. The cron environment did not have `ARTVEE_TELEGRAM_CHAT_ID` set. So every cron-run notifier call raised `RuntimeError: Telegram chat id not found`.
+- **Fix**: Added a new resolution step: **private env file** (`$HOME/.config/artvee-gallery/telegram.env`). New order:
+  1. `--chat-id` CLI arg
+  2. `ARTVEE_TELEGRAM_CHAT_ID` env var
+  3. `$HOME/.config/artvee-gallery/telegram.env` (private, chmod 600, not in git)
+  4. `$HOME/.openclaw/openclaw.json` `channels.telegram.defaultChatId`
+  5. `$HOME/.openclaw/openclaw.json` `channels.telegram.targets[0]`
+  6. Hard error with clear instructions
+- **Private env file**: `$HOME/.config/artvee-gallery/telegram.env` created with `ARTVEE_TELEGRAM_CHAT_ID=<id>`; `chmod 600`; never committed to git. The file is read by the notifier at runtime; the actual chat id is never baked into cron lines or tracked files.
+- **Cron installer updates**:
+  - `scripts/install_artvee_cron.sh` (P8D+1 unified installer): now emits `ARTVEE_TELEGRAM_ENV_FILE=$HOME/.config/artvee-gallery/telegram.env` as a cron env var above the schedule lines. The actual chat id is NOT in the crontab.
+  - `scripts/install_daily_health_cron.sh`: same fix — exports `ARTVEE_TELEGRAM_ENV_FILE` instead of baking `ARTVEE_TELEGRAM_CHAT_ID` into the command line.
+- **Notifier enhancements**:
+  - `artvee_telegram_notify.py`: new `_load_chat_id_from_env_file()` helper; new `_check_config()` diagnostic (safe to print, no secrets exposed); new `--check-config` CLI flag that prints a JSON diagnostic and exits 0/1.
+- **Verification**:
+  - `python3 scripts/artvee_telegram_notify.py --check-config` → `resolved: true`, `resolved_len: 10`, `env_file.exists: true`.
+  - Cron-like env test (`env -i HOME=... PATH=... ARTVEE_TELEGRAM_ENV_FILE=...`) → `NOTIFY_OK pid=... message_id=27285`, exit 0.
+  - Crontab inspection: no numeric secrets, no `ARTVEE_TELEGRAM_CHAT_ID` in cron lines, only `ARTVEE_TELEGRAM_ENV_FILE`.
+- **Safety**: no download / refill / batch / `--approve` / Pages push / retired retry; no tokens / chat ids / secrets printed in logs or reports; private env file is repo-external and gitignored; cron lines contain only the env file path, not the chat id.
+- **Files changed**: `scripts/artvee_telegram_notify.py` (env file resolution + `--check-config`), `scripts/install_artvee_cron.sh` (ARTVEE_TELEGRAM_ENV_FILE env var), `scripts/install_daily_health_cron.sh` (same), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 8 troubleshooting + § 9 cron-like verification), `docs/PROJECT_STATUS.md` (P8D+2 row), `docs/ROADMAP.md` (P8D+2 entry + Next).
+- See `<workspace>/reports/artvee-gallery-p8d2-telegram-notifier-chatid-fix-20260630.md`.

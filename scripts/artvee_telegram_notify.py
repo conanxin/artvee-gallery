@@ -30,10 +30,71 @@ CFG_PATH = Path.home() / '.openclaw' / 'openclaw.json'
 #   5. Hard error — we never fall back to a literal id in source.
 ARTVEE_TELEGRAM_CHAT_ID = os.environ.get('ARTVEE_TELEGRAM_CHAT_ID', '').strip()
 
+# P8D+2: private env file for chat-id (repo-external, chmod 600, not in git)
+# Resolution order:
+#   1. CLI argument --chat-id (most explicit; always wins)
+#   2. ARTVEE_TELEGRAM_CHAT_ID environment variable
+#   3. Private env file: $ARTVEE_TELEGRAM_ENV_FILE or $HOME/.config/artvee-gallery/telegram.env
+#   4. ~/.openclaw/openclaw.json channels.telegram.defaultChatId
+#   5. ~/.openclaw/openclaw.json channels.telegram.targets[0]
+#   6. Hard error — we never fall back to a literal id in source.
+ARTVEE_TELEGRAM_ENV_FILE = os.environ.get(
+    'ARTVEE_TELEGRAM_ENV_FILE',
+    str(Path.home() / '.config' / 'artvee-gallery' / 'telegram.env')
+)
+
+
+def _load_chat_id_from_env_file():
+    """Read ARTVEE_TELEGRAM_CHAT_ID from a private env file.
+    Returns the value or None if the file does not exist / is unreadable.
+    Never prints the value."""
+    p = Path(ARTVEE_TELEGRAM_ENV_FILE)
+    if not p.is_file():
+        return None
+    try:
+        # Only read the first matching line; ignore comments and blanks
+        with open(p, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if line.startswith('ARTVEE_TELEGRAM_CHAT_ID='):
+                    # Handle optional quotes
+                    val = line.split('=', 1)[1].strip().strip('"').strip("'")
+                    return val if val else None
+    except Exception:
+        pass
+    return None
+
+
+def _check_config(redact=True):
+    """Return a diagnostic dict about chat-id resolution (no secrets exposed).
+    Safe to print / log."""
+    result = {
+        'env_ARTVEE_TELEGRAM_CHAT_ID': {'present': bool(ARTVEE_TELEGRAM_CHAT_ID), 'len': len(ARTVEE_TELEGRAM_CHAT_ID)},
+        'env_file': {
+            'path': ARTVEE_TELEGRAM_ENV_FILE,
+            'exists': Path(ARTVEE_TELEGRAM_ENV_FILE).is_file(),
+        },
+        'openclaw_config': {'exists': CFG_PATH.is_file()},
+    }
+    # Try resolution without exposing the value
+    try:
+        cid = load_chat_id()
+        result['resolved'] = True
+        result['resolved_len'] = len(cid)
+    except Exception as e:
+        result['resolved'] = False
+        result['error'] = str(e)[:200]
+    return result
+
 
 def load_chat_id():
     if ARTVEE_TELEGRAM_CHAT_ID:
         return ARTVEE_TELEGRAM_CHAT_ID
+    cid = _load_chat_id_from_env_file()
+    if cid:
+        return cid
     if CFG_PATH.is_file():
         try:
             cfg = json.loads(CFG_PATH.read_text(encoding='utf-8'))
@@ -47,7 +108,8 @@ def load_chat_id():
             pass
     raise RuntimeError(
         'Telegram chat id not found. Set ARTVEE_TELEGRAM_CHAT_ID in the env, '
-        'or pass --chat-id, or set channels.telegram.defaultChatId in '
+        'or create ~/.config/artvee-gallery/telegram.env with ARTVEE_TELEGRAM_CHAT_ID=..., '
+        'or set channels.telegram.defaultChatId in '
         '~/.openclaw/openclaw.json. See docs/DAILY_OPERATING_PLAYBOOK.md.'
     )
 
@@ -239,12 +301,22 @@ def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = N
 
 def main():
     parser = argparse.ArgumentParser(description='Send Telegram text notification for Artvee via OpenClaw Gateway')
-    parser.add_argument('--text', required=True, help='Message text to send')
+    parser.add_argument('--text', required=False, help='Message text to send')
     parser.add_argument('--chat-id', default=None, help='Override chat_id')
+    parser.add_argument('--check-config', action='store_true', help='Check chat-id resolution and print diagnostic (no send)')
     parser.add_argument('--media', default=None, help='Optional media path (must be in OpenClaw allowed dirs)')
     parser.add_argument('--wait', action='store_true', help='Wait for send to complete (slow, 120-180s)')
     parser.add_argument('--openclaw-bin', default=None, help='Path or command name for OpenClaw binary (overrides env vars)')
     args = parser.parse_args()
+
+    if args.check_config:
+        import json
+        diag = _check_config()
+        print(json.dumps(diag, indent=2, ensure_ascii=False))
+        sys.exit(0 if diag.get('resolved') else 1)
+
+    if not args.text:
+        parser.error('--text is required unless --check-config is used')
 
     try:
         result = send_text(args.text, chat_id=args.chat_id, wait=args.wait, media=args.media, openclaw_bin=args.openclaw_bin)

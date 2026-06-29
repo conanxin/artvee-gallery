@@ -1033,7 +1033,66 @@ it), but never sends a Telegram message when pending=0. The
 operator still gets visibility via the 03:00 daily-health
 cron's `media_replay` block.
 
-### 2.24 (P8D+1) Cron schedule lines are 5 fields, not 7. CRON_TZ and PATH go on their own lines.
+### 2.24 (P8D+2) Cron-safe notification needs explicit chat-id config, not implicit interactive session state
+
+The 2026-06-30 P8D+1 next-day verification found that the 01:30
+refill, 02:00 batch, and 03:00 daily-health cron runs all logged
+`NOTIFY_FAIL: Telegram chat id not found` — even though the
+interactive shell test (`python3 scripts/artvee_telegram_notify.py
+--text "..."`) worked perfectly. The difference was that the
+interactive shell had `ARTVEE_TELEGRAM_CHAT_ID` set in `.bashrc`,
+but the cron environment did not inherit it.
+
+**Root cause**: `artvee_telegram_notify.py` resolved chat id from:
+1. `--chat-id` CLI arg
+2. `ARTVEE_TELEGRAM_CHAT_ID` env var
+3. `$HOME/.openclaw/openclaw.json` `defaultChatId`
+4. `$HOME/.openclaw/openclaw.json` `targets[0]`
+
+The OpenClaw config had `telegram.enabled=true` and `botToken` but
+**no `defaultChatId` or `targets`**. So in the cron environment
+(where `.bashrc` is not sourced), the notifier had no chat id and
+failed on every run. The data products were still produced; only
+the Telegram notification was dropped.
+
+**Fix**: Added a new resolution step — **private env file**
+(`$HOME/.config/artvee-gallery/telegram.env`). The new order:
+1. `--chat-id` CLI arg
+2. `ARTVEE_TELEGRAM_CHAT_ID` env var
+3. `$HOME/.config/artvee-gallery/telegram.env` (private, chmod 600, not in git)
+4. `$HOME/.openclaw/openclaw.json` `defaultChatId`
+5. `$HOME/.openclaw/openclaw.json` `targets[0]`
+6. Hard error with clear instructions
+
+The cron installers (`install_artvee_cron.sh`,
+`install_daily_health_cron.sh`) now emit
+`ARTVEE_TELEGRAM_ENV_FILE=$HOME/.config/artvee-gallery/telegram.env`
+as a cron env var above the schedule lines. The actual chat id is
+**never baked into the crontab** — only the path to the private env
+file is. This preserves secret hygiene while making the notifier
+work in the minimal cron environment.
+
+**Rule**: any notification path that relies on an env var or config
+value must have a **cron-safe fallback** that does not depend on
+interactive shell state. `.bashrc` is not sourced by cron; `export`
+in `.bashrc` is invisible to cron jobs. The right place for cron
+secrets is a **private env file** that the cron line explicitly
+references, or a config value in a file that the cron job can read
+without interactive session state.
+
+**Operational rule**: when a notifier works interactively but fails
+in cron, the first diagnostic is "what env vars / config values does
+the interactive shell have that cron does not?" — not "is the
+notifier broken?". The `env -i HOME=... PATH=... ARTVEE_TELEGRAM_ENV_FILE=...
+bash -lc '...'` test is the canonical way to reproduce the cron
+environment and verify the fix.
+
+**Secret hygiene rule**: never bake secrets (chat ids, tokens, API
+keys) into crontab lines or tracked files. Crontabs are readable by
+`crontab -l` (any user with cron access), and tracked files are in
+git. The right pattern is: secret lives in a repo-external file
+(chmod 600, not in git), crontab references the file path, the
+notifier reads the file at runtime.
 
 The 2026-06-29 cron diagnostic caught a silent regression: the
 03:10 media-replay cron had been installed (in a real crontab)

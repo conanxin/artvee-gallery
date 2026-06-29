@@ -59,6 +59,7 @@
 | **P8C** | Public digest archive navigation polish (cards + filters + history schema) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8c-public-digest-archive-navigation-20260618.md` |
 | **P8D** | Optional media replay cron (P8D cron wrapper + idempotent installer) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8d-optional-media-replay-cron-20260618.md` |
 | **P8D+1** | Cron PATH hardening + unified installer for refill/batch/confirm + 03:10 media-replay cron activation fix (CRON_TZ=PATH= on own lines, dedup legacy lines) | ✅ PASS | 2026-06-29 | `<workspace>/reports/artvee-gallery-p8d1-cron-path-media-replay-fix-20260629.md` |
+| **P8D+2** | Telegram notifier chat-id configuration hardening (private env file + cron env var + --check-config) | ✅ PASS | 2026-06-30 | `<workspace>/reports/artvee-gallery-p8d2-telegram-notifier-chatid-fix-20260630.md` |
 
 ### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
 

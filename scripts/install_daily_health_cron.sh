@@ -44,16 +44,20 @@ if [[ "${REPO_DIR}" == "${HOME_DIR}"* ]]; then
   REPO_DIR="~${REPO_DIR#${HOME_DIR}}"
 fi
 
-# Resolve chat id from env (P7B+1: no hardcoded ids in the repo).
-# If the installer is run with ARTVEE_TELEGRAM_CHAT_ID set, that value is
-# baked into the cron line. Otherwise, the user must export
-# ARTVEE_TELEGRAM_CHAT_ID in the shell that runs the daily check, or set
-# channels.telegram.defaultChatId in ~/.openclaw/openclaw.json.
-CRON_CHAT_ID="${ARTVEE_TELEGRAM_CHAT_ID:-}"
-if [[ -n "${CRON_CHAT_ID}" ]]; then
-  CRON_CHAT_ID_EXPORT="export ARTVEE_TELEGRAM_CHAT_ID='${CRON_CHAT_ID}' &&"
+# P8D+2: Chat-id resolution for cron environments
+# The notifier reads chat id from (in order):
+#   1. CLI --chat-id
+#   2. ARTVEE_TELEGRAM_CHAT_ID env var
+#   3. ~/.config/artvee-gallery/telegram.env (private, chmod 600, not in git)
+#   4. ~/.openclaw/openclaw.json channels.telegram.defaultChatId
+#   5. ~/.openclaw/openclaw.json channels.telegram.targets[0]
+# We set ARTVEE_TELEGRAM_ENV_FILE as a cron env var so the notifier can
+# read it; we do NOT bake the actual chat id into the cron line (secret hygiene).
+ARTVEE_TELEGRAM_ENV_FILE="${HOME}/.config/artvee-gallery/telegram.env"
+if [[ -f "${ARTVEE_TELEGRAM_ENV_FILE}" ]]; then
+  CHAT_ID_ENV_EXPORT="ARTVEE_TELEGRAM_ENV_FILE='${ARTVEE_TELEGRAM_ENV_FILE}'"
 else
-  CRON_CHAT_ID_EXPORT=""
+  CHAT_ID_ENV_EXPORT=""
 fi
 
 CRON_BLOCK="${MARKER_BEGIN}
@@ -62,8 +66,11 @@ CRON_BLOCK="${MARKER_BEGIN}
 # CRON_TZ=Asia/Shanghai is set by the existing Artvee block above
 # MEDIA failure falls back to a text-only warning; health checks remain authoritative.
 # PATH is exported so cron can resolve the OpenClaw binary (lives under ~/.local/bin).
-# Override with --openclaw-bin <abs-path> if your binary lives elsewhere.
-${CRON_TIME} export PATH="\$HOME/.local/bin:\$PATH" && ${CRON_CHAT_ID_EXPORT} cd ${REPO_DIR} && bash scripts/artvee_daily_health_check.sh --online --media >> logs/daily-health-cron/daily_health_\$(date +\%Y\%m\%d)_030000.log 2>&1
+# P8D+2: ARTVEE_TELEGRAM_ENV_FILE points to a private env file
+# (chmod 600, not in git) so the notifier can resolve the chat id.
+# We do NOT bake the actual chat id into the cron line.
+${CHAT_ID_ENV_EXPORT}
+${CRON_TIME} export PATH="\$HOME/.local/bin:\$PATH" && cd ${REPO_DIR} && bash scripts/artvee_daily_health_check.sh --online --media >> logs/daily-health-cron/daily_health_\$(date +\%Y\%m\%d)_030000.log 2>&1
 ${MARKER_END}"
 
 # Read current crontab

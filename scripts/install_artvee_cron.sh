@@ -52,6 +52,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# P8D+2: Chat-id resolution for cron environments
+# The notifier reads chat id from (in order):
+#   1. CLI --chat-id
+#   2. ARTVEE_TELEGRAM_CHAT_ID env var
+#   3. ~/.config/artvee-gallery/telegram.env (private, chmod 600, not in git)
+#   4. ~/.openclaw/openclaw.json channels.telegram.defaultChatId
+#   5. ~/.openclaw/openclaw.json channels.telegram.targets[0]
+# We set ARTVEE_TELEGRAM_ENV_FILE as a cron env var so the notifier can
+# read it; we do NOT bake the actual chat id into the cron line (secret hygiene).
+
 # tilde-compress the repo path for readability in the crontab
 HOME_DIR="${HOME}"
 REPO_DIR="${BASE_DIR}"
@@ -72,9 +82,12 @@ LEGACY_BLOCK="${LEGACY_MARKER_BEGIN}
 # PATH is exported so the OpenClaw binary at \$HOME/.local/bin is
 # resolvable for the Telegram notifier — cron otherwise has no entry
 # for that bin dir and the notifier silently logs NOTIFY_FAIL.
-# Override with --openclaw-bin <abs-path> if your binary lives elsewhere.
+# P8D+2: ARTVEE_TELEGRAM_ENV_FILE points to a private env file
+# (chmod 600, not in git) so the notifier can resolve the chat id.
+# We do NOT bake the actual chat id into the cron line.
 CRON_TZ=Asia/Shanghai
-PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+PATH=\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+ARTVEE_TELEGRAM_ENV_FILE=\$HOME/.config/artvee-gallery/telegram.env
 30 1 * * * cd ${REPO_DIR} && bash scripts/artvee_nightly_wrapper.sh refill >> logs/wrapper_refill.log 2>&1
 0 2 * * * cd ${REPO_DIR} && bash scripts/artvee_nightly_wrapper.sh batch >> logs/wrapper_batch.log 2>&1
 30 2 * * * cd ${REPO_DIR} && bash scripts/confirm_demo_refresh.sh --no-telegram >> logs/confirm_demo_refresh/cron_stderr.log 2>&1
