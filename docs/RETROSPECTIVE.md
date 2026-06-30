@@ -1159,3 +1159,73 @@ incorrectly reported "ALL_EXPECTED_ARTIFACTS_MISSING" because
 of this; a second pass that used `os.environ.setdefault(...)`
 or re-derived the date inside Python gave the correct "all
 present" verdict.
+
+### 2.25 (P8D+3) User-facing copy should be phase-neutral once a workflow is stable
+
+The 2026-07-01 next-day verification of P8D / P8D+1 / P8D+2
+found the system working correctly — 03:00 text arrived
+(message_id=27647), 03:00 MEDIA was deferred with
+`error_kind=transport`, 03:10 media-replay cron re-attached the
+staged report (`outcome=replayed_pending`, `transport_status=ok`),
+and 03:10 MEDIA arrived (message_ids 27649 / 27650). No data
+failure. But the user-facing Telegram title said
+`↻ Artvee Gallery P7B+3 deferred MEDIA replay`, and the P7B+3
+phase tag was misleading: P7B+3 was the phase that *introduced*
+the replay workflow, but the active phase hierarchy is now
+P7B+3 → P8D → P8D+1 (cron activation) → P8D+2 (chat-id hardening)
+→ optional 03:10 cron. An operator looking at today's replay
+message would wonder "why does this say P7B+3 when we're on
+P8D+2?" — and the P7B+3 tag doesn't add useful information for
+the *reader*; it only adds provenance for the *author*.
+
+The right phase for the user-facing copy is **the workflow it
+represents**, not the phase that first shipped it. The workflow
+is now: daily-health MEDIA failed → fallback deferred → 03:10
+media-replay cron re-attaches. The natural name is
+"Artvee Daily Health MEDIA replay" — neutral, accurate, and
+doesn't age out as more P8D / P9 phases accumulate. P7B+3
+remains the historical source of the workflow in this doc and
+in the changelog, but the Telegram title no longer carries the
+phase tag.
+
+**Pair with the recovered-WARN contract**: a 03:00 MEDIA
+deferral closed by 03:10 looks alarming at first glance — the
+03:00 line in the cron log says `error_kind=transport`, which
+sounds like a failure. But the actual failure mode is "the
+OpenClaw gateway was briefly unavailable; the next cron tick
+flushed the deferred MEDIA." Without an explicit classification,
+operators misread a closed deferral as a data failure and waste
+time debugging. P8D+3 documents this in
+`docs/DAILY_OPERATING_PLAYBOOK.md` § 9.10 with a 4-row
+classification table (`notify_config_fail` /
+`media_transport_deferred` / `media_transport_deferred + 03:10 OK`
+/ `media_transport_deferred + 03:10 failed`) and explicit
+`WARN_RECOVERED` vs `NOT_RECOVERED` verdicts. The on-disk
+`reports/runtime/media-replay/cron-<date>.json` summary is the
+single source of truth for "did 03:10 close the deferral?"
+
+**Rule**: when a phase ships a workflow, the *next* phase's job
+is not to add another `P{prev}` tag to the user-facing copy; it
+is to neutralize the copy to the workflow name and document any
+recoverable failure modes that the original phase couldn't have
+foreseen. Stable systems earn neutral copy; unstable ones earn
+phase tags because the reader needs to know which phase shipped
+which behavior. P7B+3 earned its tag because the workflow was
+new; P8D+3 neutralizes it because the workflow is now stable
+across P8D / P8D+1 / P8D+2.
+
+**Operational rule**: when reading a Telegram message with a
+phase tag, ask "is the tag still accurate for the *current*
+phase hierarchy, or is it just provenance?" If it's only
+provenance, the message should be neutralized. If it's still
+accurate (e.g., a v0.2.0 release note), keep it — but only for
+*release surfaces*, not for *operational surfaces* (cron logs,
+ops status, daily health Telegram text, replay messages).
+
+**Diagnostic discipline**: when next-day verification finds the
+system working correctly, the deliverable is *not* a fix — it
+is a documentation cleanup that prevents the next operator
+from misreading the same working behavior. The P8D+3 phase had
+no bug to fix; it had a stale phase tag and an undocumented
+classification to add. The cron-like dry-run was the proof
+artifact, not a deliverable.

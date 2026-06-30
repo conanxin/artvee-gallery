@@ -169,7 +169,7 @@ def _build_replay_text(pending: dict) -> str:
     reason = pending.get("reason") or "media_transport_deferred"
     deferred_at = pending.get("deferred_at") or "(unknown)"
     return (
-        "↻ Artvee Gallery P7B+3 deferred MEDIA replay\n"
+        "↻ Artvee Daily Health MEDIA replay\n"
         f"Date: {date}\n"
         f"Reason: {reason} (deferred at {deferred_at})\n"
         f"Action: re-attached staged report after transport recovery"

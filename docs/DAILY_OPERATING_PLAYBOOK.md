@@ -1,6 +1,6 @@
 # Daily Operating Playbook
 
-> Living document. Last updated: 2026-06-30 (P8D+2 Telegram notifier chat-id configuration hardening).
+> Living document. Last updated: 2026-07-01 (P8D+3 media replay verification cleanup: neutralized replay title, recovered-WARN classification in § 9.10).
 > This is the operational reference for the Artvee Gallery daily workflow.
 
 ---
@@ -488,6 +488,47 @@ via § 9.6.
 2. Check `reports/runtime/digest-history.json` has `entries` array.
 3. If corrupt, delete and re-run `build_artvee_daily_digest.py` with `--history-file`.
 4. History is advisory — digest will still generate without it.
+
+### 9.10. Classifying next-day notification outcomes (P8D+3)
+
+The 2026-07-01 next-day verification (P8D+3) introduced an
+explicit classification of the three failure modes that can
+show up in the 01:30 / 02:00 / 03:00 / 03:10 cron logs.
+Operators should look at the *combination* of what fired, what
+the log says, and what arrived in Telegram, then pick one of
+these labels:
+
+| Failure mode | Symptom in log | Telegram arrival | Verdict | Action |
+|---|---|---|---|---|
+| `notify_config_fail` | `NOTIFY_FAIL: ... chat id not found` (or `binary missing`) | 03:00 text did **not** arrive | **NOT_RECOVERED** | investigate env / config; not a data problem |
+| `media_transport_deferred` | `NOTIFY_FAIL: openclaw exit 1 error_kind=transport` only on MEDIA call | 03:00 text arrived; MEDIA did **not** arrive at 03:00 | **WARN_RECOVERED** (pending) | wait for 03:10 replay; do not manually replay unless 03:10 also fails |
+| `media_transport_deferred` + 03:10 replay OK | 03:00 deferred log + 03:10 `outcome=replayed_pending` summary JSON | 03:00 text arrived; 03:10 MEDIA arrived with neutral title | **WARN_RECOVERED** (closed) | nothing — this is the expected recovery path |
+| `media_transport_deferred` + 03:10 replay also failed | 03:00 deferred log + 03:10 `outcome=skipped_transport_unavailable` (or 03:10 not run) | 03:00 text arrived; MEDIA never arrived | **NOT_RECOVERED** | manually run `bash scripts/artvee_media_replay_cron.sh --apply` after transport is back; check `reports/runtime/media-replay/cron-<date>.json` |
+
+The 2026-07-01 next-day observation fell into row 3: 03:00 text
+arrived (message_id=**27647**), 03:00 MEDIA was deferred with
+`error_kind=transport`, 03:10 replay cron ran with
+`transport_status=ok` and `outcome=replayed_pending`, and 03:10
+MEDIA arrived (message_ids **27649** for 2026-06-30 catch-up
+and **27650** for 2026-07-01) under the neutral title
+`↻ Artvee Daily Health MEDIA replay`. The 01:30 / 02:00
+notification regressions were a *separate* symptom — a new
+`openclaw binary missing` failure in the cron PATH (tracked
+separately, see P8D+4 follow-up); the chat-id resolution from
+P8D+2 is verified working.
+
+**Rule**: a 03:00 MEDIA deferral that is closed by a 03:10
+replay is *not* a data failure and does **not** require
+operator action. A 03:00 MEDIA deferral that 03:10 *cannot*
+close (transport still down, or replay outcome is
+`skipped_transport_unavailable` / `skipped_locked` /
+`error_helper_import` / missing summary) is a real failure and
+*does* require operator action. The on-disk
+`reports/runtime/media-replay/cron-<date>.json` summary is the
+single source of truth for "did 03:10 close the deferral?".
+
+See `docs/MEDIA_REPLAY.md` for the full P8D+3 neutralized-title
+contract and the recovered-WARN contract.
 
 ---
 

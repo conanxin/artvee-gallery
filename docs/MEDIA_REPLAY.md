@@ -2,6 +2,7 @@
 
 > Artvee Gallery · Pending MEDIA replay workflow
 > Authored: 2026-06-18
+> Updated: 2026-07-01 (P8D+3: neutralized user-facing replay title + recovered-WARN contract)
 > Status: **Live** — verified end-to-end with synthetic and real Telegram sends.
 
 ## 1. Purpose
@@ -273,6 +274,44 @@ is always written so ops status can detect a *missing* cron run
 vs a *silent no-op* cron run. If `cron-<date>.json` is missing
 for a day the cron was scheduled to run, treat that as a real
 failure (not a no-op).
+
+**P8D+3 user-facing title**: the replay message Telegram title is
+`↻ Artvee Daily Health MEDIA replay` (changed 2026-07-01). The
+earlier `↻ Artvee Gallery P7B+3 deferred MEDIA replay` carried a
+stale phase label that no longer reflected the active phase
+hierarchy (replay is now P7B+3 → P8D → P8D+1, with P8D+2 chat-id
+hardening, plus the optional 03:10 cron). P8D+3 neutralizes the
+title so it stays accurate regardless of which later phase is
+active. P7B+3 remains the *historical* source of the workflow in
+this doc and in the changelog, but the user-visible Telegram copy
+no longer carries the phase tag. The staged report contents, the
+pending-file schema, and the replay behavior are unchanged.
+
+**P8D+3 recovered-WARN contract**: a *delayed* MEDIA delivery is
+not a data failure. The normal recovery path is:
+
+1. 03:00 daily health text is sent (Telegram message_id recorded
+   in `telegram_notify.message_id`).
+2. 03:00 MEDIA is **deferred** because the OpenClaw transport
+   is briefly unhealthy (gateway timeout / websocket error).
+   The deferral writes
+   `reports/runtime/daily-health/.fallback-pending-<date>.json`
+   and `telegram.fallback.reason = media_transport_deferred`.
+3. 03:10 media-replay cron runs `check_openclaw_transport.py`
+   (transport is back to `ok`).
+4. 03:10 replay cron hands off to `replay_pending_media.py --apply`
+   which re-attaches the staged report.
+5. 03:10 Telegram message arrives with the neutral
+   `↻ Artvee Daily Health MEDIA replay` title and the
+   `Date` / `Reason` / `Action` body.
+
+This sequence is the **expected** behavior for a transient
+transport blip. Operators should classify it as
+`WARN_RECOVERED` (transport blip → deferred → replayed within
+10 minutes) and **not** as a `NOTIFY_FAIL` data failure. The
+text summary already landed; the MEDIA just got there 10 minutes
+late. P8D+3 makes this contract explicit in
+`docs/DAILY_OPERATING_PLAYBOOK.md` § 9.10.
 
 **Manual run**:
 

@@ -192,6 +192,26 @@ failure.
 > 5-field schedule that cron actually accepts. Refill / batch /
 > confirm-refresh gained the same `CRON_TZ=` / `PATH=` lines via the
 > new `scripts/install_artvee_cron.sh` (P8D+1 unified installer).
+
+> **P8D+3 (2026-07-01)**: the user-facing Telegram title emitted by
+> `replay_pending_media.py` was changed from
+> `↻ Artvee Gallery P7B+3 deferred MEDIA replay` to
+> `↻ Artvee Daily Health MEDIA replay`. The previous title carried
+> a stale P7B+3 phase tag that no longer reflected the active
+> phase hierarchy (P7B+3 → P8D → P8D+1 → P8D+2 chat-id hardening
+> → optional 03:10 cron). P8D+3 also formalizes the
+> **recovered-WARN contract**: a 03:00 MEDIA deferral that is closed
+> by a 03:10 replay is **not** a data failure, and operators
+> should classify it as `WARN_RECOVERED` rather than
+> `NOT_RECOVERED`. The on-disk
+> `reports/runtime/media-replay/cron-<date>.json` summary is the
+> single source of truth for "did 03:10 close the deferral?" —
+> see `docs/DAILY_OPERATING_PLAYBOOK.md` § 9.10 for the full
+> classification table and `docs/MEDIA_REPLAY.md` for the
+> neutralized-title contract. P8D+3 makes *no* change to the
+> replay behavior, the staged-only MEDIA allowlist, the
+> `pending=0` silent-no-op policy, or the optional install
+> workflow.
 It exists for operators who want pending MEDIA to flush
 automatically 10 minutes after the 03:00 daily-health cron.
 

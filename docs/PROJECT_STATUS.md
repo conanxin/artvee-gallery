@@ -60,6 +60,7 @@
 | **P8D** | Optional media replay cron (P8D cron wrapper + idempotent installer) | ✅ PASS | 2026-06-18 | `<workspace>/reports/artvee-gallery-p8d-optional-media-replay-cron-20260618.md` |
 | **P8D+1** | Cron PATH hardening + unified installer for refill/batch/confirm + 03:10 media-replay cron activation fix (CRON_TZ=PATH= on own lines, dedup legacy lines) | ✅ PASS | 2026-06-29 | `<workspace>/reports/artvee-gallery-p8d1-cron-path-media-replay-fix-20260629.md` |
 | **P8D+2** | Telegram notifier chat-id configuration hardening (private env file + cron env var + --check-config) | ✅ PASS | 2026-06-30 | `<workspace>/reports/artvee-gallery-p8d2-telegram-notifier-chatid-fix-20260630.md` |
+| **P8D+3** | Media replay verification cleanup (neutralized user-facing replay title + recovered-WARN classification + 2026-07-01 next-day verification: 03:00 deferred → 03:10 closed, 4 pending → 2 replayed + 2 quarantined) | ✅ PASS | 2026-07-01 | `<workspace>/reports/artvee-gallery-p8d3-media-replay-verification-cleanup-20260701.md` |
 
 ### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
 
@@ -814,3 +815,25 @@ under the standard `confirm_demo_refresh` → `publish_demo_refresh`
 | Safety | no download / refill / batch / Pages push / --approve / retired retry / MEDIA allowlist widen; no tokens / chat_ids / secrets printed; legacy pre-fix crontab backed up to `logs/artvee-cron/crontab.before_*` (3 timestamps). |
 | Files changed | `scripts/install_media_replay_cron.sh` (template fix), `scripts/install_artvee_cron.sh` (new), `docs/DAILY_OPERATING_PLAYBOOK.md` (P8D+1 section), `docs/MEDIA_REPLAY.md` (P8D+1 observability guarantee), `docs/POST_STABLE_OPERATIONS.md` (P8D+1 note under § 6.1), `docs/PROJECT_STATUS.md` (P8D+1 row + snapshot), `docs/ROADMAP.md` (P8D+1 entry), `docs/RETROSPECTIVE.md` (§ 2.24 lesson). |
 | Report | `<workspace>/reports/artvee-gallery-p8d1-cron-path-media-replay-fix-20260629.md` |
+
+### P8D+3 media-replay-verification-cleanup snapshot (2026-07-01 06:48 GMT+8)
+
+**Goal** — next-day verification of P8D / P8D+1 / P8D+2 (2026-07-01 03:00 / 03:10 cron results) plus a small user-facing cleanup: neutralize the replay message Telegram title and document the recovered-WARN classification so operators don't misread a closed deferral as a data failure.
+
+| Field | Value |
+| --- | --- |
+| 2026-07-01 03:00 daily health | text sent (message_id=**27647**), MEDIA deferred with `telegram.media.error_kind=transport`, `telegram.fallback.reason=media_transport_deferred` |
+| 2026-06-30 03:00 daily health (catch-up) | text sent (message_id=27266, retroactive), MEDIA deferred for the same reason |
+| 2026-07-01 03:10 media-replay cron | ran, transport=ok, latency=54ms, `outcome=replayed_pending`, `pending_before=4`, replayed=2, quarantined=2 (both legacy max-retries) |
+| 2026-06-30 03:10 media-replay cron (catch-up) | ran, transport=ok, latency=62ms, `outcome=replayed_pending`, `pending_before=3`, replayed=1, quarantined=1 |
+| Replay Telegram messages | 2026-06-30 message_id=**27649** (file_id `BQACAgUAAxkDAAJsAWpEFJBFYCjcKAABAeFUWRUh3mDQEAAC5iAAAl5RIVbpNBuzVZ7ksDwE`); 2026-07-01 message_id=**27650** (file_id `BQACAgUAAxkDAAJsAmpEFJi-hpoqw1oV1OsZeHZHnbCCAALnIAACXlEhVnMpN82OBzNqPAQ`) |
+| Notification recovery | chat-id resolution (P8D+2 env file) verified working at 03:00 text + 03:10 MEDIA; the 01:30 / 02:00 `NOTIFY_FAIL: openclaw binary missing` is a separate, *new* PATH regression (tracked as P8D+4 follow-up — `binary_missing` error class is the same fallback-taxonomy field P7B+2 introduced) |
+| Verdict for 2026-07-01 03:00 MEDIA deferral | **WARN_RECOVERED (closed)** — text landed at 03:00, MEDIA landed at 03:10 within 10 minutes, no operator action required |
+| Code change | `scripts/replay_pending_media.py` line 172: `"↻ Artvee Gallery P7B+3 deferred MEDIA replay\n"` → `"↻ Artvee Daily Health MEDIA replay\n"`. No behavior change. |
+| Docs change | `docs/MEDIA_REPLAY.md` (neutralized title + recovered-WARN contract); `docs/DAILY_OPERATING_PLAYBOOK.md` (new § 9.10 classification table + dated header); `docs/POST_STABLE_OPERATIONS.md` (P8D+3 note under § 6.1); `docs/PROJECT_STATUS.md` (this row + snapshot); `docs/ROADMAP.md` (P8D+3 entry + Next refresh); `docs/RETROSPECTIVE.md` (§ 2.25 lesson) |
+| Cron-like dry-run | `env -i HOME=... PATH=$HOME/.local/bin:... ARTVEE_TELEGRAM_ENV_FILE=... bash -lc '... && bash scripts/artvee_media_replay_cron.sh --dry-run --limit 5 --max-retries 3'` → exit 0, transport=ok, summary written, **no Telegram**. |
+| CI | `bash -n scripts/artvee_media_replay_cron.sh` PASS; `bash -n scripts/install_artvee_cron.sh` PASS; `python3 -m py_compile scripts/replay_pending_media.py` PASS |
+| Repo validation | `check_open_source_ready.py` PASS (artifacts unchanged); `check_gallery_integrity.py` PASS (records=875, retired=4, blocking=0, pending=0, transport=ok); `artvee_ops_status.sh --no-telegram` PASS (`action=candidate_ready_manual_publish_optional`) |
+| Safety | No download / refill / batch / `--approve` / Pages push / retired retry / MEDIA allowlist widen; no tokens / chat_ids / secrets printed; replay behavior, staged-only MEDIA, `pending=0` silent-no-op, optional 03:10 install workflow — all unchanged |
+| Files changed | `scripts/replay_pending_media.py` (title string only), `docs/MEDIA_REPLAY.md`, `docs/DAILY_OPERATING_PLAYBOOK.md`, `docs/POST_STABLE_OPERATIONS.md`, `docs/PROJECT_STATUS.md`, `docs/ROADMAP.md`, `docs/RETROSPECTIVE.md` |
+| Report | `<workspace>/reports/artvee-gallery-p8d3-media-replay-verification-cleanup-20260701.md` |
