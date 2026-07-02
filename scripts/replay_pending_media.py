@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Artvee Gallery · Pending MEDIA Replay (P7B+3)
-=============================================
+Artvee Gallery · Pending MEDIA Replay (P7B+3 / P8D+4)
+=====================================================
 Re-attach previously-deferred MEDIA files after OpenClaw transport
 recovers.
 
@@ -22,15 +22,36 @@ OpenClaw media allowlist. This script:
    live under the OpenClaw media root, and not be a symlink.
 3. Sends a short text + the staged MEDIA via the existing
    ``artvee_telegram_notify.send_text`` helper.
-4. On success: writes a ``.replay-result-<date>.json`` next to the
-   pending file and moves the pending file to
-   ``reports/runtime/daily-health/replayed/`` (preserved, never deleted).
+4. On delivered (non-empty Telegram ``message_id``): writes a
+   ``.replay-result-<date>.json`` sidecar and moves the pending file to
+   the **fixed** ``reports/runtime/media-replay/replayed/`` root
+   (preserved, never deleted).
 5. On failure: increments ``attempts``, records ``last_error`` and
    ``last_attempt_at``. Once ``attempts >= max_retries``, the pending
-   file is moved to
-   ``reports/runtime/daily-health/quarantine/`` with a
+   file is moved to the **fixed**
+   ``reports/runtime/media-replay/quarantine/`` root with a
    ``.quarantine-<date>.json`` sidecar that explains why.
-6. Supports ``--dry-run`` (default) so it is safe to run by hand.
+6. Writes an aggregated ``.replay-results-<date>.json`` summary next to
+   the cron summary so downstream tools (``artvee_ops_status``,
+   ``replay_cron_last_run``) can read real ``message_id`` values.
+7. Supports ``--dry-run`` (default) so it is safe to run by hand.
+
+P8D+4 fixes (delivery truth + stable roots)
+-------------------------------------------
+* **Stable archive roots**: ``replayed/`` and ``quarantine/`` are no
+  longer computed from ``pending_path.parent``; they live at the fixed
+  paths under ``reports/runtime/media-replay/``. This prevents the
+  recursion bug where a file already inside ``replayed/`` would be
+  re-archived into ``replayed/replayed/`` on each run.
+* **Delivered requires ``message_id``**: the success branch now checks
+  ``result.get("ok")`` **and** ``result.get("message_id")``. Any send
+  that returns exit 0 but no parseable ``message_id`` is treated as a
+  failed send (attempts + 1), not a delivered message.
+* **Per-run aggregate JSON**: every run writes
+  ``reports/runtime/media-replay/results/.replay-results-<date>.json``
+  containing the full ``results`` list. ``artvee_media_replay_cron.sh``
+  reads this file instead of guessing from per-pending sidecars, so
+  ``replay_message_ids`` reflects reality.
 
 Safety boundaries (deliberate, not configurable)
 ------------------------------------------------
@@ -87,8 +108,14 @@ except Exception:  # pragma: no cover - we degrade gracefully below
 PENDING_GLOB = ".fallback-pending-*.json"
 QUARANTINE_PREFIX = ".quarantine-"
 REPLAY_RESULT_PREFIX = ".replay-result-"
+REPLAY_AGGREGATE_PREFIX = ".replay-results-"
 REPLAYED_DIRNAME = "replayed"
 QUARANTINE_DIRNAME = "quarantine"
+RESULTS_DIRNAME = "results"
+# P8D+4: stable archive roots (resolved at runtime against pending_root).
+REPLAYED_STABLE_SUBDIR = "replayed"
+QUARANTINE_STABLE_SUBDIR = "quarantine"
+RESULTS_STABLE_SUBDIR = "results"
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_LIMIT = 10
 
@@ -150,16 +177,85 @@ def _validate_staged(staged: str, media_root: Path) -> tuple[bool, str]:
 
 
 def _pending_paths(root: Path) -> list[Path]:
+    """Walk the pending tree and return only **active** pending files.
+
+    P8D+4: skip files that already live under a stable ``replayed/`` or
+    ``quarantine/`` directory (those are terminal states) and skip
+    everything under a ``queue-fix-backup-*`` directory (those are
+    immutable backups of pre-normalization state).
+    """
     if not root.exists():
         return []
-    return sorted(p for p in root.rglob(PENDING_GLOB) if p.is_file())
+    out: list[Path] = []
+    for p in root.rglob(PENDING_GLOB):
+        if not p.is_file():
+            continue
+        parts = p.parts
+        if any(part.startswith("queue-fix-backup-") for part in parts):
+            continue
+        # An active pending file must not already live under a terminal
+        # ``replayed/`` or ``quarantine/`` directory. The script uses
+        # ``reports/runtime/media-replay/{replayed,quarantine}/`` as the
+        # fixed terminal roots; we filter any path that descends into
+        # those.
+        in_replayed = False
+        in_quarantine = False
+        for i, seg in enumerate(parts):
+            if seg in ("replayed",) and i > 0 and parts[i - 1] == "media-replay":
+                in_replayed = True
+                break
+            if seg in ("quarantine",) and i > 0 and parts[i - 1] == "media-replay":
+                in_quarantine = True
+                break
+        if in_replayed or in_quarantine:
+            continue
+        out.append(p)
+    return sorted(out)
 
 
 def _archive_dir(root: Path, name: str) -> Path:
-    """Where archived pending files live (sibling of the daily-health dir)."""
-    # Use the same parent as the daily-health dir by default; that keeps
-    # archives under reports/runtime/daily-health/<replayed|quarantine>.
-    target = root / name
+    """Where archived pending files live.
+
+    P8D+4: archive roots are **always** the stable paths under
+    ``reports/runtime/media-replay/`` (``replayed/``, ``quarantine/``,
+    ``results/``). They never inherit from ``pending_path.parent``,
+    which prevents the recursion bug where a file already inside
+    ``replayed/`` would be re-archived into ``replayed/replayed/`` on
+    the next run.
+
+    The ``root`` argument is preserved only as a hint for test/override
+    flows: if it resolves to a directory outside the canonical
+    ``reports/runtime/`` location, we honor it so unit tests can still
+    exercise the archive logic against a temp dir.
+    """
+    try:
+        stable = (Path(__file__).resolve().parent.parent / "reports" / "runtime" / "media-replay").resolve()
+    except Exception:
+        stable = None
+    try:
+        root_resolved = root.resolve()
+    except Exception:
+        root_resolved = root
+    use_stable = False
+    if stable is not None:
+        try:
+            canonical_reports = (Path(__file__).resolve().parent.parent / "reports" / "runtime").resolve()
+        except Exception:
+            canonical_reports = None
+        if canonical_reports is not None:
+            # ``root_resolved`` is absolute; check membership via parent
+            # walking so we don't depend on ``Path.parts`` matching an
+            # absolute prefix.
+            try:
+                root_resolved.relative_to(canonical_reports)
+                use_stable = True
+            except ValueError:
+                # Test/override root outside the project.
+                use_stable = False
+    if use_stable and stable is not None:
+        target = stable / name
+    else:
+        target = root / name
     target.mkdir(parents=True, exist_ok=True)
     return target
 
@@ -327,7 +423,13 @@ def replay_one(
     result = send_text(text, chat_id=chat_id, wait=True, media=staged)
     elapsed_ms = int((time.time() - t0) * 1000)
 
-    if result.get("ok"):
+    # P8D+4: delivery truth = non-empty Telegram message_id. ``ok=True``
+    # alone is not enough (e.g. openclaw exit 0 but regex missed the
+    # ``messageId=...`` log line, or no parseable id at all). Without a
+    # message_id we cannot prove the message was delivered, so we treat
+    # the send as failed and bump attempts just like a transport error.
+    delivered = bool(result.get("ok")) and bool(result.get("message_id"))
+    if delivered:
         # Move to replayed/ and write a result sidecar.
         new_attempts = attempts + 1
         pending["attempts"] = new_attempts
@@ -350,7 +452,7 @@ def replay_one(
         )
         return {
             "pending": str(pending_path),
-            "outcome": "replayed",
+            "outcome": "delivered",
             "message_id": result.get("message_id"),
             "elapsed_ms": elapsed_ms,
             "staged_report": staged,
@@ -358,10 +460,14 @@ def replay_one(
             "result_sidecar": str(result_path),
         }
 
-    # Failure: bump attempts, decide quarantine.
+    # Failure path. ``ok=False`` OR ``ok=True`` but no message_id both
+    # land here. The error string is preserved either way.
     new_attempts = attempts + 1
     pending["attempts"] = new_attempts
-    pending["last_error"] = str(result.get("error") or "(no error message)")[:300]
+    if result.get("ok") and not result.get("message_id"):
+        pending["last_error"] = "openclaw exit 0 but no message_id parsed from log (treated as undelivered)"
+    else:
+        pending["last_error"] = str(result.get("error") or "(no error message)")[:300]
     pending["last_attempt_at"] = _now_iso()
     if new_attempts >= max_retries:
         archive_dir = _archive_dir(pending_path.parent, QUARANTINE_DIRNAME)
@@ -433,6 +539,32 @@ def main() -> int:
     pendings = _pending_paths(pending_root)
     if not pendings:
         print("[ok] pending=0 (no .fallback-pending-*.json files under pending root)")
+        # P8D+4: still write an aggregate JSON so the cron summary can
+        # report ``pending=0`` with a consistent shape.
+        today = datetime.now().strftime("%Y-%m-%d")
+        aggregate_dir = _archive_dir(pending_root, RESULTS_STABLE_SUBDIR)
+        aggregate_dir.mkdir(parents=True, exist_ok=True)
+        aggregate_path = aggregate_dir / f"{REPLAY_AGGREGATE_PREFIX}{today}.json"
+        _safe_dump(
+            {
+                "date": today,
+                "generated_at": _now_iso(),
+                "dry_run": dry_run,
+                "pending_root": str(pending_root),
+                "max_retries": args.max_retries,
+                "limit": args.limit,
+                "totals": {
+                    "processed": 0,
+                    "delivered": 0,
+                    "quarantined": 0,
+                    "send_failed_will_retry": 0,
+                },
+                "results": [],
+                "message_ids": [],
+            },
+            aggregate_path,
+        )
+        print(f"[info] empty aggregate results written: {aggregate_path}")
         return 0
 
     targets = pendings[: max(0, args.limit)]
@@ -466,6 +598,45 @@ def main() -> int:
     print(f"  total processed: {len(results)}")
     print(f"  skipped due to --limit: {len(skipped)}")
     print(f"  dry_run: {dry_run}")
+
+    # P8D+4: write the per-run aggregate JSON. Downstream
+    # ``artvee_media_replay_cron.sh`` reads this file (instead of guessing
+    # from per-pending sidecars) so ``replay_message_ids`` reflects real
+    # Telegram delivery. The aggregate path is stable under the
+    # ``reports/runtime/media-replay/results/`` root.
+    today = datetime.now().strftime("%Y-%m-%d")
+    aggregate_dir = _archive_dir(pending_root, RESULTS_STABLE_SUBDIR)
+    aggregate_name = f"{REPLAY_AGGREGATE_PREFIX}{today}.json"
+    aggregate_path = aggregate_dir / aggregate_name
+    delivered_ids = [
+        str(r.get("message_id")) for r in results
+        if r.get("outcome") == "delivered" and r.get("message_id")
+    ]
+    quarantined_count = sum(
+        1 for r in results if str(r.get("outcome", "")).startswith("quarantine_")
+    )
+    failed_count = sum(
+        1 for r in results if r.get("outcome") in ("send_failed_will_retry",)
+    )
+    aggregate = {
+        "date": today,
+        "generated_at": _now_iso(),
+        "dry_run": dry_run,
+        "pending_root": str(pending_root),
+        "max_retries": args.max_retries,
+        "limit": args.limit,
+        "totals": {
+            "processed": len(results),
+            "delivered": len(delivered_ids),
+            "quarantined": quarantined_count,
+            "send_failed_will_retry": failed_count,
+        },
+        "results": results,
+        "message_ids": delivered_ids,
+    }
+    _safe_dump(aggregate, aggregate_path)
+    print(f"[info] aggregate results written: {aggregate_path}")
+    print(f"[info] delivered message_ids ({len(delivered_ids)}): {','.join(delivered_ids) or '(none)'}")
 
     # Exit non-zero if any attempt ended in quarantine / send failure
     # (so a cron can alert), but do not crash on skipped files.

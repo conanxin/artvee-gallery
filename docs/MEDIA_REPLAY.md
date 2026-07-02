@@ -69,8 +69,9 @@ reports/runtime/daily-health/.fallback-pending-<YYYY-MM-DD>.json
 }
 ```
 
-After a successful replay, the file is moved to
-`reports/runtime/daily-health/replayed/` and gains:
+After a successful replay, the file is moved to the **stable**
+`reports/runtime/media-replay/replayed/` root (see § 11 P8D+4) and
+gains:
 
 ```jsonc
 {
@@ -83,7 +84,8 @@ After a successful replay, the file is moved to
 ```
 
 After **max-retries** (default `3`) failed attempts, the file is moved
-to `reports/runtime/daily-health/quarantine/` and gains:
+to the **stable** `reports/runtime/media-replay/quarantine/` root and
+gains:
 
 ```jsonc
 {
@@ -96,8 +98,95 @@ to `reports/runtime/daily-health/quarantine/` and gains:
 ```
 
 A sidecar `.replay-result-<date>.json` is written next to the moved
-file (in `replayed/` or `quarantine/`) capturing the full outcome
-dictionary (no secrets).
+file inside `reports/runtime/media-replay/results/` (the new
+**aggregate** JSON is `.replay-results-<date>.json` and contains the
+full `results` list — see § 11). No secrets.
+
+## 5. Retry / quarantine behavior
+
+| condition | outcome | file location |
+|---|---|---|
+| `attempts < max_retries` and **notifier returns a non-empty `message_id`** | `delivered` (success) | `media-replay/replayed/` (stable root) |
+| `attempts < max_retries` and notifier exits 0 but `message_id` is empty | `send_failed_will_retry` (in place; attempts++) | unchanged |
+| `attempts < max_retries` and notifier returns non-zero exit | `send_failed_will_retry` (in place; attempts++) | unchanged |
+| `attempts >= max_retries` on load | `quarantine_max_retries` | `media-replay/quarantine/` (stable root) |
+| staged file missing / not under allowlist / symlink / dir | `quarantine_invalid_staged` | `media-replay/quarantine/` |
+| corrupt JSON | `quarantine_corrupt` | `media-replay/quarantine/` |
+| chat id unresolvable | `quarantine_no_chat_id` | `media-replay/quarantine/` |
+| `dry_run=True` (default) | `dry_run` (no send, no move) | unchanged |
+
+In **all** outcomes, the original pending file is **never deleted** —
+it is either moved to `media-replay/replayed/`, moved to
+`media-replay/quarantine/`, or written back in place with `attempts`
+bumped.
+
+### Truth of `delivered`
+
+P8D+4 enforces: a replay is recorded as **`delivered`** only when
+`artvee_telegram_notify.send_text` returns `ok=True` **and** a
+non-empty `message_id` was parsed from the OpenClaw journal/send
+result. Exit code 0 alone is **not** sufficient — the OpenClaw
+journal entry looks like
+`... outbound send ok ... messageId=<digits> ...` and
+`_extract_message_id` uses these regexes
+(`Message ID:`, `MessageId`, `messageId`, `message_id`) to find it.
+If `ok=True` but no `message_id` was parseable, the outcome is
+recorded as `send_failed_will_retry` with
+`last_error = "openclaw exit 0 but no message_id parsed from log
+(treated as undelivered)"`, attempts++, and the file **stays in
+place** — not in `replayed/`.
+
+## 11. P8D+4: stable roots + delivery truthfulness (2026-07-03)
+
+Before P8D+4 the per-pending archive path was built by joining the
+current pending file's parent directory with `replayed/` or
+`quarantine/`. Replays run inside `replayed/` produced
+`replayed/replayed/`, and after 5 days deep nesting reached 6
+levels (`quarantine/quarantine/quarantine/...`) and would have
+climbed to `PATH_MAX=4096` within weeks.
+
+P8D+4 fixes this with three **stable** archive roots:
+
+| directory | role |
+|---|---|
+| `reports/runtime/media-replay/pending/` | active pending queue (when `attempts < max_retries` and not yet sent) |
+| `reports/runtime/media-replay/replayed/` | **delivered** (non-empty `message_id`) |
+| `reports/runtime/media-replay/quarantine/` | terminal failures (`max_retries` reached, invalid staged, corrupt JSON, chat id unresolvable) |
+| `reports/runtime/media-replay/results/` | aggregate JSON `.replay-results-<date>.json` (full `results` list, `message_ids`) |
+
+The archive path is no longer derived from `pending_path.parent`;
+`_archive_dir(root, name)` in `scripts/replay_pending_media.py`
+always anchors to `reports/runtime/media-replay/<name>/`. Test-only
+overrides (a temp `--pending-root`) still fall through to
+`root/<name>` so unit tests can exercise the logic.
+
+The cron wrapper `scripts/artvee_media_replay_cron.sh` now reads
+from the aggregate JSON — never from guessing per-pending sidecars.
+Its `outcome` enum reflects actual delivery:
+
+| aggregate reads | cron `outcome` |
+|---|---|
+| aggregate JSON missing / unreadable | `replay_no_results` |
+| `totals.delivered > 0` | `replayed_delivered` |
+| `totals.delivered == 0` and `totals.quarantined > 0` | `quarantine_exhausted` |
+| `totals.delivered == 0` and `totals.send_failed_will_retry > 0` | `replay_failed` |
+| `pending_before == 0` | `noop_zero_pending` |
+| transport check failed with `pending > 0` | `skipped_transport_unavailable` |
+| dry-run completed | `dry_run_completed` |
+
+`replay_message_ids` now reflects real Telegram delivery because it
+is sourced from the aggregate JSON's `message_ids` array.
+
+### Queue normalization (one-time, 2026-07-03)
+
+Pre-fix files nested in
+`reports/runtime/daily-health/{replayed,quarantine}/{replayed,quarantine}/...`
+were moved to the stable roots above. Classification used
+`last_replay_message_id` (`delivered`) vs. `attempts` and
+`quarantine_reason` (`quarantined`) vs. neither (`pending`). All
+originals were first copied to
+`reports/runtime/media-replay/queue-fix-backup-YYYYMMDD-HHMMSS/`
+(20 files, 152K) — nothing was deleted.
 
 ## 4. Replay command
 

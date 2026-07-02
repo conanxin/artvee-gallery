@@ -151,18 +151,25 @@ sufficient.
 MEDIA. It never auto-replays. The fields it exposes:
 
 * `pending_media_count` — total `.fallback-pending-*.json` files
-  awaiting replay
+  awaiting replay (scanned under stable `media-replay/pending/`
+  and `media-replay/replayed/` roots; nested `daily-health/`
+  subtrees from pre-P8D+4 runs are excluded)
 * `pending_media_replayable` — same as above, filtered to those
   with `attempts < 3` and a still-existing staged file
 * `quarantined_media_count` — pendings archived to
-  `reports/runtime/daily-health/quarantine/`
+  `reports/runtime/media-replay/quarantine/` (stable root;
+  pre-P8D+4 nested quarantine directories are excluded)
 * `media_replay_cron_installed` — whether the optional P8D cron
   is registered (`crontab -l` marker scan)
 * `media_replay_cron_summary` — the latest
   `reports/runtime/media-replay/cron-*.json` summary:
-  `date`, `outcome` (`noop_zero_pending` / `replayed_pending` /
+  `date`, `outcome` (`noop_zero_pending` / `replayed_delivered` /
+  `quarantine_exhausted` / `replay_failed` / `replay_no_results` /
   `skipped_locked` / `skipped_transport_unavailable` /
   `dry_run_completed` / `error_helper_import`),
+  `replay_delivered` (count of non-empty `message_id`),
+  `replay_message_ids` (comma-separated; non-empty only when
+  `outcome` is `replayed_delivered`),
   `pending_before`, `transport_status`, `lock_held`, etc.
 
 To actually replay, use the dedicated P7B+3 command:

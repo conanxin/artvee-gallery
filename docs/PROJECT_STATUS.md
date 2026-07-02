@@ -61,6 +61,7 @@
 | **P8D+1** | Cron PATH hardening + unified installer for refill/batch/confirm + 03:10 media-replay cron activation fix (CRON_TZ=PATH= on own lines, dedup legacy lines) | ✅ PASS | 2026-06-29 | `<workspace>/reports/artvee-gallery-p8d1-cron-path-media-replay-fix-20260629.md` |
 | **P8D+2** | Telegram notifier chat-id configuration hardening (private env file + cron env var + --check-config) | ✅ PASS | 2026-06-30 | `<workspace>/reports/artvee-gallery-p8d2-telegram-notifier-chatid-fix-20260630.md` |
 | **P8D+3** | Media replay verification cleanup (neutralized user-facing replay title + recovered-WARN classification + 2026-07-01 next-day verification: 03:00 deferred → 03:10 closed, 4 pending → 2 replayed + 2 quarantined) | ✅ PASS | 2026-07-01 | `<workspace>/reports/artvee-gallery-p8d3-media-replay-verification-cleanup-20260701.md` |
+| **P8D+4** | Media replay queue normalization + delivery truthfulness (2026-07-03: fixed infinite nesting bug in `_archive_dir`, enforced `message_id`-based delivery truth in `replay_one`, rewrote cron outcome branches from aggregate JSON, updated `telegram_notify._extract_message_id` regex for OpenClaw `messageId=` journal format, normalized 20 pre-fix files to stable `media-replay/{replayed,quarantine,results}/` roots; 3 delivered (25084/27996/29012) confirmed, 1 test quarantined, 0 deleted) | ✅ PASS | 2026-07-03 | `<workspace>/reports/artvee-gallery-p8d4-media-replay-queue-fix-20260703.md` |
 
 ### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
 

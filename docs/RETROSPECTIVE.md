@@ -1229,3 +1229,53 @@ from misreading the same working behavior. The P8D+3 phase had
 no bug to fix; it had a stale phase tag and an undocumented
 classification to add. The cron-like dry-run was the proof
 artifact, not a deliverable.
+
+### § 2.26 · Delivery truth must be durable, not circumstantial (P8D+4, 2026-07-03)
+
+**Trigger**: 2026-07-03 03:10 replay cron recorded
+`outcome=replayed_pending` with `replay_message_ids=""` — a
+contradiction. The replay had exited 0 (no exception), so the
+success path fired, but Telegram never received the document.
+The on-disk summary said "replayed" while the Telegram chat said
+nothing.
+
+**Root cause chain**:
+1. `replay_one()` checked `result.get("ok")` — true for
+   OpenClaw exit 0 — but OpenClaw exit 0 only means "the
+   notifier script ran without throwing"; it says nothing about
+   whether Telegram accepted the payload.
+2. The OpenClaw journal line `outbound send ok ... messageId=29012`
+   was the *only* evidence of real delivery. The notifier regex
+   only matched `Message ID:` (capital) and `message_id=` (lowercase
+   with underscore) — neither matched `messageId=` (camelCase),
+   so `message_id` stayed null even when OpenClaw *had* delivered.
+3. The cron unconditionally set `OUTCOME=replayed_pending` without
+   checking the aggregate `results` list — so the false positive
+   from step 1 propagated all the way to the summary JSON.
+
+**Lesson**: in a system where OpenClaw is a transport wrapper
+around a native binary, "exit 0" is a *necessary* but not
+*sufficient* condition for delivery. The durable proof of delivery
+is the Telegram `message_id` — a value that exists only when
+Telegram's API actually accepted the payload. If the notifier
+returns exit 0 but the journal does not contain a parseable
+`message_id`, the replay is **not delivered**. This is not a
+borderline case; it is the definition of undelivered.
+
+**Operational rule**: any success判定 that does not require a
+`message_id` (or equivalent Telegram-generated idempotency key)
+is a bug. The `outcome` field in the summary JSON is the human
+readable summary; the `message_ids` array is the durable proof.
+An empty `message_ids` with `outcome=replayed_*` is a data
+integrity failure, not an acceptable edge case.
+
+**Second lesson — path stability**: building archive paths by
+joining `pending_path.parent / name` is a latent infinite-nesting
+bug whenever the pending root is inside the archive root (which
+is the natural layout for `daily-health/` → `daily-health/replayed/`).
+The safe pattern is *fixed* anchor directories that are never
+descendants of each other: `reports/runtime/media-replay/pending/`,
+`reports/runtime/media-replay/replayed/`, `reports/runtime/media-replay/quarantine/`.
+If the pending root and the archive roots share a prefix, the
+script must resolve the archive path from an absolute anchor,
+not from `pending_path.parent`.

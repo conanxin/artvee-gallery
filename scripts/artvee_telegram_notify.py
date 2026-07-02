@@ -191,12 +191,18 @@ def _check_openclaw_bin(cli_path: str = None):
 def _extract_message_id(log_path: str) -> str:
     """Read the OpenClaw send log and try to extract a Telegram message id.
 
-    Looks for common patterns in stdout:
+    Looks for common patterns in stdout/stderr:
       - 'Message ID: 12345'
-      - 'message_id: 12345'
-      - 'message_id=12345'
+      - 'message_id: 12345' / 'message_id=12345'
+      - 'messageId=12345' / 'MessageId=12345'   (OpenClaw default format)
+      - '"message_id": "12345"'
     Returns the first hit, or None if not found.
     Safe: only reads the log file, never prints tokens or chat ids.
+
+    P8D+4 note: previous version only matched snake_case ``message_id``.
+    OpenClaw's actual log line uses camelCase ``messageId=NNN`` which caused
+    ``replay_message_ids`` to come back empty even on a successful send
+    (messageId=29012 was logged but never extracted).
     """
     if not log_path:
         return None
@@ -207,8 +213,10 @@ def _extract_message_id(log_path: str) -> str:
         return None
     import re
     patterns = [
-        r'Message ID[:\s]+(\d+)',
-        r'message_id["\s:=]+(\d+)',
+        r'\bMessage[ _]ID[:\s=]+(\d+)',
+        r'\bmessage_id["\s:=]+(\d+)',
+        r'\bmessageId["\s:=]+(\d+)',
+        r'\bMessageId["\s:=]+(\d+)',
         r'"message_id"\s*:\s*"(\d+)"',
     ]
     for pat in patterns:

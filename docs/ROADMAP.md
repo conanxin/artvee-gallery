@@ -713,7 +713,7 @@ _superseded by P7D · v0.2.0-alpha release consolidation above (this is the impl
 
 ### Next (post-P8D+2, v0.2.x polish)
 - **P8E** public search/filter polish — extend the P8C filters with cross-archive full-text search (typed in the search box) and a per-pick lightbox when a card thumbnail is clicked. Defers until the rolling history has at least 14 days so search has enough signal.
-- **v0.2.1 patch release** — bundle P7B+1 / P7B+2 / P7B+3 / P8A / P8A+1 / P8B / P8C / P8D / P8D+1 / P8D+2 into a single patch release after 7 days of clean observation. No release has been cut from the current `main`.
+- **v0.2.1 patch release** — bundle P7B+1 / P7B+2 / P7B+3 / P8A / P8A+1 / P8B / P8C / P8D / P8D+1 / P8D+2 / P8D+3 / P8D+4 into a single patch release after 7 days of clean observation. No release has been cut from the current `main`.
 - **Morning briefing cron (06:00)** — simple wrapper around `artvee_ops_status.sh --date $(date +%F) --media` if the operator wants a daily morning report. Explicitly out of scope for v0.2.x.
 
 ### P8D+3 · Media replay verification cleanup ✅ PASS (2026-07-01 06:48)
@@ -736,10 +736,29 @@ _superseded by P7D · v0.2.0-alpha release consolidation above (this is the impl
 - **Files changed**: `scripts/replay_pending_media.py` (title string only — line 172), `docs/MEDIA_REPLAY.md` (neutralized title + recovered-WARN contract), `docs/DAILY_OPERATING_PLAYBOOK.md` (§ 9.10 classification table + dated header), `docs/POST_STABLE_OPERATIONS.md` (§ 6.1 P8D+3 note), `docs/PROJECT_STATUS.md` (P8D+3 row + snapshot), `docs/ROADMAP.md` (P8D+3 entry + Next refresh), `docs/RETROSPECTIVE.md` (§ 2.25 lesson).
 - See `<workspace>/reports/artvee-gallery-p8d3-media-replay-verification-cleanup-20260701.md`.
 
-### Next (post-P8D+3, v0.2.x polish)
-- **P8D+4 (follow-up, optional)** — extend P8D+1's PATH-on-own-line pattern to the P8D+2 cron installers (`install_artvee_cron.sh` + `install_daily_health_cron.sh`) so refill / batch / confirm all have `PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin` on its own line. The 2026-07-01 01:30 / 02:00 `NOTIFY_FAIL: OpenClaw binary missing` is the trigger; the daily-health 03:00 line already has its own PATH prefix (inline) so it's unaffected. Out of scope for v0.2.x unless the operator wants the same path-resolution guarantee for all four cron lines.
+### P8D+4 · Media replay queue normalization + delivery truthfulness ✅ PASS (2026-07-03 06:40)
+- **Bugs found** (5 root causes, all fixed simultaneously):
+  - **Bug A — infinite nesting**: `_archive_dir` built archive path by `pending_path.parent / name`; a file already in `replayed/` produced `replayed/replayed/` on the next run. After 5 days: `quarantine/quarantine/quarantine/...` 6 levels deep — would have hit `PATH_MAX=4096` within weeks.
+  - **Bug B — false success**: `replay_one()` recorded `outcome=replayed` on OpenClaw exit 0 regardless of `message_id`. On 2026-07-03 the replay exited 0 but Telegram send was silently dropped; `outcome=replayed_pending` was recorded anyway.
+  - **Bug C — wrong cron outcome**: `artvee_media_replay_cron.sh` unconditionally set `OUTCOME=replayed_pending` after every non-dry-run run, ignoring actual aggregate results.
+  - **Bug D — aggregate JSON never written**: `replay_pending_media.py` only wrote per-pending `.replay-result-*.json` sidecars; the cron looked for a `results` list that was never produced, so `replay_message_ids` was always empty.
+  - **Bug E — notifier regex mismatch**: `_extract_message_id` only matched `Message ID:` / `message_id=`; OpenClaw journal emits `messageId=29012` (camelCase) — a format it never matched.
+- **Fixes applied**:
+  - `_archive_dir`: always anchors to `reports/runtime/media-replay/{replayed,quarantine,results}/` stable roots; test-only temp roots fall through to `root/<name>`.
+  - `_pending_paths`: skips files under `media-replay/replayed/`, `media-replay/quarantine/`, and `queue-fix-backup-*` directories.
+  - `replay_one()`: `delivered = result.get('ok') and result.get('message_id')`; exit 0 without `message_id` → `send_failed_will_retry` with `last_error = "openclaw exit 0 but no message_id parsed from log (treated as undelivered)"`.
+  - `main()`: writes aggregate `.replay-results-<date>.json` to `media-replay/results/` with full `results` list + pre-computed `message_ids` array; empty queue also writes aggregate.
+  - `artvee_media_replay_cron.sh`: reads aggregate JSON; outcome branches: `replay_no_results` / `replayed_delivered` / `quarantine_exhausted` / `replay_failed` / `noop_zero_pending` / `skipped_transport_unavailable` / `dry_run_completed`.
+  - `artvee_telegram_notify._extract_message_id`: added regexes for `messageId=` and `MessageId=` (OpenClaw journal camelCase format).
+- **Normalization (one-time, 2026-07-03)**: 20 pre-fix files (4 pending + 16 result sidecars) moved to stable roots. Classification: delivered (message_id 25084/27996/29012) → `replayed/`; quarantine test → `quarantine/`; originals backed up to `reports/runtime/media-replay/queue-fix-backup-20260703-062946/` (20 files, 152K) — nothing deleted.
+- **Verification**: dry-run PASS (pending=0, aggregate written to `media-replay/results/.replay-results-2026-07-03.json`, `outcome=dry_run_completed`, `replay_delivered=0`); open_source_ready PASS; gallery integrity strict PASS (rows 1291/1173/1169/1169); ops status `pending_media=0 transport=ok`.
+- **Safety**: no download / refill / batch / `--approve` / Pages push; no tokens / chat_ids / secrets printed; delivered definition enforced as non-empty `message_id`; replayed/quarantine roots are fixed and cannot be nested.
+- **Files changed**: `scripts/replay_pending_media.py`, `scripts/artvee_media_replay_cron.sh`, `scripts/artvee_telegram_notify.py`, `docs/MEDIA_REPLAY.md`, `docs/DAILY_OPERATING_PLAYBOOK.md`, `docs/POST_STABLE_OPERATIONS.md`, `docs/PROJECT_STATUS.md`, `docs/ROADMAP.md`, `docs/RETROSPECTIVE.md`.
+- See `<workspace>/reports/artvee-gallery-p8d4-media-replay-queue-fix-20260703.md`.
+
+### Next (post-P8D+4, v0.2.x polish)
+- **v0.2.1 patch release** — bundle P7B+1 / P7B+2 / P7B+3 / P8A / P8A+1 / P8B / P8C / P8D / P8D+1 / P8D+2 / P8D+3 / P8D+4 into a single patch release after 7 days of clean observation. No release has been cut from the current `main`.
 - **P8E** public search/filter polish — extend the P8C filters with cross-archive full-text search (typed in the search box) and a per-pick lightbox when a card thumbnail is clicked. Defers until the rolling history has at least 14 days so search has enough signal.
-- **v0.2.1 patch release** — bundle P7B+1 / P7B+2 / P7B+3 / P8A / P8A+1 / P8B / P8C / P8D / P8D+1 / P8D+2 / P8D+3 into a single patch release after 7 days of clean observation. No release has been cut from the current `main`.
 - **Morning briefing cron (06:00)** — simple wrapper around `artvee_ops_status.sh --date $(date +%F) --media` if the operator wants a daily morning report. Explicitly out of scope for v0.2.x.
 
 ### P8D+2 · Telegram notifier chat-id configuration hardening ✅ PASS (2026-06-30 07:03)

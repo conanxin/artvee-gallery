@@ -119,8 +119,11 @@ fi
 OUTCOME="noop_zero_pending"
 REPLAY_RESULT_JSON=""
 REPLAY_MESSAGE_IDS=""
+REPLAY_DELIVERED=0
 REPLAY_QUARANTINED=0
+REPLAY_FAILED=0
 REPLAY_PLANNED=0
+RESULTS_DIR="${BASE_DIR}/reports/runtime/media-replay/results"
 
 if [[ "${PENDING_COUNT}" == "-1" ]]; then
   OUTCOME="error_helper_import"
@@ -132,8 +135,11 @@ elif [[ "${PENDING_COUNT}" -gt 0 ]]; then
     # Hand off to the existing P7B+3 replay. That script:
     #  - Validates each staged_report path is a real file under <openclaw-media-root>
     #  - Sends text + staged MEDIA via artvee_telegram_notify.send_text
-    #  - On success: moves .fallback-pending-*.json to reports/runtime/.../replayed/
-    #  - On quarantine_max_retries: moves to reports/runtime/.../quarantine/
+    #  - On delivered (non-empty message_id): moves to
+    #    reports/runtime/media-replay/replayed/ (stable root)
+    #  - On quarantine_max_retries: moves to
+    #    reports/runtime/media-replay/quarantine/ (stable root)
+    #  - Always writes an aggregate JSON to .../results/.replay-results-<date>.json
     REPLAY_OUT_BASE="${SUMMARY_DIR}/replay-${RUN_DATE}-$(date +%H%M%S)"
     if [[ "${DRY_RUN}" == true ]]; then
       BASE_DIR="${BASE_DIR}" python3 "${BASE_DIR}/scripts/replay_pending_media.py" \
@@ -144,33 +150,64 @@ elif [[ "${PENDING_COUNT}" -gt 0 ]]; then
       BASE_DIR="${BASE_DIR}" python3 "${BASE_DIR}/scripts/replay_pending_media.py" \
         --limit "${LIMIT}" --max-retries "${MAX_RETRIES}" --apply \
         > "${REPLAY_OUT_BASE}.log" 2>&1 || true
-      # Look for the .replay-result-* json written next to the pending file.
-      LATEST_RESULT=$(ls -1t "${BASE_DIR}"/reports/runtime/**/.replay-result-*.json 2>/dev/null | head -1 || true)
-      if [[ -n "${LATEST_RESULT}" && -f "${LATEST_RESULT}" ]]; then
-        REPLAY_RESULT_JSON="${LATEST_RESULT}"
-        # Best-effort: extract message_ids + quarantine count for the summary.
+      # P8D+4: read the aggregate JSON (stable path) instead of guessing
+      # from per-pending sidecars. The aggregate JSON has the full
+      # ``results`` list and a pre-computed ``message_ids`` array, so
+      # ``replay_message_ids`` reflects real Telegram delivery.
+      AGGREGATE_RESULT="${RESULTS_DIR}/.replay-results-${RUN_DATE}.json"
+      if [[ -f "${AGGREGATE_RESULT}" ]]; then
+        REPLAY_RESULT_JSON="${AGGREGATE_RESULT}"
         REPLAY_MESSAGE_IDS=$(python3 -c "
 import json,sys
 try:
-  d=json.loads(open('${LATEST_RESULT}').read())
-  mids=[]
-  for r in (d.get('results') or []):
-    if r.get('message_id'):
-      mids.append(str(r.get('message_id')))
-  print(','.join(mids))
+  d=json.loads(open('${AGGREGATE_RESULT}').read())
+  mids = d.get('message_ids') or []
+  print(','.join(str(m) for m in mids if m))
 except Exception:
   pass
 " 2>/dev/null || true)
+        REPLAY_DELIVERED=$(python3 -c "
+import json,sys
+try:
+  d=json.loads(open('${AGGREGATE_RESULT}').read())
+  print(int((d.get('totals') or {}).get('delivered', 0)))
+except Exception:
+  print(0)
+" 2>/dev/null || echo 0)
         REPLAY_QUARANTINED=$(python3 -c "
 import json,sys
 try:
-  d=json.loads(open('${LATEST_RESULT}').read())
-  print(sum(1 for r in (d.get('results') or []) if r.get('outcome')=='quarantined'))
+  d=json.loads(open('${AGGREGATE_RESULT}').read())
+  print(int((d.get('totals') or {}).get('quarantined', 0)))
+except Exception:
+  print(0)
+" 2>/dev/null || echo 0)
+        REPLAY_FAILED=$(python3 -c "
+import json,sys
+try:
+  d=json.loads(open('${AGGREGATE_RESULT}').read())
+  print(int((d.get('totals') or {}).get('send_failed_will_retry', 0)))
 except Exception:
   print(0)
 " 2>/dev/null || echo 0)
       fi
-      OUTCOME="replayed_pending"
+      # P8D+4: outcome must reflect what actually happened.
+      # - aggregate JSON missing or unreadable → replay_no_results
+      # - delivered > 0 → replayed_delivered
+      # - delivered == 0 and quarantined > 0 → quarantine_exhausted
+      # - delivered == 0 and quarantined == 0 → replay_failed
+      # - 0 processed (everything skipped) → noop_zero_pending
+      if [[ -z "${REPLAY_RESULT_JSON}" ]]; then
+        OUTCOME="replay_no_results"
+      elif [[ "${REPLAY_DELIVERED}" -gt 0 ]]; then
+        OUTCOME="replayed_delivered"
+      elif [[ "${REPLAY_QUARANTINED}" -gt 0 ]]; then
+        OUTCOME="quarantine_exhausted"
+      elif [[ "${REPLAY_FAILED}" -gt 0 ]]; then
+        OUTCOME="replay_failed"
+      else
+        OUTCOME="noop_zero_pending"
+      fi
     fi
   fi
 fi
@@ -203,7 +240,9 @@ out = {
     "dry_run": ("${DRY_RUN_LC}" == "true"),
     "replay_result_json": "${REPLAY_RESULT_JSON}",
     "replay_message_ids": "${REPLAY_MESSAGE_IDS}",
+    "replay_delivered": ${REPLAY_DELIVERED:-0},
     "replay_quarantined": ${REPLAY_QUARANTINED:-0},
+    "replay_failed": ${REPLAY_FAILED:-0},
     "lock_file": "${LOCK_FILE}",
 }
 print(json.dumps(out, indent=2, ensure_ascii=False))
