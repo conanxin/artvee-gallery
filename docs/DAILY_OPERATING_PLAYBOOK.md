@@ -438,6 +438,50 @@ before deciding whether to replay. If you see
 `pending_before: 0` but `terminal_replayed > 0` etc., it is a
 **normal** day (replay already happened or quarantined).
 
+#### 9.9.2 P8D+4C: dry-run summary isolation
+
+The replay cron wrapper supports `--dry-run` for pre-flight checks.
+The rule **post-P8D+4C** is:
+
+> A `--dry-run` invocation **never** writes to the production
+> summary file.  Every dry-run lands in a parallel slot.
+
+| Slot | When written | Path |
+|---|---|---|
+| Production summary | real 03:10 cron (`/without --dry-run/`) | `reports/runtime/media-replay/cron-YYYY-MM-DD.json` |
+| Dry-run summary | `--dry-run` (any operator, any time) | `reports/runtime/media-replay/dry-run/cron-YYYY-MM-DD-YYYYMMDD-HHMMSS.json` |
+
+What this means for you:
+
+1. **Run `--dry-run` freely** during development.  Successive runs
+   do not overwrite each other (timestamp suffix).  All dry-run
+   outputs are git-ignored by `reports/runtime/*.json`.
+2. **The production summary is a single source of truth** for the
+   day's 03:10 run.  If it ever has `dry_run: true` in it, that is a
+   regression — the wrapper must be re-installed (or P8D+4C rolled
+   back) before the next real cron.
+3. **If `--dry-run` finds the flock held** (real run in progress),
+   the dry-run outcome `dry_run_skipped_locked` is written to the
+   dry-run slot, *not* the production slot — so a sanity check
+   cannot poison the real summary before it finishes writing.
+4. **Forensic cross-check**: every dry-run JSON carries
+   `production_summary_path`, `dry_run_summary_path`, and
+   `would_write_production_summary` so you can grep one dry-run
+   file to find its pairing production slot.
+
+Negative-test recipe (operator checklist):
+
+```bash
+PROD=reports/runtime/media-replay/cron-$(date +%F).json
+BEFORE_SHA=$(sha256sum "$PROD" | awk '{print $1}')
+BEFORE_MTIME=$(stat -c %Y "$PROD")
+bash scripts/artvee_media_replay_cron.sh --dry-run --limit 5 --max-retries 3
+AFTER_SHA=$(sha256sum "$PROD" | awk '{print $1}')
+AFTER_MTIME=$(stat -c %Y "$PROD")
+[ "$BEFORE_SHA" = "$AFTER_SHA" ] && [ "$BEFORE_MTIME" = "$AFTER_MTIME" ] \
+  && echo "PASS: dry-run isolated" || echo "FAIL"
+```
+
 **Install (idempotent, marker-block based):**
 
 ```bash

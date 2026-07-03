@@ -1356,3 +1356,68 @@ summary, look at `active_pending`, and decide whether to wait for
 transport to fully recover or run `bash
 scripts/artvee_media_replay_cron.sh --apply` manually. The
 `terminal_*` and `ignored_*` counts are visibility, not alarms.
+
+### § 2.28 · Dry-run must never overwrite production observability artifacts (P8D+4C, 2026-07-04)
+
+**Trigger**: P8D+4B's verification dry-run rewrote today's
+`reports/runtime/media-replay/cron-2026-07-04.json` (the file
+slot reserved for the 03:10 real-cron run). The new file looked
+indistinguishable from a real silent no-op (`pending_before=0,
+transport=ok, outcome=no_pending`), but it was now a developer-time
+artifact. There was no way for a future operator opening the file
+tomorrow to know whether it was authentic or a sanity check.
+
+**Root cause**: `artvee_media_replay_cron.sh` had a single
+`SUMMARY_JSON="${SUMMARY_DIR}/cron-${RUN_DATE}.json"` slot used
+by both the real 03:10 cron run and any `--dry-run` invocation.
+The flock-held skip branch also wrote to the same slot.
+
+**Lesson 1 — observability slots are partitioned by intent, not
+by accident**: a slot labeled ``production summary`` must be
+writable *only* by the run that owns it. Co-locating a dry-run
+write to the same path is a class of bug that survives because
+the dry-run's payload is usually *plausibly* valid; the failure
+mode is silent and forensics-only. The safe pattern is:
+
+* `PROD_SUMMARY_JSON` — always the slot the real cron owns.
+* `DRY_RUN_DIR` — a sibling directory for dry-run outputs.
+* `SUMMARY_JSON` — rebound to one or the other based on the
+  `--dry-run` flag, with both paths emitted into the JSON itself
+  (`production_summary_path`, `dry_run_summary_path`,
+  `would_write_production_summary: bool`).
+
+**Lesson 2 — dry-run relabel outcomes that overlap with
+production labels**: a dry-run that reports `outcome=no_pending`
+will be indistinguishable from a real silent no-op. Adding a
+`dry_run` namespace prefix (`dry_run_no_pending`,
+`dry_run_replayed_delivered`, `dry_run_skipped_locked`) plus a
+`real_outcome` field for forensics lets dashboards distinguish
+the two without parsing the path. When the production enum and
+the dry-run enum *both* contain `no_pending`, anything
+substring-matching on `no_pending` will count dev pre-flights —
+exactly the bug we hit.
+
+**Lesson 3 — negative tests should be exact, not approximate**:
+the recipe ``ls $PROD; before=$(sha256sum); after=$(sha256sum);
+[ "$before" = "$after" ] && echo PASS`` is the only way to
+verify that dry-run *did not change anything* byte-for-byte.
+Asserting ``$PROD exists`` is not enough. Asserting
+``grep pending_before $PROD`` is not enough. Either would have
+passed the buggy version.
+
+**Lesson 4 — the bug-surfacing test was the verification
+itself**: the same dry-run that exposed the P8D+4B scope bug
+also exposed the dry-run overwrite bug. Two bugs found in one
+verification cycle is a useful pattern: a successful fix is a
+chance to look at every artifact the fix produced and ask "would
+the next operator trust this?". Treat every successful
+verification dry-run as evidence worth auditing.
+
+**Operational rule (P8D+4C going forward)**: every observability
+artifact slot must declare its **owner** (real cron | dry-run |
+test-suite | operator) at the path level, and the JSON must
+carry `dry_run` + `would_write_production_summary` + path
+fields so a future regression cannot silently rewrite
+production data. Two different artifacts (production + dry-run)
+is the minimum cost; the alternative (one shared slot) is what
+crashed auditability here.

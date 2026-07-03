@@ -26,14 +26,30 @@
 #   - pending>0: hands off to ``replay_pending_media.py --apply`` which
 #     sends via the staged-only MEDIA path; the cron wrapper itself
 #     does not call the Telegram notifier.
+#
+# P8D+4C · dry-run summary isolation:
+#   The real 03:10 cron writes a single audit summary to
+#       reports/runtime/media-replay/cron-YYYY-MM-DD.json
+#   A ``--dry-run`` invocation NEVER touches that file. Instead it
+#   writes a parallel JSON to
+#       reports/runtime/media-replay/dry-run/cron-YYYY-MM-DD-YYYYMMDD-HHMMSS.json
+#   with ``would_write_production_summary: false`` and explicit
+#   ``production_summary_path`` / ``dry_run_summary_path`` fields.
+#   This keeps the on-disk production summary an authentic record of
+#   the real 03:10 run, free from dev / pre-flight noise.
 
 set -uo pipefail
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DATE="${DATE:-$(date +%Y-%m-%d)}"
 SUMMARY_DIR="${BASE_DIR}/reports/runtime/media-replay"
+DRY_RUN_DIR="${SUMMARY_DIR}/dry-run"
 LOCK_FILE="${SUMMARY_DIR}/.media-replay.lock"
-SUMMARY_JSON="${SUMMARY_DIR}/cron-${RUN_DATE}.json"
+# Production summary path (reserved for real cron / non-dry-run). The
+# dry-run path is resolved later once we know whether DRY_RUN is on
+# and what timestamp suffix to use.
+PROD_SUMMARY_JSON="${SUMMARY_DIR}/cron-${RUN_DATE}.json"
+SUMMARY_JSON="${PROD_SUMMARY_JSON}"   # rebound below when DRY_RUN=true
 LOG_DIR="${BASE_DIR}/logs/media-replay-cron"
 
 # Defaults
@@ -59,14 +75,39 @@ done
 
 mkdir -p "${SUMMARY_DIR}" "${LOG_DIR}"
 
+# P8D+4C · dry-run summary isolation: when --dry-run is set, redirect
+# every later write to a sibling ``dry-run/`` directory with an
+# extra timestamp suffix; never to the production summary. The
+# production summary path is preserved alongside it for the JSON
+# fields ``production_summary_path`` + ``would_write_production_summary``
+# so downstream consumers can confirm dry-run did not touch it.
+DRY_RUN_TS="$(date +%Y%m%d-%H%M%S)"
+if [[ "${DRY_RUN}" == true ]]; then
+  mkdir -p "${DRY_RUN_DIR}"
+  SUMMARY_JSON="${DRY_RUN_DIR}/cron-${RUN_DATE}-${DRY_RUN_TS}.json"
+fi
+
 # Concurrency guard. flock -n returns failure if the lock is held.
 exec 9>"${LOCK_FILE}"
 if ! flock -n 9; then
   # Don't spam; another cron run is still flushing. Exit 0 so cron
   # doesn't email/pager a false-positive.
+  #
+  # P8D+4C · never write to PROD_SUMMARY_JSON during --dry-run.
+  # Lock-held skips happen on real overlapping cron runs; a dry-run
+  # that finds the lock held is itself noteworthy and lands in the
+  # dry-run lane so the operator can correlate it with the real
+  # racing run.
   TS="$(date -Iseconds)"
-  printf '{"date":"%s","started_at":"%s","outcome":"skipped_locked","reason":"another run is still flushing"}\n' \
-    "${RUN_DATE}" "${TS}" > "${SUMMARY_JSON}"
+  if [[ "${DRY_RUN}" == true ]]; then
+    PROD_SUMMARY_JSON_DRY="${PROD_SUMMARY_JSON}"
+    SUMMARY_JSON_DRY="${SUMMARY_JSON}"
+    printf '{"date":"%s","started_at":"%s","dry_run":true,"outcome":"skipped_locked","reason":"another run is still flushing","production_summary_path":"%s","dry_run_summary_path":"%s","would_write_production_summary":false}\n' \
+      "${RUN_DATE}" "${TS}" "${PROD_SUMMARY_JSON_DRY}" "${SUMMARY_JSON_DRY}" > "${SUMMARY_JSON}"
+  else
+    printf '{"date":"%s","started_at":"%s","outcome":"skipped_locked","reason":"another run is still flushing"}\n' \
+      "${RUN_DATE}" "${TS}" > "${PROD_SUMMARY_JSON}"
+  fi
   echo "[artvee-media-replay-cron] lock held by another run; skipping."
   exit 0
 fi
@@ -243,6 +284,12 @@ END_TS="$(date -Iseconds)"
 
 # Always write a summary JSON. This is the on-disk source-of-truth
 # for ops status to read in P8A's replay_cron_last_run.
+#
+# P8D+4C · dry-run summary isolation:
+#   - Real cron / non-dry-run  → writes to PROD_SUMMARY_JSON (== cron-YYYY-MM-DD.json).
+#   - --dry-run                 → writes to a timestamped JSON inside SUMMARY_DIR/dry-run/
+#     and embeds ``production_summary_path`` + ``would_write_production_summary=false``
+#     so consumers can confirm dry-run did not touch the production slot.
 PENDING_INT=-1
 if [[ "${PENDING_COUNT}" =~ ^-?[0-9]+$ ]]; then
   PENDING_INT="${PENDING_COUNT}"
@@ -251,14 +298,37 @@ TRANSPORT_CHECK_LC="false"
 if [[ "${TRANSPORT_CHECK}" == true ]]; then TRANSPORT_CHECK_LC="true"; fi
 DRY_RUN_LC="false"
 if [[ "${DRY_RUN}" == true ]]; then DRY_RUN_LC="true"; fi
-SUMMARY_OUT=$(python3 - <<PY
+# Determine the *real* cron outcome label for dry-run. Dry-run never
+# publishes an outcome that pretends to be a real cron run; it
+# rewrites ``noop_zero_pending`` / ``no_pending`` / ``replayed_*`` into
+# its own dry-run labels so the JSON is unambiguously an artifact of
+# dev-time verification.
+DRY_RUN_OUTCOME="${OUTCOME}"
+if [[ "${DRY_RUN}" == true ]]; then
+  case "${OUTCOME}" in
+    no_pending|noop_zero_pending) DRY_RUN_OUTCOME="dry_run_no_pending" ;;
+    skipped_locked)               DRY_RUN_OUTCOME="dry_run_skipped_locked" ;;
+    replayed_delivered|quarantine_exhausted|replay_failed|replay_no_results) DRY_RUN_OUTCOME="dry_run_${OUTCOME}" ;;
+    error_helper_import)          DRY_RUN_OUTCOME="dry_run_error_helper_import" ;;
+    skipped_transport_unavailable) DRY_RUN_OUTCOME="dry_run_skipped_transport_unavailable" ;;
+    dry_run_completed)            DRY_RUN_OUTCOME="dry_run_completed" ;;
+  esac
+fi
+SUMMARY_OUT=$(PROD_SUMMARY_JSON="${PROD_SUMMARY_JSON}" SUMMARY_JSON="${SUMMARY_JSON}" DRY_RUN_OUTCOME="${DRY_RUN_OUTCOME}" OUTCOME="${OUTCOME}" python3 - <<PY
 import json, os
 _scan = json.loads(os.environ.get("PENDING_SCAN_JSON", "{}"))
+prod_path = os.environ["PROD_SUMMARY_JSON"]
+dry_path = os.environ["SUMMARY_JSON"]
 out = {
     "date": "${RUN_DATE}",
     "started_at": "${START_TS}",
     "ended_at": "${END_TS}",
-    "outcome": "${OUTCOME}",
+    # When dry-run is on we report the *dry-run* outcome for the
+    # ``outcome`` field (so dashboards cannot mistake dry-run for a
+    # real run).  The original outcome is preserved as ``real_outcome``
+    # for forensic cross-checks.
+    "outcome": os.environ["DRY_RUN_OUTCOME"] if ("${DRY_RUN_LC}" == "true") else os.environ["OUTCOME"],
+    "real_outcome": os.environ["OUTCOME"],
     "pending_before": ${PENDING_INT},
     "active_pending": int(_scan.get("active_pending") or 0),
     "active_replayable": int(_scan.get("active_replayable") or 0),
@@ -274,7 +344,11 @@ out = {
     "transport_latency_ms": "${TRANSPORT_LATENCY_MS}",
     "limit": ${LIMIT},
     "max_retries": ${MAX_RETRIES},
-    "dry_run": ("${DRY_RUN_LC}" == "true"),
+    "dry_run": "${DRY_RUN_LC}" == "true",
+    # P8D+4C · production vs dry-run path transparency
+    "production_summary_path": prod_path,
+    "dry_run_summary_path": dry_path,
+    "would_write_production_summary": "${DRY_RUN_LC}" != "true",
     "replay_result_json": "${REPLAY_RESULT_JSON}",
     "replay_message_ids": "${REPLAY_MESSAGE_IDS}",
     "replay_delivered": ${REPLAY_DELIVERED:-0},
@@ -288,4 +362,4 @@ PY
 printf '%s\n' "${SUMMARY_OUT}" > "${SUMMARY_JSON}"
 
 # Print a single one-line summary for the cron log.
-echo "[artvee-media-replay-cron] date=${RUN_DATE} pending=${PENDING_COUNT} transport=${TRANSPORT_STATUS} outcome=${OUTCOME} summary=${SUMMARY_JSON}"
+echo "[artvee-media-replay-cron] date=${RUN_DATE} pending=${PENDING_COUNT} transport=${TRANSPORT_STATUS} outcome=${OUTCOME} dry_run=${DRY_RUN_LC} production_summary_path=${PROD_SUMMARY_JSON} dry_run_summary_path=${SUMMARY_JSON} would_write_production_summary=$([ "${DRY_RUN}" = true ] && echo false || echo true)"

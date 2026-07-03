@@ -2,7 +2,7 @@
 
 > Artvee Gallery · Pending MEDIA replay workflow
 > Authored: 2026-06-18
-> Updated: 2026-07-04 (P8D+4B: pending scope cleanup — active vs terminal vs backup buckets)
+> Updated: 2026-07-04 (P8D+4C: dry-run summary isolation — dry-run never overwrites production summary)
 > Status: **Live** — verified end-to-end with synthetic and real Telegram sends.
 
 ## 1. Purpose
@@ -536,4 +536,109 @@ bash scripts/artvee_media_replay_cron.sh --dry-run --limit 5 --max-retries 3
   media-replay/pending/`` (when present) and ``daily-health/`` (top
   level) are that scope. Anything else is a terminal artifact or a
   historical archive and must live elsewhere.
+
+## 13. P8D+4C: dry-run summary isolation (2026-07-04)
+
+### Why this section exists
+
+Prior to P8D+4C, ``scripts/artvee_media_replay_cron.sh`` had **one**
+summary-write path for both real 03:10 cron runs and ``--dry-run``
+operator runs:
+
+```
+SUMMARY_JSON=${SUMMARY_DIR}/cron-${RUN_DATE}.json   # used unconditionally
+```
+
+That meant a developer (or the agent) running
+
+```
+bash scripts/artvee_media_replay_cron.sh --dry-run \
+   --limit 5 --max-retries 3
+```
+
+…would silently **overwrite** today's on-disk production summary
+``reports/runtime/media-replay/cron-YYYY-MM-DD.json``.  The replacement
+JSON would still say ``pending_before=0, transport=ok`` (because
+dry-run runs the same code path), so it *looked* indistinguishable
+from a real 03:10 silent success — but it was now a developer-time
+artifact that wore a production hat.  Auditability collapsed: a
+human opening the file tomorrow would not know whether the JSON
+reflected a real replay run or a sanity check from earlier in the
+day.
+
+P8D+4C restores the audit boundary by routing dry-run writes to a
+parallel directory tree and refusing to touch the production slot at
+all.
+
+### Summary slot table
+
+| Slot | When written | Path |
+|---|---|---|
+| Production summary | real cron / non-dry-run, plus the flock-held skip path | ``<artvee-repo>/reports/runtime/media-replay/cron-YYYY-MM-DD.json`` |
+| Dry-run summary | ``--dry-run`` (any time, any operator) | ``<artvee-repo>/reports/runtime/media-replay/dry-run/cron-YYYY-MM-DD-YYYYMMDD-HHMMSS.json`` |
+
+* The production slot is reserved for the authentic 03:10 cron run.
+  Even when ``--dry-run`` finds the flock held (because a real run is
+  in progress), the resulting ``skipped_locked`` outcome is written
+  to the dry-run path, **not** the production slot — so the
+  overlapping dry-run cannot poison the real summary before the
+  real run finishes writing its own.
+* Dry-run JSON filenames carry a timestamp suffix (``20260704-070232``)
+  so successive dry-runs do not clobber each other; the most recent
+  is ``ls -t reports/runtime/media-replay/dry-run/ | head -1``.
+
+### Required dry-run JSON fields
+
+Every dry-run JSON now carries the full set of fields on the
+production summary **plus** these P8D+4C additions:
+
+| Field | Type | Purpose |
+|---|---|---|
+| ``dry_run`` | bool | always ``true`` for dry-run; ``false`` for production |
+| ``production_summary_path`` | string | absolute or repo-relative path of the production slot that was NOT written |
+| ``dry_run_summary_path`` | string | absolute or repo-relative path of the file actually written |
+| ``would_write_production_summary`` | bool | ``true`` for production runs, ``false`` for dry-run |
+| ``outcome`` | string | dry-run relabel: ``dry_run_no_pending``, ``dry_run_completed``, ``dry_run_skipped_locked``, ``dry_run_<real_outcome>`` (e.g. ``dry_run_replayed_delivered``) |
+| ``real_outcome`` | string | the underlying cron outcome label that would have been used if not for dry-run |
+
+### Negative-test recipe
+
+To verify the production summary is genuinely untouched by a dry-run:
+
+```
+PROD=reports/runtime/media-replay/cron-$(date +%F).json
+BEFORE_SHA=$(sha256sum "$PROD" | awk '{print $1}')
+BEFORE_MTIME=$(stat -c %Y "$PROD")
+
+bash scripts/artvee_media_replay_cron.sh --dry-run --limit 5 --max-retries 3
+
+AFTER_SHA=$(sha256sum "$PROD" | awk '{print $1}')
+AFTER_MTIME=$(stat -c %Y "$PROD")
+[ "$BEFORE_SHA"   = "$AFTER_SHA"   ] && \
+[ "$BEFORE_MTIME" = "$AFTER_MTIME" ] && \
+   echo "PASS: production summary unchanged"
+```
+
+### Operator workflow update
+
+* Pre-flight / sanity checks: run ``--dry-run`` freely.  Each
+  invocation lands in ``reports/runtime/media-replay/dry-run/`` with
+  a unique timestamp suffix and is git-ignored by the existing
+  ``reports/runtime/*.json`` rule.
+* Real 03:10 cron (production): produces **exactly one** JSON per
+  day in ``reports/runtime/media-replay/``.  Two summaries for the
+  same date with the same content indicates the cron ran twice
+  intentionally and the second's content wins.
+* Forensic correlation: open the dry-run JSON first — its
+  ``production_summary_path`` field tells you which slot to compare
+  against.
+
+### Cross-references
+
+* ``docs/DAILY_OPERATING_PLAYBOOK.md`` § 9.9.2 (companion operator
+  walkthrough).
+* ``docs/POST_STABLE_OPERATIONS.md`` § 6.2 (audit-file semantics
+  reference).
+* ``docs/RETROSPECTIVE.md`` § 2.28 (lesson: dry-run must not
+  overwrite production observability artifacts).
 

@@ -771,8 +771,47 @@ _superseded by P7D · v0.2.0-alpha release consolidation above (this is the impl
 - **Files changed**: `scripts/artvee_media_replay_cron.sh`, `scripts/artvee_daily_health_check.py`, `scripts/replay_pending_media.py`, `docs/MEDIA_REPLAY.md`, `docs/DAILY_OPERATING_PLAYBOOK.md`, `docs/POST_STABLE_OPERATIONS.md`, `docs/PROJECT_STATUS.md`, `docs/ROADMAP.md`, `docs/RETROSPECTIVE.md`.
 - See `<workspace>/reports/artvee-gallery-p8d4b-media-replay-queue-scope-cleanup-20260704.md`.
 
-### Next (post-P8D+4B, v0.2.x polish)
-- **v0.2.1 patch release** — bundle P7B+1 / P7B+2 / P7B+3 / P8A / P8A+1 / P8B / P8C / P8D / P8D+1 / P8D+2 / P8D+3 / P8D+4 / P8D+4B into a single patch release after 7 days of clean observation. No release has been cut from the current `main`.
+### P8D+4C · Media-replay dry-run summary isolation ✅ PASS (2026-07-04 07:04)
+- **Bug G — dry-run overwrites production summary**: `artvee_media_replay_cron.sh` had a single `SUMMARY_JSON="${SUMMARY_DIR}/cron-${RUN_DATE}.json"` slot used by both the real 03:10 cron run and any `--dry-run` invocation. Every developer-time pre-flight silently overwrote today's on-disk production summary, leaving a JSON that looked identical to a real silent no-op (`pending_before=0, transport=ok`). Auditability collapsed: a human opening `cron-YYYY-MM-DD.json` tomorrow could not tell whether the file reflected a real 03:10 run or a sanity check from earlier in the day. The P8D+4B verification dry-run was the trigger that surfaced this — it produced the JSON now sitting at `reports/runtime/media-replay/cron-2026-07-04.json`, overwriting the actual 03:10 summary.
+- **Fix design**:
+  - **Production summary slot** (unchanged path): `<artvee-repo>/reports/runtime/media-replay/cron-YYYY-MM-DD.json`. Reserved for the authentic 03:10 cron run. Only the wrapper, when `DRY_RUN=false`, may write to it. The flock-held skip branch also writes here, but only when invoked outside a dry-run.
+  - **Dry-run summary slot** (new): `<artvee-repo>/reports/runtime/media-replay/dry-run/cron-YYYY-MM-DD-YYYYMMDD-HHMMSS.json` with `YYYYMMDD-HHMMSS` being the wrapper's invocation timestamp. Successive dry-runs cannot clobber each other (suffix differs) and never touch the production file. The dry-run tree is git-ignored by the existing `reports/runtime/*.json` rule.
+  - **Cross-paths always reported**: every summary JSON now carries `dry_run` (bool), `production_summary_path`, `dry_run_summary_path`, `would_write_production_summary` (bool). When dry-run is on, `outcome` is relabeled `dry_run_<real_outcome>` (e.g. `no_pending` → `dry_run_no_pending`, `replayed_delivered` → `dry_run_replayed_delivered`, `skipped_locked` → `dry_run_skipped_locked`) so dashboards can never mistake a dry-run for a real run; the underlying label is preserved under `real_outcome` for forensic cross-checks.
+  - **Race protection**: a dry-run that finds `flock -n` held (because a real run is in progress) writes `dry_run_skipped_locked` to the dry-run slot, never to production. Lock-held real-cron skips continue to write the production slot (`skipped_locked`, no `dry_run` flag).
+- **Implementation** (`scripts/artvee_media_replay_cron.sh`):
+  - Two new variables: `PROD_SUMMARY_JSON` (always points to `cron-YYYY-MM-DD.json`) and `DRY_RUN_DIR` (auto-created when `--dry-run` is set). `SUMMARY_JSON` is rebound after argparse to either `PROD_SUMMARY_JSON` (production) or `${DRY_RUN_DIR}/cron-${RUN_DATE}-${DRY_RUN_TS}.json` (dry-run). The final `printf` writes to whichever the run deserves.
+  - Final JSON heredoc adds the four P8D+4C fields, embeds `production_summary_path = ${PROD_SUMMARY_JSON}` and `would_write_production_summary` = `(not is_dry)`, and labels the `outcome` as `dry_run_<real>` when dry-run is on.
+  - Cron-line echo at the very end now emits `production_summary_path=...`, `dry_run_summary_path=...`, and `would_write_production_summary=true|false` so the operator can confirm at a glance.
+- **Operator workflow updates** (no behavior change for production runs):
+  - Run `--dry-run` freely during pre-flight / development — every invocation lands in `reports/runtime/media-replay/dry-run/` with a unique timestamp suffix and is git-ignored.
+  - The real 03:10 cron produces exactly one summary per day in `reports/runtime/media-replay/`. Two summaries of identical content for the same date would mean the cron ran twice intentionally (not the normal case).
+- **Negative-test recipe** (also shipped in `docs/MEDIA_REPLAY.md` § 13 + `docs/DAILY_OPERATING_PLAYBOOK.md` § 9.9.2):
+  ```bash
+  PROD=reports/runtime/media-replay/cron-$(date +%F).json
+  BEFORE_SHA=$(sha256sum "$PROD" | awk '{print $1}')
+  BEFORE_MTIME=$(stat -c %Y "$PROD")
+  bash scripts/artvee_media_replay_cron.sh --dry-run --limit 5 --max-retries 3
+  AFTER_SHA=$(sha256sum "$PROD" | awk '{print $1}')
+  AFTER_MTIME=$(stat -c %Y "$PROD")
+  [ "$BEFORE_SHA" = "$AFTER_SHA" ] && [ "$BEFORE_MTIME" = "$AFTER_MTIME" ] \
+    && echo "PASS: dry-run isolated" || { echo "FAIL"; exit 1; }
+  ```
+- **Verification** (all green):
+  - `bash -n scripts/artvee_media_replay_cron.sh` PASS.
+  - `python3 -m py_compile` on `replay_pending_media.py`, `check_openclaw_transport.py`, `artvee_telegram_notify.py`, `artvee_ops_status.py`, `artvee_daily_health_check.py` PASS.
+  - `check_open_source_ready.py` PASS (4/4: generated-data, path-leak, secret-keyword, file-size).
+  - `check_gallery_integrity.py --strict` PASS (0 dupe id groups; 1186 unique ids).
+  - `artvee_ops_status.sh --online --include-pages --no-telegram`: `records=875 retired=4 blocking=0 integrity=PASS readiness=PASS pending_media=0 transport=ok action=candidate_ready_manual_publish_optional`.
+  - Production summary hash + mtime **identical before and after the dry-run** (verifies the fix).
+  - Dry-run JSON for `2026-07-04 07:02:32` carries all required fields and `would_write_production_summary: false`.
+  - Active pending = 0; nested paths = 0; backup and `dry-run/`-tracked = 0 (all `.gitignore`-d).
+  - Secret/path-leak scan over tracked files: 0 actual leaks (docs reference env-var names only).
+- **Safety**: no download / refill / batch / `--approve` / Pages push; staged-only MEDIA allowlist unchanged; `pending=0` silent-no-op unchanged; optional 03:10 install workflow unchanged; transport pre-flight gate unchanged. No tokens / chat-ids / secrets printed. Dry-run `--dry-run` did not touch `images/`, `metadata/`, `thumbs/`, `manifest`, `index/`, `web/data/`, `dist/`, or any retired URL.
+- **Files changed**: `scripts/artvee_media_replay_cron.sh`, `docs/MEDIA_REPLAY.md`, `docs/DAILY_OPERATING_PLAYBOOK.md`, `docs/POST_STABLE_OPERATIONS.md`, `docs/PROJECT_STATUS.md`, `docs/ROADMAP.md`, `docs/RETROSPECTIVE.md` (P8D+4C also touched `docs/PROJECT_STATUS.md` table and `docs/RETROSPECTIVE.md` § 2.28 lesson).
+- See `<workspace>/reports/artvee-gallery-p8d4c-dryrun-summary-isolation-20260704.md`.
+
+### Next (post-P8D+4C, v0.2.x polish)
+- **v0.2.1 patch release** — bundle P7B+1 / P7B+2 / P7B+3 / P8A / P8A+1 / P8B / P8C / P8D / P8D+1 / P8D+2 / P8D+3 / P8D+4 / P8D+4B / P8D+4C into a single patch release after 7 days of clean observation. No release has been cut from the current `main`. P8D+4C is the last observability fix in the P8D+4 series; the next-real-cron / `cron-2026-07-05.json` write will be the post-fix production run.
 - **P8E** public search/filter polish — extend the P8C filters with cross-archive full-text search (typed in the search box) and a per-pick lightbox when a card thumbnail is clicked. Defers until the rolling history has at least 14 days so search has enough signal.
 - **Morning briefing cron (06:00)** — simple wrapper around `artvee_ops_status.sh --date $(date +%F) --media` if the operator wants a daily morning report. Explicitly out of scope for v0.2.x.
 
