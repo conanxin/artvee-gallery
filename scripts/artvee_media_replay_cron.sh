@@ -75,6 +75,12 @@ START_TS="$(date -Iseconds)"
 
 # Count pending before we decide what to do. Reuses the same helper
 # the daily health check uses so the count never drifts.
+#
+# P8D+4B: pass ``reports/runtime`` (the canonical runtime root) instead
+# of bare ``reports`` so the scanner's classification (active vs.
+# terminal vs. backup) lines up with the daily-health internal call.
+# ``active_pending`` is what drives ``pending_before``; terminal /
+# backup counts are surfaced separately for visibility.
 PENDING_COUNT=$(BASE_DIR="${BASE_DIR}" python3 - <<'PY' 2>/dev/null || echo -1
 import sys, os
 from pathlib import Path
@@ -84,10 +90,27 @@ try:
     from artvee_daily_health_check import _scan_pending_media
 except Exception:
     print(-1); sys.exit(0)
-result = _scan_pending_media(Path(os.path.join(base, "reports")))
-print(result.get("pending", 0))
+result = _scan_pending_media(Path(os.path.join(base, "reports", "runtime")))
+print(result.get("active_pending", result.get("pending", 0)))
 PY
 )
+PENDING_SCAN_JSON=$(BASE_DIR="${BASE_DIR}" python3 - <<'PY' 2>/dev/null || echo "{}"
+import sys, os, json
+from pathlib import Path
+base = os.environ.get("BASE_DIR", ".")
+sys.path.insert(0, os.path.join(base, "scripts"))
+try:
+    from artvee_daily_health_check import _scan_pending_media
+except Exception:
+    print(json.dumps({"scan_error": "helper_import_failed"}))
+    sys.exit(0)
+result = _scan_pending_media(Path(os.path.join(base, "reports", "runtime")))
+print(json.dumps(result))
+PY
+)
+# Export so the SUMMARY_OUT heredoc (which builds the JSON summary) can
+# read the scan result via os.environ.
+export PENDING_SCAN_JSON
 
 # Optional transport pre-flight. We never want to call replay when the
 # gateway is down: the replay path would just immediately fall back and
@@ -116,7 +139,11 @@ except Exception:
 fi
 
 # Decide outcome.
-OUTCOME="noop_zero_pending"
+# P8D+4B: only ``active_pending`` (not terminal / backup) drives
+# OUTCOME. When the scan succeeds and the result is empty, the summary
+# uses ``no_pending`` so downstream consumers can distinguish "no work"
+# from "did not measure".
+OUTCOME="no_pending"
 REPLAY_RESULT_JSON=""
 REPLAY_MESSAGE_IDS=""
 REPLAY_DELIVERED=0
@@ -225,13 +252,23 @@ if [[ "${TRANSPORT_CHECK}" == true ]]; then TRANSPORT_CHECK_LC="true"; fi
 DRY_RUN_LC="false"
 if [[ "${DRY_RUN}" == true ]]; then DRY_RUN_LC="true"; fi
 SUMMARY_OUT=$(python3 - <<PY
-import json
+import json, os
+_scan = json.loads(os.environ.get("PENDING_SCAN_JSON", "{}"))
 out = {
     "date": "${RUN_DATE}",
     "started_at": "${START_TS}",
     "ended_at": "${END_TS}",
     "outcome": "${OUTCOME}",
     "pending_before": ${PENDING_INT},
+    "active_pending": int(_scan.get("active_pending") or 0),
+    "active_replayable": int(_scan.get("active_replayable") or 0),
+    "terminal_replayed": int(_scan.get("terminal_replayed") or 0),
+    "terminal_quarantine": int(_scan.get("terminal_quarantine") or 0),
+    "ignored_results": int(_scan.get("ignored_results") or 0),
+    "ignored_backup": int(_scan.get("ignored_backup") or 0),
+    "nested_legacy": int(_scan.get("nested_legacy") or 0),
+    "unknown_non_active": int(_scan.get("unknown") or 0),
+    "scan_error": _scan.get("scan_error", ""),
     "transport_check": ("${TRANSPORT_CHECK_LC}" == "true"),
     "transport_status": "${TRANSPORT_STATUS}",
     "transport_latency_ms": "${TRANSPORT_LATENCY_MS}",

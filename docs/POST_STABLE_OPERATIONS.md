@@ -150,10 +150,14 @@ sufficient.
 `artvee_ops_status.sh` is **strictly report-only** about pending
 MEDIA. It never auto-replays. The fields it exposes:
 
-* `pending_media_count` — total `.fallback-pending-*.json` files
-  awaiting replay (scanned under stable `media-replay/pending/`
-  and `media-replay/replayed/` roots; nested `daily-health/`
-  subtrees from pre-P8D+4 runs are excluded)
+* `pending_media_count` — **active** `.fallback-pending-*.json`
+  files awaiting replay (scanned under stable
+  `media-replay/pending/` and top-level `daily-health/`; nested
+  `daily-health/replayed/...` and `daily-health/quarantine/...`
+  subtrees from pre-P8D+4 runs are excluded; P8D+4B adds further
+  exclusions for `queue-fix-backup-*/`, `legacy-cleaned/`, and
+  `stable_dup/` archives, and for the self-recursive
+  `replayed/replayed` / `quarantine/quarantine` pathology).
 * `pending_media_replayable` — same as above, filtered to those
   with `attempts < 3` and a still-existing staged file
 * `quarantined_media_count` — pendings archived to
@@ -163,14 +167,18 @@ MEDIA. It never auto-replays. The fields it exposes:
   is registered (`crontab -l` marker scan)
 * `media_replay_cron_summary` — the latest
   `reports/runtime/media-replay/cron-*.json` summary:
-  `date`, `outcome` (`noop_zero_pending` / `replayed_delivered` /
+  `date`, `outcome` (`no_pending` / `replayed_delivered` /
   `quarantine_exhausted` / `replay_failed` / `replay_no_results` /
   `skipped_locked` / `skipped_transport_unavailable` /
   `dry_run_completed` / `error_helper_import`),
   `replay_delivered` (count of non-empty `message_id`),
   `replay_message_ids` (comma-separated; non-empty only when
   `outcome` is `replayed_delivered`),
-  `pending_before`, `transport_status`, `lock_held`, etc.
+  `pending_before`, `transport_status`, `lock_held`, plus the
+  per-bucket breakdown from P8D+4B:
+  `active_pending`, `active_replayable`, `terminal_replayed`,
+  `terminal_quarantine`, `ignored_results`, `ignored_backup`,
+  `nested_legacy`, `unknown_non_active`, `scan_error`.
 
 To actually replay, use the dedicated P7B+3 command:
 
@@ -219,6 +227,44 @@ failure.
 > replay behavior, the staged-only MEDIA allowlist, the
 > `pending=0` silent-no-op policy, or the optional install
 > workflow.
+
+> **P8D+4B (2026-07-04)**: queue scope cleanup. Before P8D+4B, the
+> 03:10 cron called `_scan_pending_media(reports/)` (a pre-P8D+4B
+> path) which caused `pending_before=8` on every clean day because
+> terminal `replayed/` / `quarantine/` files and the historical
+> `queue-fix-backup-*/` snapshot were counted as pending. P8D+4B:
+>
+> 1. **Path fix**: the cron wrapper now passes
+>    `reports/runtime/` to the scanner (matching the canonical
+>    layout) and the daily-health internal call uses the same root.
+> 2. **Classification fix**: `_scan_pending_media` (in
+>    `artvee_daily_health_check.py`) now classifies every
+>    `.fallback-pending-*.json` into one of `active_pending`,
+>    `terminal_replayed`, `terminal_quarantine`, `results`,
+>    `backup_or_legacy`, `legacy_nested`, or `unknown`. Only the
+>    first bucket drives `pending_before` / `active_pending`.
+> 3. **Diagnostic surfaces**: `replay_pending_media.py --dry-run`
+>    prints the full bucket layout so a future regression in the
+>    scanner shows up immediately in the dry-run log.
+> 4. **Migration**: the historical `stable_dup/` directory under
+>    `queue-fix-backup-20260703-062946/`, plus the
+>    `daily-health/replayed/` and `daily-health/quarantine/`
+>    pathology subtrees, were moved to
+>    `reports/runtime/media-replay/legacy-cleaned/20260704/`
+>    (after a 44-file backup in
+>    `queue-scope-cleanup-backup-20260704-HHMMSS/`). Nothing in
+>    `legacy-cleaned/` is ever tracked by git.
+>
+> After P8D+4B a clean day reads
+> `pending_before=0, outcome=no_pending`; historical context
+> (`terminal_replayed`, `terminal_quarantine`, `ignored_backup`)
+> is surfaced in the same summary JSON so an operator can still
+> see "3 delivered this week" without that number tripping the
+> alarm threshold. The optional install workflow and the staged
+> allowlist are unchanged. Full design notes live in
+> `docs/MEDIA_REPLAY.md` § 12 and
+> `docs/RETROSPECTIVE.md` ("backup and terminal artifacts must
+> live outside the active queue scan").
 It exists for operators who want pending MEDIA to flush
 automatically 10 minutes after the 03:00 daily-health cron.
 

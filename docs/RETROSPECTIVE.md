@@ -1279,3 +1279,80 @@ descendants of each other: `reports/runtime/media-replay/pending/`,
 If the pending root and the archive roots share a prefix, the
 script must resolve the archive path from an absolute anchor,
 not from `pending_path.parent`.
+
+### § 2.27 · Backup and terminal artifacts must live outside the active queue scan (P8D+4B, 2026-07-04)
+
+**Trigger**: the 2026-07-04 03:10 media-replay cron wrote
+`pending_before=8, outcome=noop_zero_pending` on a day with zero
+newly-deferred MEDIA. The same day's `artvee_ops_status` correctly
+reported `pending_media=0` because `ops_status` called
+`_scan_pending_media(reports/runtime/daily-health/)` (the daily-health
+internal call) while the cron wrapper called
+`_scan_pending_media(reports/)` (the bare-reports path). Two
+scripts, one helper, two different counts — and the cron was the
+one emitting the noisy number.
+
+**Root cause chain**:
+1. `_scan_pending_media(report_dir)` was originally written for
+   `report_dir = reports/runtime/daily-health/`. The
+   `rel.startswith("replayed/")` filter assumed the **first**
+   segment of the relative path was already `replayed/` /
+   `quarantine/`. That assumption broke silently when the cron
+   wrapper (P8D-era) called it with `report_dir = reports/`
+   instead of `reports/runtime/`. The relative path then started
+   with `runtime/media-replay/replayed/...`, so the prefix
+   match always returned False and every terminal file was counted.
+2. The `queue-fix-backup-20260703-062946/stable_dup/` directory
+   (P8D+4 normalization's snapshot) was never excluded by the
+   scanner, so its 4 orphan `.fallback-pending-*.json` files
+   joined the count.
+3. `artvee_ops_status` (which scanned `daily-health/` directly,
+   not `runtime/`) happened to miss all three buckets, so the
+   two views disagreed by **8** on a clean day. Operators reading
+   the ops status (the friendlier number) would not have noticed
+   the cron summary was wrong — until they grepped the JSON.
+
+**Lesson 1 — both ends of a contract must be defensive**: the
+caller that passes the wrong root (`reports/` vs `reports/runtime/`)
+was a bug, but the *callee* trusting the prefix match was also
+a bug. A scan helper that filters by relative prefix without
+verifying the *base* it is computing those prefixes against is a
+latent foot-gun. From P8D+4B onward,
+`_scan_pending_media` always classifies by absolute segment match
+("does any segment equal `replayed` or `quarantine` *and* is its
+parent `media-replay` or `daily-health`?") rather than trusting
+the caller to pass the canonical root, and it tries to climb to
+`runtime/` if the caller passed bare `reports/`.
+
+**Lesson 2 — terminal states and snapshots are *not* pending**:
+a queue scan that treats delivered / quarantined / backup files
+as actionable will eventually emit a false-positive alarm. The
+caller must:
+- define a single, named *active pending root* (in our case
+  `media-replay/pending/` plus top-level `daily-health/`),
+- bucket everything else (`terminal_replayed`,
+  `terminal_quarantine`, `results`, `backup_or_legacy`,
+  `legacy_nested`, `unknown`) and surface those counts
+  separately, and
+- only let the *active* bucket drive the alarm threshold.
+
+**Lesson 3 — diagnosis-first, archive-second**: before doing the
+one-time cleanup, copy *everything* that the scanner could ever
+touch to `reports/runtime/media-replay/queue-scope-cleanup-backup-
+<timestamp>/` with `cp --parents` to preserve relative paths,
+then archive (not delete!) the archived artifacts to
+`reports/runtime/media-replay/legacy-cleaned/<YYYYMMDD>/`. The
+backup lets the operator reverse the cleanup *byte-for-byte*
+if a regression surfaces; the archive lets future scans
+ignore everything in `legacy-cleaned/` because the directory
+name itself is a `_NON_ACTIVE_ARCHIVE_HINTS` segment match.
+Anything under either tree is `reports/runtime/` and therefore
+git-ignored.
+
+**Operational rule (P8D+4B going forward)**: a clean day reads
+`pending_before=0, outcome=no_pending`. If the cron ever reports
+`pending_before > 0`, that means real work is queued — open the
+summary, look at `active_pending`, and decide whether to wait for
+transport to fully recover or run `bash
+scripts/artvee_media_replay_cron.sh --apply` manually. The
+`terminal_*` and `ignored_*` counts are visibility, not alarms.

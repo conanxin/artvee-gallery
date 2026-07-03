@@ -410,6 +410,34 @@ any deferred fallback files. The cron:
 * Uses `flock -n` on `reports/runtime/media-replay/.media-replay.lock` to prevent overlapping runs.
 * Never triggers download / refill / nightly batch / Pages push / `--approve`. Never retries retired URLs. Never widens the MEDIA allowlist.
 
+#### 9.9.1 P8D+4B: pending scope (active vs terminal vs backup)
+
+The `pending_before` field in `cron-<date>.json` is the **single
+alarm threshold** for replay. It is now defined strictly:
+
+| bucket | what it counts | drives `pending_before`? |
+|---|---|---|
+| `active_pending` | files in `media-replay/pending/` or top-level `daily-health/` | **yes** |
+| `terminal_replayed` | files in `media-replay/replayed/` (already delivered) | no |
+| `terminal_quarantine` | files in `media-replay/quarantine/` (delivery exhausted) | no |
+| `ignored_results` | aggregate `.replay-results-*.json` sidecars under `media-replay/results/` | no |
+| `ignored_backup` | anything inside `queue-fix-backup-*/`, `legacy-cleaned/`, or `stable_dup/` | no |
+| `nested_legacy` | self-recursive `replayed/replayed/` / `quarantine/quarantine/` paths | no |
+
+The pre-P8D+4B cron used to set `pending_before` to `8` on a clean
+day (terminal + backup noise counted). After P8D+4B a clean day
+reads `pending_before: 0, outcome: "no_pending"`, and `terminal_*`
+/ `ignored_*` surface the historical context separately so an
+operator can still see "yes, three files were delivered this week"
+without that number tripping the alarm.
+
+If you see `pending_before > 0`, **that means there is real work**:
+open `reports/runtime/media-replay/pending/` (or
+`reports/runtime/daily-health/.fallback-pending-*.json`) and inspect
+before deciding whether to replay. If you see
+`pending_before: 0` but `terminal_replayed > 0` etc., it is a
+**normal** day (replay already happened or quarantined).
+
 **Install (idempotent, marker-block based):**
 
 ```bash

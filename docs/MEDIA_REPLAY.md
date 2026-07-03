@@ -2,7 +2,7 @@
 
 > Artvee Gallery · Pending MEDIA replay workflow
 > Authored: 2026-06-18
-> Updated: 2026-07-01 (P8D+3: neutralized user-facing replay title + recovered-WARN contract)
+> Updated: 2026-07-04 (P8D+4B: pending scope cleanup — active vs terminal vs backup buckets)
 > Status: **Live** — verified end-to-end with synthetic and real Telegram sends.
 
 ## 1. Purpose
@@ -414,3 +414,126 @@ bash scripts/artvee_media_replay_cron.sh --no-transport-check
 The wrapper always writes a summary JSON. Ops status reads the
 latest summary so an operator can confirm the cron ran without
 tailing log files.
+
+## 12. P8D+4B: pending scope cleanup (2026-07-04)
+
+The **active pending** scope is now strictly defined. Anything that
+is *not* an actionable pending file is bucketed separately in the
+cron summary so the alarm threshold (``pending_before > 0``) is never
+falsely tripped by terminal state or historical backups.
+
+### Active pending root (the only thing that drives ``pending_before``)
+
+* ``reports/runtime/media-replay/pending/`` — top-level active queue
+* ``reports/runtime/daily-health/.fallback-pending-*.json`` —
+  top-level only (not nested under ``replayed/`` or ``quarantine/``)
+
+### Non-active buckets (counted, but never trigger ``pending_before``)
+
+| bucket | path | meaning |
+|---|---|---|
+| ``terminal_replayed`` | ``media-replay/replayed/*.json`` | already delivered (non-empty Telegram ``message_id``); append-only archive |
+| ``terminal_quarantine`` | ``media-replay/quarantine/*.json`` | delivery exhausted (``max_retries`` reached, invalid staged, corrupt JSON); append-only archive |
+| ``ignored_results`` | ``media-replay/results/.replay-results-*.json`` | aggregate JSON sidecars (not pending) |
+| ``ignored_backup`` | any segment containing ``queue-fix-backup-``, ``legacy-cleaned``, ``stable_dup`` | historical snapshots from earlier queue-normalization runs (P8D+4) and P8D+4B cleanup |
+| ``nested_legacy`` | any path segment with self-recursive ``replayed/replayed`` or ``quarantine/quarantine`` | pre-P8D+4 nesting pathology (now archived under ``legacy-cleaned/``) |
+
+### Cron summary semantics
+
+When the scanner succeeds and there is **no** active pending:
+
+```jsonc
+{
+  "outcome": "no_pending",         // was "noop_zero_pending" pre-P8D+4B; renamed for clarity
+  "pending_before": 0,
+  "active_pending": 0,
+  "active_replayable": 0,
+  "terminal_replayed": N,          // historical record
+  "terminal_quarantine": N,        // historical record
+  "ignored_results": N,
+  "ignored_backup": N,
+  "nested_legacy": 0,
+  "unknown_non_active": 0,
+  "scan_error": ""
+}
+```
+
+``pending_before`` and ``active_pending`` are **aliases** post-P8D+4B
+(they must always be equal for a healthy run). The cron wrapper
+passes ``reports/runtime`` (the canonical runtime root) to the
+scanner, so the scan path is now identical between the cron wrapper
+and ``artvee_ops_status._scan_pending_media``.
+
+### Why the rename ``noop_zero_pending`` → ``no_pending``?
+
+The pre-P8D+4B label was ambiguous: it read like a successful
+"zero-action" outcome but the *cause* was hidden inside
+``pending_before``. After scope cleanup the bucket layout is
+explicit, so the new name describes the actual state of the queue
+rather than the absence of side-effects. ``noop_zero_pending`` is
+still emitted (as the aggregate outcome inside
+``replay_pending_media.py`` when there is nothing to do) but the
+cron wrapper emits the stricter ``no_pending`` so downstream
+consumers can distinguish "nothing to do" from "tool wasn't reached".
+
+### Migration: the 2026-07-04 cleanup (one-time)
+
+A manual cleanup on 2026-07-04 moved all non-actionable
+``.fallback-pending-*.json`` files into
+``reports/runtime/media-replay/legacy-cleaned/20260704/``:
+
+| from | to |
+|---|---|
+| ``media-replay/queue-fix-backup-20260703-062946/stable_dup/`` | ``legacy-cleaned/20260704/queue-fix-backup-20260703-062946/stable_dup/`` |
+| ``daily-health/replayed/`` (and the nested pathology inside) | ``legacy-cleaned/20260704/daily-health/replayed/`` |
+| ``daily-health/quarantine/`` (and the nested pathology inside) | ``legacy-cleaned/20260704/daily-health/quarantine/`` |
+
+A full backup of all ``.fallback-pending-*.json``,
+``.replay-result-*.json``, ``.replay-results-*.json``,
+``.quarantine-*.json`` and ``.media-replay.lock`` files was written
+to ``reports/runtime/media-replay/queue-scope-cleanup-backup-20260704-HHMMSS/``
+(44 files, ~130K) before any move. Nothing in this directory tree is
+ever tracked by git; both the backup and the legacy-cleaned tree
+belong to ``reports/runtime/`` which is git-ignored.
+
+### Diagnostic recipes (post-cleanup)
+
+```bash
+# What is the cron about to do? (the only number that matters)
+python3 - <<'PY'
+import sys, json
+sys.path.insert(0, "scripts")
+from artvee_daily_health_check import _scan_pending_media
+from pathlib import Path
+print(json.dumps(_scan_pending_media(Path("reports/runtime")), indent=2))
+PY
+
+# Same scope, but for ``daily-health/`` only (ops status view):
+python3 - <<'PY'
+import sys, json
+sys.path.insert(0, "scripts")
+from artvee_daily_health_check import _scan_pending_media
+from pathlib import Path
+print(json.dumps(_scan_pending_media(Path("reports/runtime/daily-health")), indent=2))
+PY
+
+# Dry-run the full cron wrapper (no Telegram, no file moves).
+bash scripts/artvee_media_replay_cron.sh --dry-run --limit 5 --max-retries 3
+```
+
+### Lessons
+
+* **Backup and terminal artifacts must be outside the active queue
+  scan.** The pre-P8D+4B cron called ``_scan_pending_media(reports/)``
+  (instead of ``reports/runtime/``), which silently counted
+  ``replayed/`` and ``quarantine/`` files as pending because their
+  relative path didn't start with the expected ``replayed/`` /
+  ``quarantine/`` prefix. The crash was that the *caller* passed the
+  wrong root and the *callee* trusted the prefix match; both halves
+  need to be defensive.
+* **The active pending scope must be a single, named directory** under
+  which everything is unambiguously actionable. ``reports/runtime/
+  media-replay/pending/`` (when present) and ``daily-health/`` (top
+  level) are that scope. Anything else is a terminal artifact or a
+  historical archive and must live elsewhere.
+

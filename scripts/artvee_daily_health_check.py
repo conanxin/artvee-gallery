@@ -718,54 +718,165 @@ Action: {action}"""
 # P7B+3 helpers: pending MEDIA scan + transport probe
 # ---------------------------------------------------------------------------
 
+# Names of directory segments that are *not* active pending roots.
+# P8D+4B: backup snapshots, legacy-cleaned archives, results/, and the
+# stable terminal roots (replayed/, quarantine/) must never count toward
+# pending_before. We classify each candidate first, then only the
+# ``active_pending`` bucket drives the ``pending`` counter.
+_NON_ACTIVE_TERMINAL_DIRS = {"replayed", "quarantine", "results"}
+_NON_ACTIVE_ARCHIVE_HINTS = ("queue-fix-backup-", "legacy-cleaned", "stable_dup")
+
+
+def _classify_pending_path(p: Path, runtime_root: Path | None) -> str:
+    """Classify a ``.fallback-pending-*.json`` file path.
+
+    Returns one of:
+      ``active_pending``      → counts toward ``pending_before``.
+      ``terminal_replayed``   → under media-replay/replayed/ OR
+        daily-health/replayed/ (immediate child only).
+      ``terminal_quarantine`` → under media-replay/quarantine/ OR
+        daily-health/quarantine/ (immediate child only).
+      ``results``             → under media-replay/results/ (aggregate
+        sidecars; never actionable).
+      ``backup_or_legacy``    → under queue-fix-backup-*/, legacy-cleaned/,
+        or stable_dup/ (P8D+4B cleanup archive).
+      ``legacy_nested``       → any ancestor segment is a self-recursive
+        ``replayed/replayed`` or ``quarantine/quarantine`` (pathology
+        from pre-P8D+4B archives).
+      ``unknown``             → anything else (defensive).
+    """
+    parts = p.parts
+    # Backups / archived cleanup snapshots first (path-contains checks).
+    for hint in _NON_ACTIVE_ARCHIVE_HINTS:
+        if any(hint in seg for seg in parts):
+            return "backup_or_legacy"
+    # Nested pathology: any segment directly followed by another segment
+    # of the same name (e.g. ``replayed/replayed``, ``quarantine/quarantine``).
+    for i in range(len(parts) - 1):
+        if parts[i] == parts[i + 1] and parts[i] in _NON_ACTIVE_TERMINAL_DIRS:
+            return "legacy_nested"
+    # Stable terminal roots. We only count top-level terminal dirs as
+    # terminal; deeper nesting falls into ``legacy_nested`` above.
+    for i, seg in enumerate(parts):
+        # ``media-replay/replayed`` or ``media-replay/quarantine`` etc.
+        if seg in _NON_ACTIVE_TERMINAL_DIRS and i > 0 and parts[i - 1] in {
+            "media-replay", "daily-health"
+        }:
+            return (
+                "results" if seg == "results"
+                else f"terminal_{seg}"
+            )
+    return "active_pending"
+
+
 def _scan_pending_media(report_dir: Path) -> dict:
     """Count ``.fallback-pending-*.json`` and archive state in report_dir.
 
     This is a read-only scan; we never touch the pending files
     themselves. The ``replay_pending_media.py`` script is the only
     component that mutates / archives them.
+
+    P8D+4B scope fix:
+      * Active pending = files that live under the canonical pending
+        roots (``media-replay/pending/`` or ``daily-health/`` at the top
+        level, not nested under replayed/quarantine).
+      * Terminal states (replayed / quarantine), aggregate results, the
+        historical ``queue-fix-backup-*`` snapshot, and any new
+        ``legacy-cleaned/`` archive directory are **never** counted as
+        ``pending``. The cron summary's ``pending_before`` now reflects
+        only what ``replay_pending_media.py`` would actually attempt.
+      * Counts are split per bucket so downstream consumers (ops status,
+        message text) can surface non-actionable noise without falsifying
+        the alarm threshold.
     """
-    pending = 0
-    replayable = 0
-    quarantined = 0
+    active_pending = 0
+    active_replayable = 0
+    terminal_replayed = 0
+    terminal_quarantine = 0
+    ignored_results = 0
+    ignored_backup = 0
+    nested_legacy = 0
+    unknown = 0
     if not report_dir.exists():
-        return {"pending": pending, "replayable": replayable, "quarantined": quarantined}
+        return {
+            "pending": active_pending,
+            "replayable": active_replayable,
+            "quarantined": terminal_quarantine,
+            "active_pending": active_pending,
+            "active_replayable": active_replayable,
+            "terminal_replayed": terminal_replayed,
+            "terminal_quarantine": terminal_quarantine,
+            "ignored_results": ignored_results,
+            "ignored_backup": ignored_backup,
+            "nested_legacy": nested_legacy,
+            "unknown": unknown,
+        }
     try:
+        runtime_root = report_dir if report_dir.name == "runtime" else None
+        # If we were handed ``reports/`` (the pre-P8D+4B cron path),
+        # climb to ``reports/runtime/`` so we still locate media-replay
+        # correctly. The classification itself only needs the path's own
+        # segments.
+        if runtime_root is None:
+            candidate = report_dir / "runtime"
+            runtime_root = candidate if candidate.is_dir() else None
+
         for p in sorted(report_dir.rglob(".fallback-pending-*.json")):
             if not p.is_file():
                 continue
-            # P7B+3: skip files already archived (replayed / quarantine).
-            rel = p.relative_to(report_dir).as_posix() if report_dir in p.parents else ""
-            if rel.startswith("replayed/") or rel.startswith("quarantine/"):
-                continue
-            pending += 1
-            try:
-                doc = json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-                # Corrupt JSON: not safely replayable. Count as pending
-                # but not replayable.
-                continue
-            attempts = int(doc.get("attempts") or 0)
-            staged = doc.get("staged_report") or ""
-            if attempts < DEFAULT_MAX_RETRIES_PENDING and staged and Path(staged).is_file():
-                replayable += 1
-        # Count quarantine-archived pendings + sidecar records (for visibility).
-        quarantine_dir = report_dir / "quarantine"
-        if quarantine_dir.is_dir():
-            for q in sorted(quarantine_dir.glob(".fallback-pending-*.json")):
-                if q.is_file():
-                    quarantined += 1
-        for q in sorted(report_dir.rglob(".quarantine-*.json")):
-            if q.is_file() and (q.parent.name != "quarantine" or q.name.startswith(".quarantine-")):
-                if not (q.parent / ".fallback-pending-" + q.name[len(".quarantine-"):]).exists():
-                    # Sidecar that doesn't have a corresponding pending
-                    # — count it as quarantined record.
-                    quarantined += 1
+            cls = _classify_pending_path(p, runtime_root)
+            if cls == "active_pending":
+                active_pending += 1
+                try:
+                    doc = json.loads(p.read_text(encoding="utf-8"))
+                except Exception:
+                    # Corrupt JSON: counted as pending but not replayable.
+                    continue
+                attempts = int(doc.get("attempts") or 0)
+                staged = doc.get("staged_report") or ""
+                if attempts < DEFAULT_MAX_RETRIES_PENDING and staged and Path(staged).is_file():
+                    active_replayable += 1
+            elif cls == "terminal_replayed":
+                terminal_replayed += 1
+            elif cls == "terminal_quarantine":
+                terminal_quarantine += 1
+            elif cls == "results":
+                ignored_results += 1
+            elif cls == "backup_or_legacy":
+                ignored_backup += 1
+            elif cls == "legacy_nested":
+                nested_legacy += 1
+            else:
+                unknown += 1
     except Exception as e:
         # Defensive: never let the scan break the health check.
-        return {"pending": pending, "replayable": replayable, "quarantined": quarantined,
-                "scan_error": f"{type(e).__name__}: {e}"[:200]}
-    return {"pending": pending, "replayable": replayable, "quarantined": quarantined}
+        return {
+            "pending": active_pending,
+            "replayable": active_replayable,
+            "quarantined": terminal_quarantine,
+            "active_pending": active_pending,
+            "active_replayable": active_replayable,
+            "terminal_replayed": terminal_replayed,
+            "terminal_quarantine": terminal_quarantine,
+            "ignored_results": ignored_results,
+            "ignored_backup": ignored_backup,
+            "nested_legacy": nested_legacy,
+            "unknown": unknown,
+            "scan_error": f"{type(e).__name__}: {e}"[:200],
+        }
+    return {
+        "pending": active_pending,
+        "replayable": active_replayable,
+        "quarantined": terminal_quarantine,
+        "active_pending": active_pending,
+        "active_replayable": active_replayable,
+        "terminal_replayed": terminal_replayed,
+        "terminal_quarantine": terminal_quarantine,
+        "ignored_results": ignored_results,
+        "ignored_backup": ignored_backup,
+        "nested_legacy": nested_legacy,
+        "unknown": unknown,
+    }
 
 
 def _probe_transport(base_dir: Path, openclaw_bin) -> dict:

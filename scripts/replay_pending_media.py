@@ -183,34 +183,77 @@ def _pending_paths(root: Path) -> list[Path]:
     ``quarantine/`` directory (those are terminal states) and skip
     everything under a ``queue-fix-backup-*`` directory (those are
     immutable backups of pre-normalization state).
+
+    P8D+4B: also exclude ``reports/`` ancestors that point at cleanup
+    archives (``legacy-cleaned/``) or stable duplicates, and any path
+    that has self-recursive ``replayed/replayed`` / ``quarantine/quarantine``
+    nesting (pre-P8D+4 pathology).
     """
     if not root.exists():
         return []
+    # Reuse the canonical classifier from the daily-health module so the
+    # two scripts never disagree on what counts as active.
+    try:
+        from artvee_daily_health_check import _classify_pending_path
+    except Exception:
+        _classify_pending_path = None  # type: ignore
     out: list[Path] = []
     for p in root.rglob(PENDING_GLOB):
         if not p.is_file():
             continue
-        parts = p.parts
-        if any(part.startswith("queue-fix-backup-") for part in parts):
-            continue
-        # An active pending file must not already live under a terminal
-        # ``replayed/`` or ``quarantine/`` directory. The script uses
-        # ``reports/runtime/media-replay/{replayed,quarantine}/`` as the
-        # fixed terminal roots; we filter any path that descends into
-        # those.
-        in_replayed = False
-        in_quarantine = False
-        for i, seg in enumerate(parts):
-            if seg in ("replayed",) and i > 0 and parts[i - 1] == "media-replay":
-                in_replayed = True
-                break
-            if seg in ("quarantine",) and i > 0 and parts[i - 1] == "media-replay":
-                in_quarantine = True
-                break
-        if in_replayed or in_quarantine:
-            continue
+        if _classify_pending_path is not None:
+            cls = _classify_pending_path(p, None)
+            if cls != "active_pending":
+                continue
+        else:
+            # Fallback: at minimum honour the historical guards.
+            parts = p.parts
+            if any(part.startswith("queue-fix-backup-") for part in parts):
+                continue
+            skip = False
+            for i, seg in enumerate(parts):
+                if seg in ("replayed", "quarantine") and i > 0 and parts[i - 1] == "media-replay":
+                    skip = True
+                    break
+            if skip:
+                continue
         out.append(p)
     return sorted(out)
+
+
+def _non_active_scope(root: Path) -> dict[str, list[Path]]:
+    """Bucket every ``.fallback-pending-*.json`` under ``root`` by class.
+
+    Mirrors ``artvee_daily_health_check._classify_pending_path`` so the
+    dry-run diagnostic surfaces the same numbers the cron summary sees.
+    Returns a dict of bucket → list[Path], sorted within each bucket.
+    """
+    buckets: dict[str, list[Path]] = {
+        "active_pending": [],
+        "terminal_replayed": [],
+        "terminal_quarantine": [],
+        "results": [],
+        "backup_or_legacy": [],
+        "legacy_nested": [],
+        "unknown": [],
+    }
+    if not root.exists():
+        return buckets
+    try:
+        from artvee_daily_health_check import _classify_pending_path
+    except Exception:
+        _classify_pending_path = None  # type: ignore
+    for p in root.rglob(PENDING_GLOB):
+        if not p.is_file():
+            continue
+        if _classify_pending_path is not None:
+            cls = _classify_pending_path(p, None)
+        else:
+            cls = "unknown"
+        buckets.setdefault(cls, []).append(p)
+    for k in buckets:
+        buckets[k] = sorted(buckets[k])
+    return buckets
 
 
 def _archive_dir(root: Path, name: str) -> Path:
@@ -537,8 +580,22 @@ def main() -> int:
     print(f"[info] openclaw_bin = {args.openclaw_bin or '(use notifier default)'}")
 
     pendings = _pending_paths(pending_root)
+    # P8D+4B: scope diagnostic. Always show the bucket layout so the
+    # dry-run (and any apply run) confirms only ``active_pending``
+    # files are eligible, while still surfacing the historical noise
+    # (terminal / backup / nested legacy) for visibility.
+    scope = _non_active_scope(pending_root)
+    print("[scope] active_pending   =", len(scope.get("active_pending", [])))
+    print("[scope] terminal_replayed =", len(scope.get("terminal_replayed", [])))
+    print("[scope] terminal_quarantine =", len(scope.get("terminal_quarantine", [])))
+    print("[scope] results (aggregate sidecars) =", len(scope.get("results", [])))
+    print("[scope] backup_or_legacy =", len(scope.get("backup_or_legacy", [])))
+    print("[scope] legacy_nested =", len(scope.get("legacy_nested", [])))
+    if scope.get("unknown"):
+        print("[scope] unknown =", len(scope.get("unknown", [])))
+    print()
     if not pendings:
-        print("[ok] pending=0 (no .fallback-pending-*.json files under pending root)")
+        print("[ok] pending=0 (no active .fallback-pending-*.json under pending root)")
         # P8D+4: still write an aggregate JSON so the cron summary can
         # report ``pending=0`` with a consistent shape.
         today = datetime.now().strftime("%Y-%m-%d")
