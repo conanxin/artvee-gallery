@@ -591,6 +591,20 @@ build-script label fix remains.
 - **Content product polish** — promote the `KNOWN_RETIRED` table into the public demo's UI; consider a per-artist collection view; tune the digest `--max-per-artist` and `--exclude-risk` defaults if user feedback warrants it.
 - **Watch the P7E+2 signal-distortion fix for 7 days of clean runs** (i.e. through 2026-06-23) before considering the `online.kind` branches fully settled.
 
+### v0.2.1 · Release-prep 🔜 IN PROGRESS (2026-07-05)
+- **Status:** release-prep — documentation-only. The `P7B+1` / `P7B+2` / `P7B+3`, `P8A` / `P8A+1`, `P8B` / `P8C` / `P8D` / `P8D+1` / `P8D+2` / `P8D+3` / `P8D+4` / `P8D+4B` / `P8D+4C`, and `P8E` rows above document the actual work that closed between 2026-06-13 and 2026-07-04. v0.2.1 is the **release-prep** phase that aggregates them, not a new code phase.
+- **Scope of the release-prep commit:** `CHANGELOG.md` (top section `## v0.2.1 — 2026-07-05`), `docs/RELEASE_NOTES_v0.2.1.md` (new), `docs/PROJECT_STATUS.md` (P8D+4C verification row + v0.2.1 release-prep row), `docs/ROADMAP.md` (this entry), and at most a light note in `README.md` (100 → 200 selected works) and `docs/POST_STABLE_OPERATIONS.md`. **No code, no runtime data, no images / metadata / thumbs / dist / digests / web/data / index / inbox / logs / reports/runtime.**
+- **Verified (2026-07-05):** `check_open_source_ready.py` PASS, `check_gallery_integrity.py --strict` PASS (1206 records / 0 duplicates), `artvee_ops_status.sh --online --include-pages … --no-telegram` `records=875 retired=4 blocking=0 integrity=PASS readiness=PASS pending_media=0 transport=ok action=candidate_ready_manual_publish_optional`. Live endpoint probes: Public Gallery = **200 selected works**, Public Digest history = **9 entries** (latest 2026-06-12). P8D+4C real 03:10 cron write observed: `cron-2026-07-05.json` `dry_run=false outcome=no_pending pending_before=0 transport_status=ok transport_latency_ms=123 replay_message_ids=[] would_write_production_summary=true`.
+- **Known behavior carried into v0.2.1 notes** (deferred for cleanup, not bugs): `dry_run_summary_path` may equal `production_summary_path` in real `no_pending` summaries (authoritative signals: `dry_run=false` and `would_write_production_summary=true`); cleanup deferred to v0.2.2 / v0.3.0. The `records=875` (ops) vs. `1206` (strict integrity) difference is a metric-scope difference, not a bookkeeping drift.
+- **Tag / release:** **not** cut in this phase. v0.2.1 is **pending user approval** before the `v0.2.1` annotated tag and the GitHub Release are created.
+- See `<workspace>/reports/artvee-gallery-v0.2.1-release-prep-20260705.md`.
+
+### Next (post-v0.2.1 release-prep)
+- **Optional 7-day observation continuation** from 2026-07-05 (track daily-health, ops status, and the optional 03:10 media-replay cron log).
+- **v0.2.2 / v0.3.0 cleanup candidates** — tighten `dry_run_summary_path` semantics so it never aliases `production_summary_path`; revisit the bucket classifier as the queue grows; add an `ops_records` vs. `integrity_records` label to remove the 875-vs-1206 ambiguity.
+- **Future 300+ public gallery expansion** *only after* a performance review (page weight, first-paint time, CDN budget).
+- **v0.2.1 tag + GitHub Release** — cut after the 7-day observation window closes green and the user gives explicit approval.
+
 ### P7B+1 · Cron MEDIA delivery verification / failure-only fallback ✅ PASS (2026-06-13 04:30)
 - Refactored `telegram` JSON object: `requested` / `openclaw_status` / `text_summary{attempted,sent,message_id,error}` / `media{requested,staged,staged_path,sent,message_id,error,simulated_failure}` / `fallback{attempted,sent,message_id,reason}`.
 - Failure-only fallback: when health=PASS, text=sent, MEDIA=failed → a short text-only warning is sent (at most once per run, never recursive, does not change exit code).

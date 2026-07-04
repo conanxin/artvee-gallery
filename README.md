@@ -15,6 +15,14 @@ Latest release: **v0.2.0** (stable, 2026-06-16). See
 and [CHANGELOG.md](CHANGELOG.md).
 Previous pre-release: [v0.2.0-alpha](docs/RELEASE_NOTES_v0.2.0-alpha.md).
 
+> **v0.2.1 release-prep (2026-07-05):** CHANGELOG top section +
+> [docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md)
+> authored. Verified on 2026-07-05: `records=875 retired=4 blocking=0
+> integrity=PASS readiness=PASS pending_media=0 transport=ok`;
+> Public Gallery = 200 selected works; Public Digest history = 9
+> entries. **No `v0.2.1` tag cut yet, no GitHub Release published
+> yet** — pending user approval after the 7-day observation window.
+
 > **v0.2.0 is the first stable daily-operable release.**
 > 3-day observation window (2026-06-14 — 2026-06-16) closed green;
 > stable-readiness assessment (P7F) 15/15 PASS — see
@@ -259,7 +267,8 @@ For the full rationale and a risk surface, see
 
 | Document | What it covers |
 | --- | --- |
-| [docs/RELEASE_NOTES_v0.2.0-alpha.md](docs/RELEASE_NOTES_v0.2.0-alpha.md) | v0.2.0-alpha release notes (current) |
+| [docs/RELEASE_NOTES_v0.2.0-alpha.md](docs/RELEASE_NOTES_v0.2.0-alpha.md) | v0.2.0-alpha release notes |
+| [docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md) | v0.2.1 release notes (release-prep, not yet tagged) |
 | [CHANGELOG.md](CHANGELOG.md) | Aggregated changelog across versions |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Data flow, script responsibilities, generated-vs-tracked boundary |
 | [docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md) | What is and is not in this repository, and why |
@@ -304,9 +313,10 @@ publish step is always manual — there is no auto-publish cron.
 - ✅ **P5A–P5F** Content healing, visual QA, curation filters
 - ✅ **P6A–P6G** Telegram MEDIA staging, KNOWN_RETIRED, near-dup review, 30-day digest, approved publish
 - ✅ **P7A–P7B+1** Daily health check, Telegram cron, MEDIA failure-only fallback
-- ✅ **P7D** v0.2.0-alpha release consolidation (this release)
-- 🔜 **P8** automation polish (pre-flight dry-run, optional 02:55 pre-check cron, CI matrix for the cron installer)
-- 🔜 **v0.2.0 stable** — cut after a short observation window
+- ✅ **P7D** v0.2.0-alpha release consolidation
+- ✅ **P8A–P8E** post-stable ops polish, public-demo cards/filters, 03:10 media-replay cron + queue truthfulness + dry-run isolation (P8A, P8A+1, P8B, P8C, P8D, P8D+1, P8D+2, P8D+3, P8D+4, P8D+4B, P8D+4C, P8E — see [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md))
+- 🔜 **v0.2.1 release-prep** — `docs/RELEASE_NOTES_v0.2.1.md` authored; tag + GitHub Release pending user approval after 7-day observation
+- ✅ **v0.2.0 stable** — released 2026-06-16; latest stable public release (tag `v0.2.0`)
 - 🔜 **P3D** (legacy roadmap) has been superseded by P7D; the standalone public GitHub repository is the same as this one.
 - 🔜 **P3E** Public daily-digest page
 
@@ -321,7 +331,8 @@ commits — `scripts/check_open_source_ready.py` is your friend.
 
 ## Documentation
 
-- [docs/RELEASE_NOTES_v0.2.0-alpha.md](docs/RELEASE_NOTES_v0.2.0-alpha.md) — v0.2.0-alpha release notes (current)
+- [docs/RELEASE_NOTES_v0.2.0-alpha.md](docs/RELEASE_NOTES_v0.2.0-alpha.md) — v0.2.0-alpha release notes
+- [docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md) — v0.2.1 release notes (release-prep)
 - [CHANGELOG.md](CHANGELOG.md) — aggregated changelog across versions
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — technical deep-dive
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local setup, scripts, conventions
@@ -350,8 +361,12 @@ commits — `scripts/check_open_source_ready.py` is your friend.
 
 ![Gallery demo](docs/media/gallery-demo.png)
 
-A static subset of 100 curated thumbnails across 4 categories. Served
-from <https://conanxin.github.io/projects/artvee-gallery-demo/>.
+A static subset of 200 curated thumbnails across 4 categories. Served
+from <https://conanxin.github.io/projects/artvee-gallery-demo/>
+(record count live-verified 2026-07-05; was 100 prior to the
+v0.2.1-era `--gallery-limit` parameter; v0.2.1 release-prep
+documentation lives in
+[docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md)).
 
 ### Daily digest demo
 

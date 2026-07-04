@@ -5,6 +5,102 @@ format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/)
 in the form `vMAJOR.MINOR.PATCH-stage` (pre-1.0).
 
+## v0.2.1 - 2026-07-05 (release-prep)
+
+> **Status:** release-prep, **not yet tagged**. Awaiting user
+> approval before the `v0.2.1` annotated tag is cut and before
+> publishing the GitHub Release. No tag and no GitHub Release have
+> been created in this phase. See
+> [docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md) for
+> the full narrative.
+
+### Added
+- **`scripts/artvee_media_replay_cron.sh`** + **`scripts/install_media_replay_cron.sh`** — optional 03:10 Asia/Shanghai media-replay cron with idempotent installer and a marker so the operator sees the same install-state on every re-run (P8D).
+- **`scripts/replay_pending_media.py`** — pending-MEDIA replay workflow with per-bucket `delivered` / `quarantined` reporting, normalized `media-replay/{replayed,quarantine,results}/` tree, and `message_id`-based delivery truth (P7B+3, P8D+4).
+- **`scripts/check_openclaw_transport.py`** — pre-flight OpenClaw transport health check used by replay and by ops status (P7B+3, P8D+4).
+- **`scripts/artvee_ops_status.sh`** + **`scripts/artvee_ops_status.py`** — one-shot post-stable ops status aggregator (records, retired, blocking, integrity, readiness, pending media, transport, Pages guard, public-endpoint HTTP probe) (P8A).
+- **`scripts/install_artvee_cron.sh`** — unified installer for refill / batch / confirm / daily-health cron with shared PATH / `CRON_TZ` hardening (P8D+1).
+- **`docs/MEDIA_REPLAY.md`** — media-replay queue, optional 03:10 cron, and dry-run semantics end-to-end (P8D → P8D+4C).
+- **`docs/POST_STABLE_OPERATIONS.md`** — `artvee_ops_status.sh` reference (P8A, P8A+1).
+- **`docs/DAILY_OPERATING_PLAYBOOK.md`** — daily operating timeline + commands + failure playbook (P7A → P8D+4C).
+- **`docs/RETROSPECTIVE.md`** — phase-by-phase retrospective including post-stable automation polish (P7A → P8D+4C).
+- **`docs/RELEASE_NOTES_v0.2.1.md`** — release-prep notes for this version.
+- **`docs/DIGEST_HISTORY.md`** — 30-day digest history reference and selection semantics.
+
+### Changed
+- **`scripts/artvee_daily_health_check.py`** — gain (post v0.2.0) the `--include-pages` Pages-guard flag and the staged-MEDIA / transport-deferred fallback path. Strict-mode `--no-telegram` continues to be the CI baseline.
+- **`scripts/artvee_telegram_notify.py`** — chat-id resolver: `--chat-id` CLI > `ARTVEE_TELEGRAM_CHAT_ID` env > OpenClaw config > hard error; `--check-config` flag added (P8D+2).
+- **`scripts/stage_report_for_telegram_media.py`** — staged-only MEDIA delivery; transport-deferred fallback now treated as a normal sub-track (P7B+2).
+- **`scripts/install_daily_health_cron.sh`** — exports `PATH=$HOME/.local/bin:$PATH` on its own line so cron does not strip it (P8D+1).
+- **`scripts/confirm_demo_refresh.sh`** — `--gallery-limit` parameter (default 100, configurable up to 200+) (P8E).
+- **`scripts/export_artvee_gallery_public_demo.py`** + **`scripts/export_artvee_digest_public_page.py`** — info card + 30-day archive cards + filters; data minimization unchanged (P8B, P8C).
+- **`README.md`** — operational model row updated to include the optional 03:10 media-replay cron (manual install only); docs index now lists `docs/POST_STABLE_OPERATIONS.md`, `docs/DIGEST_HISTORY.md`, `docs/MEDIA_REPLAY.md`. *(The "200 selected works" light note is added as part of this release-prep; the status badge stays at v0.2.0 until v0.2.1 is tagged.)*
+
+### Fixed
+- **Cron `PATH` stripped by cron env** — P8D+1 splits `PATH=` and `CRON_TZ=` onto their own lines so the daily-health, refill, batch, and media-replay crons all see `$HOME/.local/bin`. The 03:10 media-replay cron had been silently failing because `openclaw` could not be resolved.
+- **Chat-id silently dropped during `--check-config`** — `artvee_telegram_notify.py` no longer treats a missing chat-id as a silent success: it now surfaces the resolved / unresolved state (P8D+2).
+- **Media-replay verification messaging** — neutralized the user-facing replay title so a successfully-replayed MEDIA does not look like a failure to the operator (P8D+3).
+- **Media-replay queue infinite-nesting bug** — `_archive_dir` no longer appends `replayed/` repeatedly across runs; pre-fix files normalized to the stable `media-replay/{replayed,quarantine,results}/` tree (P8D+4).
+- **Delivery truth in `replay_one`** — replay result is now computed from the `message_id` returned by OpenClaw, not from the candidate file's existence (P8D+4).
+- **`_extract_message_id` regex** — updated for OpenClaw's `messageId=` journal format (P8D+4).
+- **Cron `outcome` naming** — renamed `noop_zero_pending` to `no_pending`; per-bucket breakdown added to the cron summary JSON (P8D+4B).
+- **Dry-run summary isolated** — `--dry-run` writes now go to `reports/runtime/media-replay/dry-run/cron-YYYY-MM-DD-YYYYMMDD-HHMMSS.json` and never overwrite the production slot; `flock`-held dry-runs record `dry_run_skipped_locked` to the dry-run slot only (P8D+4C).
+
+### Verified (2026-07-05, real cron, `dry_run=false`)
+- `scripts/check_open_source_ready.py` → **PASS** (4/4 sub-checks).
+- `scripts/check_gallery_integrity.py --strict` → **PASS** (1206 records / 0 duplicates).
+- `scripts/artvee_ops_status.sh --online --include-pages --pages-repo <pages-repo> --no-telegram` → `records=875 retired=4 blocking=0 integrity=PASS readiness=PASS pending_media=0 transport=ok action=candidate_ready_manual_publish_optional`.
+- Public Gallery (live endpoint probe): **200 selected works**.
+- Public Digest history (live endpoint probe): **9 entries** (latest 2026-06-12).
+- `reports/runtime/media-replay/cron-2026-07-05.json` exists (1.1K, written 03:10 Asia/Shanghai):
+  - `dry_run=false`, `outcome=no_pending`, `real_outcome=no_pending`,
+  - `pending_before=0`, `pending_after=` (suppressed because no-pending),
+  - `replay_delivered=0`, `replayed=0`, `quarantined=0`, `failed=0`,
+  - `replay_message_ids=[]` (semantically correct for `no_pending`),
+  - `transport_status=ok`, `transport_latency_ms=123`,
+  - `production_summary_path` and `dry_run_summary_path` both point at the production slot (see **Known behavior**),
+  - `would_write_production_summary=true`,
+  - `started_at=2026-07-05T03:10:01+08:00`.
+
+### Known behavior
+- **Dry-run vs production summary path aliasing.** In real
+  `no_pending` media-replay summaries, the
+  `dry_run_summary_path` field equals the `production_summary_path`
+  field (both point at the production
+  `reports/runtime/media-replay/cron-YYYY-MM-DD.json` slot). The
+  authoritative signals are `dry_run=false` and
+  `would_write_production_summary=true`; the
+  `dry_run_summary_path` is informational and is intentionally
+  permitted to alias the production path in this case. **Cleanup
+  of this semantic lives in v0.2.2 / v0.3.0**. `--dry-run` *flag*-driven
+  writes go to
+  `reports/runtime/media-replay/dry-run/cron-YYYY-MM-DD-YYYYMMDD-HHMMSS.json`
+  and never overwrite the production slot — that path is fully
+  isolated.
+- **`records` count difference.** Ops status reports
+  `records=875` while `check_gallery_integrity.py --strict`
+  reports `1206`. These are two different metrics (ops / public /
+  current-status scope vs. strict-integrity scope) and should not
+  be presented as the same field. See the release notes
+  "A note on `records` numbers" section.
+- **Refill / batch notifier PATH follow-up.** P8D+1 hardens the
+  cron PATH resolution; if a future environment changes the
+  user's `$HOME` layout, the notifier may emit a `would_block`
+  warning on the first daily-health run after the change. Data
+  artifacts are unaffected. Reserved as P8D+4 follow-up if still
+  unresolved at end of observation.
+
+### Safety (release-prep only)
+- No download / refill / batch / `--approve` / Pages push /
+  retired retry / manual MEDIA replay during this release-prep.
+- No `images/` / `metadata/` / `thumbs/` / `dist/` / `digests/`
+  / `logs/` / `inbox/` / `web/data/` / `index/` /
+  `reports/runtime/` / `tmp/` modification.
+- No tokens / chat ids / real local paths in tracked code or
+  docs; CI enforces this on every push.
+- No `v0.2.1` tag cut in this phase (awaiting user approval).
+- No GitHub Release published in this phase.
+
 ## v0.2.0 (stable, 2026-06-16)
 
 > First **stable** daily-operable release. Identical surface to

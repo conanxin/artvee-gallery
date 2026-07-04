@@ -4,6 +4,13 @@
 > Authored: 2026-06-18
 > Status: **Live** — verified end-to-end with one real Telegram + MEDIA
 > send (message_id=25149, transport healthy, no side effects).
+>
+> **v0.2.1 release-prep (2026-07-05):** verified live on 2026-07-05
+> with `records=875 retired=4 blocking=0 integrity=PASS readiness=PASS
+> pending_media=0 transport=ok` and the optional 03:10 media-replay
+> cron running cleanly (`dry_run=false`, `outcome=no_pending`). See
+> [docs/RELEASE_NOTES_v0.2.1.md](RELEASE_NOTES_v0.2.1.md) and
+> [CHANGELOG.md](../CHANGELOG.md) § v0.2.1.
 
 ## 1. Purpose
 
