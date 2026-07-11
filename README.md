@@ -24,7 +24,7 @@ Previous pre-release: [v0.2.0-alpha](docs/RELEASE_NOTES_v0.2.0-alpha.md).
 > reappear silently; on 2026-07-11 live counts are
 > `library_records=1286`, `manifest_downloaded=1290`,
 > `manifest_pending=54`, `manifest_failed=10`, `known_retired=4`.
-> Public Gallery = 200 selected works; Public Digest history = 9
+> Public Gallery = 300 selected works; Public Digest history = 9
 > entries. **No `v0.2.1` tag cut yet, no GitHub Release published
 > yet** — pending user approval.
 
@@ -367,7 +367,7 @@ commits — `scripts/check_open_source_ready.py` is your friend.
 
 ![Gallery demo](docs/media/gallery-demo.png)
 
-A static subset of 200 curated thumbnails across 4 categories. Served
+A static subset of 300 curated thumbnails across 4 categories. Served
 from <https://conanxin.github.io/projects/artvee-gallery-demo/>
 (record count live-verified 2026-07-05; was 100 prior to the
 v0.2.1-era `--gallery-limit` parameter; v0.2.1 release-prep

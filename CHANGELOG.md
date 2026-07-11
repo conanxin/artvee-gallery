@@ -85,9 +85,9 @@ in the form `vMAJOR.MINOR.PATCH-stage` (pre-1.0).
 - **`scripts/artvee_telegram_notify.py`** — chat-id resolver: `--chat-id` CLI > `ARTVEE_TELEGRAM_CHAT_ID` env > OpenClaw config > hard error; `--check-config` flag added (P8D+2).
 - **`scripts/stage_report_for_telegram_media.py`** — staged-only MEDIA delivery; transport-deferred fallback now treated as a normal sub-track (P7B+2).
 - **`scripts/install_daily_health_cron.sh`** — exports `PATH=$HOME/.local/bin:$PATH` on its own line so cron does not strip it (P8D+1).
-- **`scripts/confirm_demo_refresh.sh`** — `--gallery-limit` parameter (default 100, configurable up to 200+) (P8E).
+- **`scripts/confirm_demo_refresh.sh`** — `--gallery-limit` parameter (default 100, configurable up to 300+) (P8E).
 - **`scripts/export_artvee_gallery_public_demo.py`** + **`scripts/export_artvee_digest_public_page.py`** — info card + 30-day archive cards + filters; data minimization unchanged (P8B, P8C).
-- **`README.md`** — operational model row updated to include the optional 03:10 media-replay cron (manual install only); docs index now lists `docs/POST_STABLE_OPERATIONS.md`, `docs/DIGEST_HISTORY.md`, `docs/MEDIA_REPLAY.md`. *(The "200 selected works" light note is added as part of this release-prep; the status badge stays at v0.2.0 until v0.2.1 is tagged.)*
+- **`README.md`** — operational model row updated to include the optional 03:10 media-replay cron (manual install only); docs index now lists `docs/POST_STABLE_OPERATIONS.md`, `docs/DIGEST_HISTORY.md`, `docs/MEDIA_REPLAY.md`. *(The "300 selected works" light note is added as part of this release-prep; the status badge stays at v0.2.0 until v0.2.1 is tagged.)*
 
 ### Fixed
 - **Cron `PATH` stripped by cron env** — P8D+1 splits `PATH=` and `CRON_TZ=` onto their own lines so the daily-health, refill, batch, and media-replay crons all see `$HOME/.local/bin`. The 03:10 media-replay cron had been silently failing because `openclaw` could not be resolved.
@@ -103,7 +103,7 @@ in the form `vMAJOR.MINOR.PATCH-stage` (pre-1.0).
 - `scripts/check_open_source_ready.py` → **PASS** (4/4 sub-checks).
 - `scripts/check_gallery_integrity.py --strict` → **PASS** (1206 records / 0 duplicates).
 - `scripts/artvee_ops_status.sh --online --include-pages --pages-repo <pages-repo> --no-telegram` → `records=875 retired=4 blocking=0 integrity=PASS readiness=PASS pending_media=0 transport=ok action=candidate_ready_manual_publish_optional`.
-- Public Gallery (live endpoint probe): **200 selected works**.
+- Public Gallery (live endpoint probe): **300 selected works**.
 - Public Digest history (live endpoint probe): **9 entries** (latest 2026-06-12).
 - `reports/runtime/media-replay/cron-2026-07-05.json` exists (1.1K, written 03:10 Asia/Shanghai):
   - `dry_run=false`, `outcome=no_pending`, `real_outcome=no_pending`,

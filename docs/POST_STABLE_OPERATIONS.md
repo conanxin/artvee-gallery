@@ -107,7 +107,7 @@ sources are reported as `unknown`):
 | `metrics.gallery_records` | live | `len(web/data/artworks.json)` |
 | `metrics.disk_images` | live | `find images -type f` excluding `.gitkeep` |
 | `metrics.manifest_*` | live | Manifest lifecycle counts from `inbox/manifest.csv` |
-| `metrics.public_records` | live + `--online` | Public Gallery export size (200 default) |
+| `metrics.public_records` | live + `--online` | Public Gallery export size (300 default) |
 | `metrics.integrity_checked_records` | live | integrity checker scope (NOT a library size) |
 | `metrics_source_mode` | live | `live` or `fallback_cache` |
 | `metrics_age_seconds` / `metrics_stale` | live | freshness block; P9F+1 § 4 |

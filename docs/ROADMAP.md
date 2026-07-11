@@ -602,7 +602,7 @@ build-script label fix remains.
 ### Next (post-v0.2.1 release-prep)
 - **Optional 7-day observation continuation** from 2026-07-05 (track daily-health, ops status, and the optional 03:10 media-replay cron log).
 - **v0.2.2 / v0.3.0 cleanup candidates** — tighten `dry_run_summary_path` semantics so it never aliases `production_summary_path`; revisit the bucket classifier as the queue grows; add an `ops_records` vs. `integrity_records` label to remove the 875-vs-1206 ambiguity.
-- **Future 300+ public gallery expansion** *only after* a performance review (page weight, first-paint time, CDN budget).
+- **Future 300+ public gallery expansion** — *P9G (2026-07-12)* expanded to 300 selected works (was 200); 17 MB gallery bundle (within 20 MB hard limit); performance review deferred to future phase if needed.
 - **v0.2.1 tag + GitHub Release** — cut after the 7-day observation window closes green and the user gives explicit approval.
 
 ### P7B+1 · Cron MEDIA delivery verification / failure-only fallback ✅ PASS (2026-06-13 04:30)

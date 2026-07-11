@@ -47,7 +47,7 @@ and one CI-enforced invariant.
 
 - The integrity checker still PASSes on the same data — its scope
   labels are renamed, but the gate logic does not change.
-- The Public Gallery export is still **200 selected works** (a
+- The Public Gallery export is now **300 selected works** (a
   diverse sample, *not* the library size).
 
 ### Migration recipe
@@ -70,7 +70,7 @@ Readiness: PASS
 Metrics: LIVE, age=0s, stale=False
 Retired: known_retired=4, blocking_unresolved=0
 ...
-Public Gallery: 200 selected works     # <-- separate from HTTP code
+Public Gallery: 300 selected works     # <-- separate from HTTP code
 Online HTTP: gallery=200, digest=200   # <-- explicit "HTTP" label
 ```
 
@@ -85,7 +85,7 @@ Online HTTP: gallery=200, digest=200   # <-- explicit "HTTP" label
 | Manifest downloaded | 1290 |
 | Manifest pending | 54 |
 | Manifest failed | 10 |
-| Public records | 200 |
+| Public records | 300 |
 | Integrity checked records | 1355 |
 | Metrics source | live |
 | Metrics age (seconds) | 0 |
@@ -399,7 +399,7 @@ A healthy v0.2.1 installation reports:
   bucket-classifier as the queue grows; consider adding an
   `ops_records` vs. `integrity_records` split label to remove the
   `875 vs 1206` ambiguity documented above.
-- **Future 300+ public gallery expansion** *only after* a
+- **Future 400+ public gallery expansion** *only after* a
   performance review (page weight, first-paint time, CDN budget)
   to make sure the static bundle stays CDN-friendly.
 - **Tag and GitHub Release.** After the 7-day observation window

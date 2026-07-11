@@ -17,7 +17,7 @@ one schema, one collector, one source of truth, and one freshness rule.
 | `875` | `artvee-status-report.json.records` (cached, frozen 2026-06-18) | `web/data/gallery_stats.json` via `build_artvee_status_report.py` | Stale 23 days relative to actual growth |
 | `1093` | Manifest lifecycle cumulative (downloads ever accumulated) | `inbox/manifest.csv` `status=downloaded` count | Counts retries, known_retired placeholders, and successful first-tries |
 | `1206` | `check_gallery_integrity.py --strict` row counters across three sources | `manifest.rows + index.rows + web.records` | Integrity checker's own scope; not a single library number |
-| `200` | Public Gallery export limit | `export_artvee_gallery_public_demo.py --limit 200` | A diverse sample of the library, not its size |
+| `300` | Public Gallery export limit | `export_artvee_gallery_public_demo.py --limit 300` | A diverse sample of the library, not its size |
 
 ## 2. Canonical schema — `artvee-metrics-v1`
 
