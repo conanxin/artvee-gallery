@@ -316,15 +316,29 @@ def render_text(
 ) -> tuple[str, int]:
     """Return (text, exit_code)."""
     lines: list[str] = []
+    # P9F+1: clarify checker scope up front so an unannotated "records=N"
+    # line cannot be confused with the local library count. The numbers
+    # this script emits are CHECKER SCOPE — manifest row count, index
+    # row count, web records count. They are *not* the canonical
+    # ``library_records``. See docs/METRICS_MODEL.md.
     lines.append("== Gallery integrity check ==")
+    lines.append("")
+    lines.append(
+        "Note: 'rows'/'records' lines below are the integrity checker's own "
+        "scope counters, not the canonical library_records. Use "
+        "scripts/artvee_metrics.py for the canonical numbers."
+    )
     lines.append("")
 
     # 1. Manifest
-    lines.append("[1/3] inbox/manifest.csv")
+    lines.append("[1/3] inbox/manifest.csv (checker scope: manifest_integrity_checked_records)")
     if not manifest["exists"]:
         lines.append(f"  SKIP   {manifest.get('skip_reason', 'missing')}")
     else:
-        lines.append(f"  rows:               {manifest['rows']}")
+        lines.append(
+            f"  rows:               {manifest['rows']}  "
+            f"(= manifest_integrity_checked_records)"
+        )
         lines.append(f"  downloaded:         {manifest['downloaded_rows']}")
         lines.append(f"  unique urls:        {manifest['unique_urls']}")
         lines.append(
@@ -336,11 +350,14 @@ def render_text(
     lines.append("")
 
     # 2. Index
-    lines.append("[2/3] index/artworks.csv")
+    lines.append("[2/3] index/artworks.csv (checker scope: index_integrity_checked_rows)")
     if not index["exists"]:
         lines.append(f"  SKIP   {index.get('skip_reason', 'missing')}")
     else:
-        lines.append(f"  rows:                       {index['rows']}")
+        lines.append(
+            f"  rows:                       {index['rows']}  "
+            f"(= index_integrity_checked_rows)"
+        )
         lines.append(
             f"  unique image basenames:     {index['unique_image_basenames']}"
         )
@@ -354,11 +371,14 @@ def render_text(
     lines.append("")
 
     # 3. Web
-    lines.append("[3/3] web/data/artworks.json")
+    lines.append("[3/3] web/data/artworks.json (checker scope: web_integrity_checked_records)")
     if not web["exists"]:
         lines.append(f"  SKIP   {web.get('skip_reason', 'missing')}")
     else:
-        lines.append(f"  records:                    {web['records']}")
+        lines.append(
+            f"  records:                    {web['records']}  "
+            f"(= web_integrity_checked_records)"
+        )
         lines.append(f"  unique ids:                 {web['unique_ids']}")
         lines.append(
             f"  duplicate id groups:        {web['duplicate_id_groups']}"
@@ -489,9 +509,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print()
         print("--- JSON ---")
+        # P9F+1: surface the checker scope at the top level so JSON
+        # consumers that glob for `records` cannot mistake a checker
+        # counter for the canonical library count.
+        scope = {
+            "schema_version": "artvee-metrics-v1",
+            "scope_kind": "integrity_checker_scope",
+            "scope_description": (
+                "These counts are the integrity checker's own per-source row "
+                "counters; they are NOT the canonical library_records. Use "
+                "scripts/artvee_metrics.py for canonical numbers."
+            ),
+            "manifest_integrity_checked_records": manifest.get("rows", 0),
+            "index_integrity_checked_rows": index.get("rows", 0),
+            "web_integrity_checked_records": web.get("records", 0),
+        }
         print(
             json.dumps(
                 {
+                    "integrity_checker_scope": scope,
                     "manifest": manifest,
                     "index": index,
                     "web": web,

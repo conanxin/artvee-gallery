@@ -14,6 +14,59 @@ in the form `vMAJOR.MINOR.PATCH-stage` (pre-1.0).
 > [docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md) for
 > the full narrative.
 
+### v0.2.1 — P9F+1 (Metrics Normalization, appended 2026-07-11)
+
+> **Status:** appended to v0.2.1 release-prep. v0.2.1 has not been
+> tagged yet; this commit is included in the v0.2.1 cutoff.
+
+#### Added
+- **`scripts/artvee_metrics.py`** — the single canonical collector
+  (schema `artvee-metrics-v1`). Powers every caller below.
+- **`scripts/check_artvee_metrics.py`** — 20-invariant regression
+  runnable in CI; exits non-zero on any violation (mismatch,
+  inconsistency, leak). Includes a `secret / path-leak` scan so
+  hard-coded paths can never re-enter the schema.
+- **`docs/METRICS_MODEL.md`** — the canonical model document
+  (sources, fields, invariants, freshness, migration recipe).
+
+#### Changed
+- **`scripts/build_artvee_status_report.py`** — emits the canonical
+  metrics block plus a deprecated top-level `records` alias. Atomic
+  write. Honors `ARTVEE_STATUS_MAX_AGE_SECONDS`.
+- **`scripts/artvee_daily_health_check.py`** — **live-collects in
+  process every run** (no more silent read of the cached JSON).
+  Telegram text now shows `Library records:` and `Online HTTP:`
+  separately. **CI runnable in `--no-telegram --strict` mode.**
+- **`scripts/artvee_ops_status.py`** — same; `recommended_action`
+  enum gains `attention_required_metrics_stale` for fallback
+  scenarios.
+- **`scripts/check_gallery_integrity.py`** — labels per-source
+  counters as `manifest_integrity_checked_records`,
+  `index_integrity_checked_rows`, `web_integrity_checked_records`;
+  JSON output gains an `integrity_checker_scope` block. **The
+  integrity gate logic itself is unchanged** (no false PASS, no
+  false FAIL).
+- **`docs/PROJECT_STATUS.md`** + **`docs/ROADMAP.md`** + **`docs/POST_STABLE_OPERATIONS.md`** +
+  **`docs/DAILY_OPERATING_PLAYBOOK.md`** + **`docs/RELEASE_NOTES_v0.2.1.md`** — removed
+  references to frozen `records=875` and `1206` numbers, replaced
+  with live count semantics.
+
+#### Fixed
+- **Stale status snapshots that could keep reporting an old library count
+  while acquisition continued.** Pre P9F+1, `artvee-status-report.json`
+  was last regenerated on 2026-06-18 and the Ops Status / Daily Health
+  text surfaces kept quoting `records=875` while the local library was
+  at the true live count. Every canonical caller now collects fresh
+  state on every run and falls back to a clearly-labelled `fallback_cache`
+  if the live collect fails (with `recommended_action =
+  attention_required_metrics_stale` and a specific `stale_reason`).
+
+#### Schema
+- The metrics model is now `artvee-metrics-v1`. The single backward
+  compatibility alias is `records` → `metrics.library_records`,
+  with `records_semantics: "library_records"` and
+  `records_deprecated: true`. The alias will be removed in v0.3.0.
+
 ### Added
 - **`scripts/artvee_media_replay_cron.sh`** + **`scripts/install_media_replay_cron.sh`** — optional 03:10 Asia/Shanghai media-replay cron with idempotent installer and a marker so the operator sees the same install-state on every re-run (P8D).
 - **`scripts/replay_pending_media.py`** — pending-MEDIA replay workflow with per-bucket `delivered` / `quarantined` reporting, normalized `media-replay/{replayed,quarantine,results}/` tree, and `message_id`-based delivery truth (P7B+3, P8D+4).

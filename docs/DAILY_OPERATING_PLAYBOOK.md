@@ -26,16 +26,18 @@
 
 A healthy Artvee system looks like this:
 
-| Metric | Healthy Value |
-|--------|--------------|
-| records | ~750–800 (grows slowly) |
-| failed | 0 (or small transient) |
-| known_retired | 4 (or small, audited) |
-| blocking_unresolved | 0 |
-| strict_integrity | PASS |
-| candidate QA | PASS |
-| public demo | 200 OK |
-| public digest | 200 OK |
+| Metric | Healthy Value | Note |
+|---|---|---|
+| library_records | live count | canonical available works |
+| manifest_downloaded | monotonically grows | cumulative manifest lifecycle |
+| manifest_pending | < 100 | should not grow unbounded |
+| manifest_failed | < 20 | mostly transient; 1× HTTP 404 candidate → known_retired |
+| known_retired | 4 (today) | audited, not blocking |
+| blocking_unresolved | 0 | readiness gate |
+| strict_integrity | PASS | P9F+1 introduces `integrity_checker_scope` block |
+| candidate QA | PASS |  |
+| public demo | 200 OK | HTTP code, not record count |
+| public digest | 200 OK | HTTP code, not record count |
 
 **Note:** `known_retired` is not a failure. It is an audited list of URLs that are intentionally not retried.
 
@@ -786,9 +788,9 @@ During the observation window (2026-06-14 — 2026-06-16), run this each morning
 ```markdown
 - [ ] 03:00 Telegram message received
 - [ ] MEDIA attachment present (or fallback text sent)
-- [ ] records within ~750–800
-- [ ] failed == 0
-- [ ] known_retired == 4
+- [ ] library_records within the expected range (use `python3 scripts/check_artvee_metrics.py --json | jq .metrics.library_records` for the live number; see [docs/METRICS_MODEL.md](METRICS_MODEL.md))
+- [ ] `manifest_pending` < 100 (P9F+1 includes this as a check-artvee invariant)
+- [ ] `known_retired` == 4
 - [ ] blocking_unresolved == 0
 - [ ] integrity == PASS
 - [ ] readiness == PASS
@@ -832,7 +834,7 @@ bash scripts/artvee_daily_health_check.sh --no-telegram
 
 Expected output:
 
-- records near 776 (± a few per nightly batch).
+- records (alias for `library_records`) consistent with `metrics.library_records`.
 - `known_retired=4`, `blocking_unresolved=0`.
 - `strict_integrity=pass`, `public_demo_ready=True`, `digest_ready=True`.
 - Open-source readiness: 4/4 PASS.

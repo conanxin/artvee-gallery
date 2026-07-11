@@ -66,6 +66,8 @@
 || **P8D+4C** | Dry-run summary isolation (2026-07-04: `--dry-run` previously overwrote the production `cron-YYYY-MM-DD.json` silently; P8D+4C routes dry-run writes to `reports/runtime/media-replay/dry-run/cron-YYYY-MM-DD-YYYYMMDD-HHMMSS.json` (timestamp suffix) and never touches the production slot. Added `dry_run`, `production_summary_path`, `dry_run_summary_path`, `would_write_production_summary` fields to every summary JSON; dry-run `outcome` relabeled to `dry_run_<real_outcome>` with `real_outcome` preserved for forensics. Negative-test recipe (sha256 + mtime before/after dry-run) verifies the production summary is byte-identical; flock-held dry-run writes `dry_run_skipped_locked` to the dry-run slot, not the production slot. integrity --strict PASS; readiness PASS) | ✅ PASS | 2026-07-04 | `<workspace>/reports/artvee-gallery-p8d4c-dryrun-summary-isolation-20260704.md` |
 || **P8D+4C real cron verification (2026-07-05)** | Real 03:10 Asia/Shanghai cron wrote `reports/runtime/media-replay/cron-2026-07-05.json` (1.1K) with `dry_run=false`, `outcome=no_pending`, `pending_before=0`, `transport_status=ok`, `transport_latency_ms=123`, empty `replay_message_ids`, `would_write_production_summary=true`. Dry-run / production slot isolation confirmed: no `cron-2026-07-05-*.json` under `media-replay/dry-run/`. Nested `replayed/replayed` / `quarantine/quarantine` paths present only inside `legacy-cleaned/20260704/` and `queue-fix-backup-20260703-*/` backups — no runtime nested reintroduction. `active_pending=0 terminal=8 backup_or_legacy=8 unknown=0`. integrity --strict PASS; readiness PASS; ops status `records=875 retired=4 blocking=0 integrity=PASS readiness=PASS pending_media=0 transport=ok` | ✅ PASS | 2026-07-05 | `<workspace>/reports/artvee-gallery-p8d4c-real-cron-verification-20260705.md` |
 || **v0.2.1 release-prep** | Release-prep for v0.2.1 (CHANGELOG top section + `docs/RELEASE_NOTES_v0.2.1.md` + roadmap moved to release-prep). No code change; all verified values are 2026-07-05 numbers. No tag cut, no GitHub Release published, no download/refill/batch/Pages push. | 🔜 release-prep | 2026-07-05 | `<workspace>/reports/artvee-gallery-v0.2.1-release-prep-20260705.md` |
+| **P9F (audit)** | Read-only records / acquisition metrics audit. Established canonical field model (`metrics.library_records`, `metrics.indexed_records`, `metrics.gallery_records`, `metrics.manifest_*`, `metrics.disk_*`, etc.). Identified 23-day-old frozen status snapshot bug. Documented 875 / 1093 / 1206 / 200 as 4 different metric layers, all called `records`. Live counts on 2026-07-11: library_records=1286, manifest_downloaded=1290, manifest_pending=54, manifest_failed=10, known_retired=4. | ✅ PASS | 2026-07-11 | `<workspace>/reports/artvee-gallery-p9f-records-acquisition-audit-20260711.md` |
+| **P9F+1 (metric normalization)** | Canonical metrics model implemented (`scripts/artvee_metrics.py` + 20-invariant regression `scripts/check_artvee_metrics.py`). Daily Health and Ops Status live-collect in-process (no more silent stale read). Atomic writes everywhere. `metrics_stale` + `recommended_action = attention_required_metrics_stale` added. Integrity checker gains `integrity_checker_scope` annotation. Backward-compatibility `records` alias retained, marked `records_deprecated: true`. All v0.2.1 docs updated. | ✅ PASS | 2026-07-11 | `<workspace>/reports/artvee-gallery-p9f1-metrics-normalization-20260711.md` |
 
 ### P7F v0.2.0-stable-readiness snapshot (2026-06-16 06:38 GMT+8)
 
@@ -74,7 +76,7 @@
 | Aspect | Value |
 |--------|-------|
 | Review doc | `docs/STABLE_READINESS_v0.2.0.md` (new, tracked) |
-| Live records | 835 (live rebuild; 03:00 daily-health snapshot reported 815) |
+| Live records | library_records (live, see [`docs/METRICS_MODEL.md`](METRICS_MODEL.md)) |
 | Live integrity | strict PASS, 0 duplicates, 3/3 sections PASS |
 | Live readiness | PASS, 4/4 sub-checks (generated-data, path-leak, secret-keyword, file-size) |
 | Online | 6/6 endpoints HTTP 200 (gallery + digest) |
@@ -99,7 +101,7 @@
 | Checks performed | readiness, integrity, status report, nightly batch, candidate refresh, digest history, near-dup clusters, candidate state, online (optional) |
 | Recommended actions | `healthy_no_action` / `candidate_ready_manual_publish_optional` / `attention_required` |
 | Default output | `reports/runtime/daily-health/artvee-daily-health-YYYY-MM-DD.{json,md}` (NOT tracked) |
-| Current status snapshot | records=756, known_retired=4, blocking_unresolved=0, integrity=PASS, readiness=PASS, candidate=PASS, online=200+200 |
+| Current status snapshot | `library_records` (live) | known_retired=4, blocking_unresolved=0, integrity=PASS, readiness=PASS, candidate=PASS, online=200+200 (HTTP) |
 | Daily cron rhythm | 01:30 refill, 02:00 batch, 02:30 confirm_demo_refresh candidate, manual approved publish only |
 | No auto-publish | By design — P7A does NOT add publish cron; approval remains manual |
 | Safety | No download, no refill, no batch, no retired retry, no Pages push, no approve, no source data modification |

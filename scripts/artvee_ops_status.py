@@ -42,6 +42,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# P9F+1: import the canonical metrics collector so the Ops Status
+# never silently shows a frozen ``records`` value. Every run
+# collects live metrics in-process first and then refreshes the
+# cached status report atomically.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from artvee_metrics import (  # noqa: E402
+    collect_current_metrics,
+    metrics_source_mode,
+    atomic_write_json,
+    build_compatibility_aliases,
+)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_OPS = REPO_ROOT / "reports" / "runtime" / "ops"
 DAILY_HEALTH_DIR = REPO_ROOT / "reports" / "runtime" / "daily-health"
@@ -73,6 +85,9 @@ ACTION_PAGES_DRIFT = "attention_required_pages_content_drift"
 ACTION_MEDIA_PENDING = "attention_required_media_pending"
 ACTION_INTEGRITY = "attention_required_integrity_failure"
 ACTION_READINESS = "attention_required_readiness_failure"
+# P9F+1: surfaced when live metrics collect fails or the snapshot
+# is past freshness threshold; consumers can branch off this enum.
+ACTION_METRICS_STALE = "attention_required_metrics_stale"
 
 # Helpers ---------------------------------------------------------------------
 
@@ -482,19 +497,99 @@ def _build_status(args: argparse.Namespace) -> dict[str, Any]:
         online_gallery = _http_head(PUBLIC_GALLERY_URL)
         online_digest = _http_head(PUBLIC_DIGEST_URL)
 
-    # Records: prefer status_report (counts artworks.json).
-    # daily_health counts images/ which may include media/.
-    records = status_report.get("records") or (daily_checks.get("status_report") or {}).get("records")
+    # P9F+1: collect live metrics in-process. The previous version
+    # silently read ``artvee-status-report.json`` here, which let a
+    # 23-day-old frozen snapshot poison the Ops Status (and Telegram)
+    # view. Now we collect fresh state, atomically refresh the cache,
+    # and use the live numbers as the source of truth.
+    metrics_collect_error: str | None = None
+    live_metrics: dict[str, Any] | None = None
+    try:
+        live_metrics = collect_current_metrics(
+            root=REPO_ROOT,
+            include_public=bool(args.online),
+        )
+        # Atomically refresh the cache so external consumers (Telegram
+        # notifier, dashboards) see the same numbers immediately.
+        cache_payload = {
+            "schema_version": live_metrics["schema_version"],
+            "generated_by": "scripts/artvee_ops_status.py (P9F+1 live collector)",
+            "generated_at": live_metrics["generated_at"],
+            "as_of": live_metrics["as_of"],
+            "source_mode": live_metrics["source_mode"],
+            "max_age_seconds": live_metrics["max_age_seconds"],
+            "metrics": live_metrics["metrics"],
+            # Backward-compatibility alias
+            "records": live_metrics["metrics"]["library_records"],
+            "records_semantics": "library_records",
+            "records_deprecated": True,
+            "known_retired": live_metrics["metrics"]["known_retired"],
+            "blocking_unresolved": live_metrics["metrics"]["blocking_unresolved"],
+            "strict_integrity": "pass",
+            "freshness": live_metrics["freshness"],
+            "consistency": live_metrics["consistency"],
+            "warnings": live_metrics.get("warnings", []),
+            "errors": live_metrics.get("errors", []),
+        }
+        atomic_write_json(
+            RUNTIME_REPORTS / "artvee-status-report.json", cache_payload
+        )
+    except Exception as e:  # noqa: BLE001
+        metrics_collect_error = str(e)
+        live_metrics = None
+
+    if live_metrics is not None:
+        live_block = metrics_source_mode(live_metrics, live_metrics.get("max_age_seconds", 86400))
+        metrics_obj = live_metrics["metrics"]
+        records = metrics_obj["library_records"]
+        records_source = "live_collector:artvee_metrics.py"
+        metrics_payload = live_metrics
+        metrics_freshness = live_block["freshness"]
+        metrics_source_mode_str = live_block["source_mode"]
+        metrics_warnings = live_metrics.get("warnings", [])
+    else:
+        # Fallback: cache or daily-health. We mark source_mode as
+        # fallback_cache and warn the operator explicitly.
+        records = status_report.get("records") or (
+            daily_checks.get("status_report") or {}
+        ).get("library_records") or (
+            daily_checks.get("status_report") or {}
+        ).get("records")
+        records_source = "fallback_cache:artvee-status-report.json"
+        if records is None or records == 0:
+            records = (
+                daily_checks.get("status_report") or {}
+            ).get("records")
+            records_source = "fallback_cache:daily_health.status_report.records"
+        metrics_payload = None
+        metrics_freshness = {
+            "age_seconds": -1,
+            "stale": True,
+            "stale_reason": f"live_collect_failed:{metrics_collect_error}",
+            "max_age_seconds": 86400,
+        }
+        metrics_source_mode_str = "fallback_cache"
+        metrics_warnings = [
+            f"live metrics collect failed: {metrics_collect_error}",
+            (
+                "records alias may be a cached snapshot — verify with "
+                "scripts/check_artvee_metrics.py"
+            ),
+        ]
+
     known_retired = status_report.get("known_retired", 4)
     blocking_unresolved = status_report.get("blocking_unresolved", 0)
 
     # Recommended action (canonical enum; first matching wins, priority
-    # is: integrity > readiness > pages > media > candidate > healthy).
+    # is: integrity > readiness > metrics_stale > pages > media > candidate > healthy).
     recommended = ACTION_HEALTHY
     if str(integrity.get("status", "")).upper() != "PASS":
         recommended = ACTION_INTEGRITY
     elif str(readiness.get("status", "")).upper() != "PASS":
         recommended = ACTION_READINESS
+    elif metrics_freshness.get("stale"):
+        # P9F+1: live collect failed OR the snapshot is past max_age.
+        recommended = ACTION_METRICS_STALE
     elif online_gallery in (404,) or online_digest in (404,):
         recommended = ACTION_PAGES_DRIFT
     elif pending.get("pending", 0) > 0 or pending.get("replayable", 0) > 0:
@@ -502,18 +597,65 @@ def _build_status(args: argparse.Namespace) -> dict[str, Any]:
     elif (candidate.get("gallery_ready") and candidate.get("digest_ready")):
         recommended = ACTION_CANDIDATE
 
+    # Canonical metrics — surfaced from the live collector (or fallback).
+    metrics_for_status = metrics_payload or {
+        "metrics": {
+            "library_records": records,
+            "indexed_records": (daily_checks.get("status_report") or {}).get("indexed_records"),
+            "gallery_records": (daily_checks.get("status_report") or {}).get("gallery_records"),
+            "disk_images": (daily_checks.get("status_report") or {}).get("disk_images"),
+            "manifest_downloaded": (daily_checks.get("status_report") or {}).get("manifest_downloaded"),
+            "manifest_pending": (daily_checks.get("status_report") or {}).get("manifest_pending"),
+            "manifest_failed": (daily_checks.get("status_report") or {}).get("manifest_failed"),
+            "manifest_total": (daily_checks.get("status_report") or {}).get("manifest_total"),
+            "known_retired": known_retired,
+            "blocking_unresolved": blocking_unresolved,
+            "public_records": None,
+            "integrity_checked_records": (daily_checks.get("status_report") or {}).get("integrity_checked_records"),
+        },
+        "warnings": metrics_warnings,
+        "consistency": {"library_layers_match": not bool(metrics_warnings), "mismatches": []},
+    }
+
     return {
+        "schema_version": live_metrics["schema_version"] if live_metrics else "artvee-metrics-v1",
         "generated_at": _utcnow_iso(),
         "generated_by": "scripts/artvee_ops_status.py",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "date": args.date,
         "repo_head": _git_head(),
         "release_version": _git_latest_tag(),
         "repo_clean": _git_status_clean(),
+        # Backward-compatibility alias. P9F+1: equal to metrics.library_records.
         "records": records,
-        "records_source": "artvee-status-report.json" if status_report else "daily_health",
+        "records_semantics": "library_records",
+        "records_deprecated": True,
+        "records_source": records_source,
+        # Canonical named fields (P9F+1).
+        "metrics": metrics_for_status.get("metrics"),
+        "metrics_source_mode": metrics_source_mode_str,
+        "metrics_generated_at": (
+            live_metrics.get("generated_at") if live_metrics else None
+        ),
+        "metrics_age_seconds": metrics_freshness.get("age_seconds", -1),
+        "metrics_stale": bool(metrics_freshness.get("stale")),
+        "metrics_stale_reason": metrics_freshness.get("stale_reason", ""),
+        "metrics_max_age_seconds": metrics_freshness.get("max_age_seconds", 86400),
+        "library_records": metrics_for_status["metrics"].get("library_records", records),
+        "indexed_records": metrics_for_status["metrics"].get("indexed_records"),
+        "gallery_records": metrics_for_status["metrics"].get("gallery_records"),
+        "disk_images": metrics_for_status["metrics"].get("disk_images"),
+        "manifest_downloaded": metrics_for_status["metrics"].get("manifest_downloaded"),
+        "manifest_pending": metrics_for_status["metrics"].get("manifest_pending"),
+        "manifest_failed": metrics_for_status["metrics"].get("manifest_failed"),
+        "manifest_total": metrics_for_status["metrics"].get("manifest_total"),
+        "public_records": metrics_for_status["metrics"].get("public_records"),
+        "integrity_checked_records": metrics_for_status["metrics"].get("integrity_checked_records"),
         "known_retired": known_retired,
         "blocking_unresolved": blocking_unresolved,
+        "consistency": metrics_for_status.get("consistency"),
+        "metrics_refresh_error": metrics_collect_error,
+        "metrics_warnings": metrics_warnings,
         "strict_integrity": str(integrity.get("status", "unknown")).upper() or "UNKNOWN",
         "readiness": str(readiness.get("status", "unknown")).upper() or "UNKNOWN",
         "candidate_gallery_ready": bool(candidate.get("gallery_ready")),
@@ -573,13 +715,29 @@ def _md(status: dict[str, Any]) -> str:
         f"# Artvee Ops Status — {status['date']}\n\n"
         f"**Generated at:** {status['generated_at']}\n"
         f"**Repo head:** {status['repo_head']}\n"
-        f"**Release:** {status['release_version']}\n\n"
+        f"**Release:** {status['release_version']}\n"
+        f"**Schema:** `{status.get('schema_version', 'artvee-metrics-v1')}`\n\n"
         f"## Summary\n\n"
         f"| Metric | Value |\n"
         f"|--------|-------|\n"
-        f"| Records | {status['records']} (source: {status['records_source']}) |\n"
+        f"| Library records | {status.get('library_records', 'N/A')} |\n"
+        f"| Indexed records | {status.get('indexed_records', 'N/A')} |\n"
+        f"| Gallery records | {status.get('gallery_records', 'N/A')} |\n"
+        f"| Disk images | {status.get('disk_images', 'N/A')} |\n"
+        f"| Manifest downloaded | {status.get('manifest_downloaded', 'N/A')} |\n"
+        f"| Manifest pending | {status.get('manifest_pending', 'N/A')} |\n"
+        f"| Manifest failed | {status.get('manifest_failed', 'N/A')} |\n"
+        f"| Public records | {status.get('public_records', 'N/A')} |\n"
+        f"| Integrity checked records | {status.get('integrity_checked_records', 'N/A')} |\n"
         f"| Known retired | {status['known_retired']} |\n"
         f"| Blocking unresolved | {status['blocking_unresolved']} |\n"
+        f"| Metrics source | {status.get('metrics_source_mode', 'unknown')} |\n"
+        f"| Metrics generated_at | {status.get('metrics_generated_at', '')} |\n"
+        f"| Metrics age (seconds) | {status.get('metrics_age_seconds', -1)} |\n"
+        f"| Metrics stale | {status.get('metrics_stale', False)} |\n"
+        f"| Records alias | {status['records']} "
+        f"(semantics={status.get('records_semantics', 'library_records')}, "
+        f"deprecated={status.get('records_deprecated', True)}) |\n"
         f"| Strict integrity | {status['strict_integrity']} |\n"
         f"| Readiness | {status['readiness']} |\n"
         f"| Candidate gallery | {status['candidate_gallery_ready']} |\n"
@@ -587,10 +745,10 @@ def _md(status: dict[str, Any]) -> str:
         f"| Digest history entries | {status['digest_history_entries']} |\n"
         f"| Near-dup clusters | {status['near_dup_clusters']} |\n"
         f"| Nightly batch | {status['nightly_batch_status']} "
-        f"(downloaded={status['nightly_batch_downloaded']}, "
-        f"failed={status['nightly_batch_failed']}) |\n"
-        f"| Online gallery | {online_g_s} |\n"
-        f"| Online digest | {online_d_s} |\n"
+        f"(cumulative downloaded={status['nightly_batch_downloaded']}, "
+        f"cumulative failed={status['nightly_batch_failed']}) |\n"
+        f"| Online HTTP gallery | {online_g_s} |\n"
+        f"| Online HTTP digest | {online_d_s} |\n"
         f"| Pending MEDIA | {status['pending_media_count']} "
         f"(replayable={status['pending_media_replayable']}, "
         f"quarantined={status['quarantined_media_count']}) |\n"

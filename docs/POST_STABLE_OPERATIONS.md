@@ -6,11 +6,12 @@
 > send (message_id=25149, transport healthy, no side effects).
 >
 > **v0.2.1 release-prep (2026-07-05):** verified live on 2026-07-05
-> with `records=875 retired=4 blocking=0 integrity=PASS readiness=PASS
-> pending_media=0 transport=ok` and the optional 03:10 media-replay
-> cron running cleanly (`dry_run=false`, `outcome=no_pending`). See
-> [docs/RELEASE_NOTES_v0.2.1.md](RELEASE_NOTES_v0.2.1.md) and
-> [CHANGELOG.md](../CHANGELOG.md) § v0.2.1.
+> with the metrics snapshot reported by `artvee_ops_status.sh`.
+> The numeric values for `records` were `library_records`; after
+> P9F+1 (2026-07-11) the canonical field is `metrics.library_records`
+> and the legacy `records` alias is preserved as a deprecated
+> read-only alias. See [docs/RELEASE_NOTES_v0.2.1.md](RELEASE_NOTES_v0.2.1.md),
+> [docs/METRICS_MODEL.md](METRICS_MODEL.md), and [CHANGELOG.md](../CHANGELOG.md) § v0.2.1.
 
 ## 1. Purpose
 
@@ -100,7 +101,16 @@ sources are reported as `unknown`):
 | `repo_head` | `git rev-parse --short HEAD` | Current commit |
 | `release_version` | `git describe --tags --abbrev=0` | Latest semver tag (`v0.2.0`) |
 | `repo_clean` | `git status --porcelain` | Working tree clean? |
-| `records` | `reports/runtime/artvee-status-report.json` | artworks.json count |
+| `metrics.library_records` | `scripts/artvee_metrics.collect_current_metrics` (P9F+1, live) | **Canonical**: available works. Backed by `web/data/artworks.json`. |
+| `records` (alias) | `metrics.library_records` | **Deprecated** read-only alias. New code uses `metrics.library_records`. |
+| `metrics.indexed_records` | live | `len(unique(source_url))` in `index/artworks.csv` |
+| `metrics.gallery_records` | live | `len(web/data/artworks.json)` |
+| `metrics.disk_images` | live | `find images -type f` excluding `.gitkeep` |
+| `metrics.manifest_*` | live | Manifest lifecycle counts from `inbox/manifest.csv` |
+| `metrics.public_records` | live + `--online` | Public Gallery export size (200 default) |
+| `metrics.integrity_checked_records` | live | integrity checker scope (NOT a library size) |
+| `metrics_source_mode` | live | `live` or `fallback_cache` |
+| `metrics_age_seconds` / `metrics_stale` | live | freshness block; P9F+1 § 4 |
 | `known_retired` | status_report | URLs marked retired (4 expected) |
 | `blocking_unresolved` | status_report | unresolved losers (0 = healthy) |
 | `strict_integrity` | latest daily health `checks.integrity` | strict integrity check |
@@ -482,7 +492,8 @@ After v0.2.0 stable, several things are deliberately still manual:
 
 | symptom | likely cause | action |
 |---|---|---|
-| `records=0` | `artvee-status-report.json` missing | run `python3 scripts/build_artvee_status_report.py` (does not download; reads existing artefacts) |
+| `records=0` / `library_records` missing | live metrics collect failed | re-run `python3 scripts/artvee_ops_status.sh --no-telegram`. If still failing, run `python3 scripts/check_artvee_metrics.py --strict` for a regression signal. |
+| `metrics_stale=true` / `recommended_action=attention_required_metrics_stale` | live metrics collect errored OR snapshot > 24h old | see `docs/METRICS_MODEL.md` § 4; warn the operator, do not display old numbers as healthy |
 | `readiness=UNKNOWN` | no daily health report yet | run the daily health check first; ops status depends on it for the readiness / integrity / candidate fields |
 | `transport_status=error` | OpenClaw gateway not running or PATH wrong | see `docs/MEDIA_REPLAY.md` § 6 — does not block ops status, but you should fix before sending the next Telegram |
 | `pages_repo_clean=unknown` | `<pages-repo>` not a git repo, or `--include-pages` not passed | re-run with `--include-pages`; or check the path |

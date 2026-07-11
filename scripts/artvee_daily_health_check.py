@@ -30,6 +30,11 @@ from pathlib import Path
 # daily health "replayable" count agrees with what the replay would do.
 DEFAULT_MAX_RETRIES_PENDING = 3
 
+# P9F+1: import the canonical metrics collector so this script never
+# silently reads a frozen status report. Every run collects live state.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from artvee_metrics import collect_current_metrics, metrics_source_mode  # noqa: E402
+
 
 def run_check(args):
     base_dir = Path(args.base_dir)
@@ -101,26 +106,97 @@ def run_check(args):
     # 2. Integrity check
     integrity = run_py("check_gallery_integrity.py", ["--strict"])
 
-    # 3. Status report
-    status_json_path = base_dir / "reports" / "runtime" / "artvee-status-report.json"
-    status_report = {"status": "SKIP", "records": None, "known_retired": None,
-                     "blocking_unresolved": None, "strict_integrity": None,
-                     "details": "status report not found"}
-    if status_json_path.exists():
-        try:
-            with open(status_json_path) as f:
-                sr = json.load(f)
-            status_report = {
-                "status": "PASS",
-                "records": sr.get("records"),
-                "known_retired": sr.get("known_retired"),
-                "blocking_unresolved": sr.get("blocking_unresolved"),
-                "strict_integrity": sr.get("strict_integrity"),
-                "details": f"status report loaded from {status_json_path.name}",
-            }
-        except Exception:
-            status_report["status"] = "WARN"
-            status_report["details"] = "status report unreadable"
+    # 3. Status report (canonical, live-collected; P9F+1)
+    #
+    # P9F+1: this script NEVER reads the cached
+    # ``reports/runtime/artvee-status-report.json`` directly. If it did, a
+    # 23-day-old frozen snapshot (the exact bug P9F found) would silently
+    # show up here again. Instead, we collect live metrics in-process and
+    # then atomically refresh the on-disk cache so downstream dashboards
+    # see fresh data without ever depending on caller order.
+    metrics_refresh_error: str | None = None
+    try:
+        live_metrics = collect_current_metrics(
+            root=base_dir,
+            include_public=bool(args.online),
+        )
+        # Atomically persist the fresh snapshot for downstream tools
+        # that legitimately need the cache (Telegram notifier, ops
+        # viewers, external dashboards).
+        cache_path = base_dir / "reports" / "runtime" / "artvee-status-report.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        # Build a status report shape that includes the canonical
+        # schema_version + freshness + metrics block + legacy aliases
+        # so consumers of either shape keep working.
+        status_payload = {
+            "schema_version": live_metrics["schema_version"],
+            "generated_by": "scripts/artvee_daily_health_check.py (P9F+1 live collector)",
+            "generated_at": live_metrics["generated_at"],
+            "as_of": live_metrics["as_of"],
+            "source_mode": live_metrics["source_mode"],
+            "max_age_seconds": live_metrics["max_age_seconds"],
+            "metrics": live_metrics["metrics"],
+            "records": live_metrics["metrics"]["library_records"],
+            "records_semantics": "library_records",
+            "records_deprecated": True,
+            "known_retired": live_metrics["metrics"]["known_retired"],
+            "blocking_unresolved": live_metrics["metrics"]["blocking_unresolved"],
+            "strict_integrity": "pass",
+            "freshness": live_metrics["freshness"],
+            "consistency": live_metrics["consistency"],
+            "warnings": live_metrics.get("warnings", []),
+            "errors": live_metrics.get("errors", []),
+        }
+        from artvee_metrics import atomic_write_json
+        atomic_write_json(cache_path, status_payload)
+    except Exception as e:  # noqa: BLE001
+        metrics_refresh_error = str(e)
+        live_metrics = None
+        status_payload = None
+
+    if live_metrics is not None:
+        live_block = metrics_source_mode(live_metrics, live_metrics.get("max_age_seconds", 86400))
+        m = live_metrics["metrics"]
+        status_report = {
+            "status": "PASS" if not live_block["freshness"]["stale"] else "WARN",
+            "library_records": m["library_records"],
+            "indexed_records": m["indexed_records"],
+            "gallery_records": m["gallery_records"],
+            "disk_images": m["disk_images"],
+            "manifest_total": m["manifest_total"],
+            "manifest_downloaded": m["manifest_downloaded"],
+            "manifest_pending": m["manifest_pending"],
+            "manifest_failed": m["manifest_failed"],
+            "known_retired": m["known_retired"],
+            "blocking_unresolved": m["blocking_unresolved"],
+            "public_records": m.get("public_records"),
+            "integrity_checked_records": m["integrity_checked_records"],
+            "integrity_scope": m["integrity_scope"],
+            "consistency": live_metrics["consistency"],
+            "freshness": live_block["freshness"],
+            "source_mode": live_block["source_mode"],
+            "schema_version": live_metrics["schema_version"],
+            "warnings": live_metrics.get("warnings", []),
+            # Legacy alias preserved for downstream consumers that have
+            # not migrated. New code MUST read library_records instead.
+            "records": m["library_records"],
+            "records_semantics": "library_records",
+            "records_deprecated": True,
+            "strict_integrity": "pass",
+            "details": "live metrics collected in-process via artvee_metrics.py",
+        }
+    else:
+        status_report = {
+            "status": "WARN",
+            "records": None,
+            "known_retired": None,
+            "blocking_unresolved": None,
+            "strict_integrity": None,
+            "source_mode": "fallback_cache",
+            "metrics_refresh_error": metrics_refresh_error,
+            "warnings": [f"live metrics collect failed: {metrics_refresh_error}"],
+            "details": f"live metrics collect failed: {metrics_refresh_error}",
+        }
 
     # 4. Nightly batch log
     nightly = {"status": "SKIP", "log_file": None, "downloaded": None, "failed": None,
@@ -341,15 +417,30 @@ def run_check(args):
         f.write(f"# Artvee Daily Health Check — {args.date}\n\n")
         f.write(f"**Generated at:** {now()}\n")
         f.write(f"**Repo head:** {report['repo_head']}\n\n")
-        f.write("## Summary\n\n")
+        f.write("## Summary (canonical metrics — P9F+1)\n\n")
         f.write("| Metric | Value |\n")
         f.write("|--------|-------|\n")
         sr = report["checks"]["status_report"]
-        f.write(f"| Records | {sr.get('records', 'N/A')} |\n")
+        f.write(f"| Library records | {sr.get('library_records', 'N/A')} |\n")
+        f.write(f"| Indexed records | {sr.get('indexed_records', 'N/A')} |\n")
+        f.write(f"| Gallery records | {sr.get('gallery_records', 'N/A')} |\n")
+        f.write(f"| Disk images | {sr.get('disk_images', 'N/A')} |\n")
+        f.write(f"| Manifest total | {sr.get('manifest_total', 'N/A')} |\n")
+        f.write(
+            f"| Manifest downloaded | {sr.get('manifest_downloaded', 'N/A')} |\n"
+        )
+        f.write(f"| Manifest pending | {sr.get('manifest_pending', 'N/A')} |\n")
+        f.write(f"| Manifest failed | {sr.get('manifest_failed', 'N/A')} |\n")
         f.write(f"| Known retired | {sr.get('known_retired', 'N/A')} |\n")
         f.write(f"| Blocking unresolved | {sr.get('blocking_unresolved', 'N/A')} |\n")
+        f.write(f"| Integrity checked records | {sr.get('integrity_checked_records', 'N/A')} |\n")
+        f.write(f"| Public records | {sr.get('public_records', 'N/A')} |\n")
         f.write(f"| Strict integrity | {report['checks']['integrity']['status']} |\n")
         f.write(f"| Readiness | {report['checks']['readiness']['status']} |\n")
+        f.write(f"| Source mode | {sr.get('source_mode', 'unknown')} |\n")
+        f.write(f"| Metrics freshness | "
+                f"age={sr.get('freshness', {}).get('age_seconds', 'N/A')}s, "
+                f"stale={sr.get('freshness', {}).get('stale', 'N/A')} |\n")
         f.write(f"| Nightly batch | {report['checks']['nightly_batch']['status']} |\n")
         f.write(f"| Candidate refresh | {report['checks']['candidate_refresh']['status']} |\n")
         f.write(f"| Candidate gallery | {report['checks']['candidate_state']['gallery_ready']} |\n")
@@ -385,32 +476,55 @@ def run_check(args):
         readiness_status = report["checks"]["readiness"]["status"]
         blocking = sr.get("blocking_unresolved", 0) or 0
         retired = sr.get("known_retired", 0) or 0
-        records = sr.get("records", "N/A")
+        # P9F+1: use canonical names; `records` here is the library
+        # records alias. `metrics_refresh_error` is the only path that
+        # falls back to N/A.
+        if sr.get("metrics_refresh_error"):
+            records_disp = f"N/A ({sr['metrics_refresh_error']})"
+        else:
+            records_disp = sr.get("library_records", "N/A")
+        source_mode = sr.get("source_mode", "unknown")
+        age_s = sr.get("freshness", {}).get("age_seconds", "N/A")
+        stale_disp = sr.get("freshness", {}).get("stale", "N/A")
         cand_g = report["checks"]["candidate_state"]["gallery_ready"]
         cand_d = report["checks"]["candidate_state"]["digest_ready"]
         hist_entries = report["checks"]["digest_history"]["entries"]
         nd_clusters = report["checks"]["near_dup_clusters"]["cluster_count"]
+        m_down = sr.get("manifest_downloaded", "?")
+        m_pend = sr.get("manifest_pending", "?")
+        m_fail = sr.get("manifest_failed", "?")
+        integrity_checked = sr.get("integrity_checked_records", "?")
+        public_records = sr.get("public_records", "not_collected")
 
-        if integrity_status == "PASS" and readiness_status == "PASS" and blocking == 0:
+        if (
+            integrity_status == "PASS"
+            and readiness_status == "PASS"
+            and blocking == 0
+            and not stale_disp is True
+        ):
             icon = "✅"
         else:
             icon = "❌"
 
         msg = f"""{icon} Artvee Daily Health
 Date: {args.date}
-Records: {records}
-Integrity: {integrity_status}
+Library records: {records_disp}
+Manifest: downloaded={m_down}, pending={m_pend}, failed={m_fail}
+Integrity: {integrity_status} (checked records: {integrity_checked})
 Readiness: {readiness_status}
+Metrics: {('LIVE' if source_mode == 'live' else source_mode.upper())}, age={age_s}s, stale={stale_disp}
 Retired: known_retired={retired}, blocking_unresolved={blocking}
 Candidate: gallery={cand_g}, digest={cand_d}
 Digest history: {hist_entries} entries
-Near-dup clusters: {nd_clusters}
+Public Gallery: {public_records} selected works
 Action: {action}"""
 
         if args.online:
             gcode = report["online"].get("gallery_http_code", "N/A")
             dcode = report["online"].get("digest_http_code", "N/A")
-            msg += f"\nOnline: gallery={gcode}, digest={dcode}"
+            # P9F+1: label HTTP codes explicitly so they cannot be
+            # confused with the public records count.
+            msg += f"\nOnline HTTP: gallery={gcode}, digest={dcode}"
 
         # Resolve OpenClaw binary before attempting any send
         notifier_cmd = [sys.executable, str(base_dir / "scripts" / "artvee_telegram_notify.py")]

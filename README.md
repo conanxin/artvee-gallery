@@ -15,13 +15,18 @@ Latest release: **v0.2.0** (stable, 2026-06-16). See
 and [CHANGELOG.md](CHANGELOG.md).
 Previous pre-release: [v0.2.0-alpha](docs/RELEASE_NOTES_v0.2.0-alpha.md).
 
-> **v0.2.1 release-prep (2026-07-05):** CHANGELOG top section +
+> **v0.2.1 release-prep (2026-07-05, appended with P9F+1 on 2026-07-11):**
+> CHANGELOG top section +
 > [docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md)
-> authored. Verified on 2026-07-05: `records=875 retired=4 blocking=0
-> integrity=PASS readiness=PASS pending_media=0 transport=ok`;
+> authored. **P9F+1** (`scripts/artvee_metrics.py` +
+> `scripts/check_artvee_metrics.py` + [docs/METRICS_MODEL.md](docs/METRICS_MODEL.md))
+> canonicalizes the metrics model so stale cached snapshots can never
+> reappear silently; on 2026-07-11 live counts are
+> `library_records=1286`, `manifest_downloaded=1290`,
+> `manifest_pending=54`, `manifest_failed=10`, `known_retired=4`.
 > Public Gallery = 200 selected works; Public Digest history = 9
 > entries. **No `v0.2.1` tag cut yet, no GitHub Release published
-> yet** — pending user approval after the 7-day observation window.
+> yet** — pending user approval.
 
 > **v0.2.0 is the first stable daily-operable release.**
 > 3-day observation window (2026-06-14 — 2026-06-16) closed green;
@@ -270,6 +275,7 @@ For the full rationale and a risk surface, see
 | [docs/RELEASE_NOTES_v0.2.0-alpha.md](docs/RELEASE_NOTES_v0.2.0-alpha.md) | v0.2.0-alpha release notes |
 | [docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md) | v0.2.1 release notes (release-prep, not yet tagged) |
 | [CHANGELOG.md](CHANGELOG.md) | Aggregated changelog across versions |
+| [docs/METRICS_MODEL.md](docs/METRICS_MODEL.md) | **Canonical metrics schema (`artvee-metrics-v1`)** + freshness rule (P9F+1) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Data flow, script responsibilities, generated-vs-tracked boundary |
 | [docs/OPEN_SOURCE_BOUNDARIES.md](docs/OPEN_SOURCE_BOUNDARIES.md) | What is and is not in this repository, and why |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Past phases, near-term, mid-term, long-term |

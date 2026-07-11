@@ -1,10 +1,127 @@
 # Artvee Gallery v0.2.1 Release Notes
 
-> **Status:** Draft / release-prep 2026-07-05 — not yet tagged, not yet
-> published as a GitHub Release. Awaiting user approval before the
-> `v0.2.1` tag is cut. See
-> [`docs/CHANGELOG.md`](../CHANGELOG.md) for the aggregated changelog
-> and this file for the v0.2.1-specific narrative.
+> **Status:** Draft / release-prep 2026-07-05, **appended with P9F+1
+> on 2026-07-11** — not yet tagged, not yet published as a GitHub
+> Release. Awaiting user approval before the `v0.2.1` tag is cut. See
+> [`CHANGELOG.md`](../CHANGELOG.md) for the aggregated changelog and
+> this file for the v0.2.1-specific narrative. The P9F+1 section
+> below documents the metrics normalization that the v0.2.1 release
+> will include.
+
+## P9F+1 — Metrics Normalization (REQUIRED for v0.2.1)
+
+### Why this matters
+
+The v0.2.0 → v0.2.1 gap included a partial ops-stabilization phase
+that exposed a previously invisible bug: the Daily Health and Ops Status
+text surfaces kept quoting `records=875` — a value frozen in
+`artvee-status-report.json` on 2026-06-18 — while the local library
+grew to its actual size. Worse, the integrity checker reported a
+`records=1206` counter that was never "available works", and the public
+gallery was repeatedly called "200 records" without explaining that
+200 is an export limit, not a library size.
+
+P9F+1 is **the blocker fix** for v0.2.1. It collapses all four numbers
+under one canonical schema, one live collector, one freshness rule,
+and one CI-enforced invariant.
+
+### What ships in v0.2.1
+
+- A canonical metrics model (`artvee-metrics-v1`) with named,
+  unambiguous fields. See [`docs/METRICS_MODEL.md`](METRICS_MODEL.md)
+  for the full schema and migration recipe.
+- A single live collector (`scripts/artvee_metrics.py`) used by the
+  Status Report, Daily Health, and Ops Status scripts.
+- A 20-invariant regression
+  (`scripts/check_artvee_metrics.py`) wired into CI so a stale
+  snapshot can never reappear silently.
+- Atomic writes for every on-disk status report. Readers cannot
+  observe a half-written file.
+- An explicit `recommended_action: attention_required_metrics_stale`
+  channel for the Telegram operator when the live collector fails.
+- One backward-compatibility alias (`records` →
+  `metrics.library_records`) marked `records_deprecated: true`. It
+  will be removed in v0.3.0.
+
+### What stays the same
+
+- The integrity checker still PASSes on the same data — its scope
+  labels are renamed, but the gate logic does not change.
+- The Public Gallery export is still **200 selected works** (a
+  diverse sample, *not* the library size).
+
+### Migration recipe
+
+If your code is reading `artvee-status-report.json` looking for
+`records`, see section 7 of
+[`docs/METRICS_MODEL.md`](METRICS_MODEL.md#7-migration-recipe-for-callers).
+
+### Operator-visible changes (Telegram / dashboards)
+
+**Daily Health**:
+
+```text
+✅ Artvee Daily Health
+Date: 2026-07-11
+Library records: 1286                # <-- live, was "Records: 875" before
+Manifest: downloaded=1290, pending=54, failed=10
+Integrity: PASS (checked records: 1355)
+Readiness: PASS
+Metrics: LIVE, age=0s, stale=False
+Retired: known_retired=4, blocking_unresolved=0
+...
+Public Gallery: 200 selected works     # <-- separate from HTTP code
+Online HTTP: gallery=200, digest=200   # <-- explicit "HTTP" label
+```
+
+**Ops Status** (table excerpt):
+
+| Metric | Value |
+|---|---|
+| Library records | 1286 |
+| Indexed records | 1286 |
+| Gallery records | 1286 |
+| Disk images | 1286 |
+| Manifest downloaded | 1290 |
+| Manifest pending | 54 |
+| Manifest failed | 10 |
+| Public records | 200 |
+| Integrity checked records | 1355 |
+| Metrics source | live |
+| Metrics age (seconds) | 0 |
+| Metrics stale | False |
+| Records alias | 1286 (semantics=library_records, deprecated=True) |
+| Online HTTP gallery | 200 |
+| Online HTTP digest | 200 |
+
+### Resolved and disclosed observations
+
+P9F+1 also writes the v0.2.1 release with full disclosure of the
+following P9F audit findings:
+
+- Acquisition is healthy (29/30 batch runs `EXIT_CODE=0` in the 30-day
+  window; net +550 works over 30 days; `pending=54` is small enough to
+  be healthy for ~3 days at current run rates).
+- 10 currently-failed manifest rows have a clear split:
+  - 1 × HTTP 404 candidate for `known_retired`;
+  - 5 × SSL EOF and 1 × browser timeout are transient and become
+    successes on the next batch;
+  - 3 × filename-too-long failures are deterministic and need a
+    `download_artvee_selected.py` slug-truncate fix (P9F+1 backlog,
+  not a v0.2.1 blocker).
+
+These observations are documented in the P9F audit report at
+`<workspace>/reports/artvee-gallery-p9f-records-acquisition-audit-20260711.md`
+(workspace-only artifact, not part of this repo).
+
+### What v0.2.1 still does not do
+
+- Does not delete `records` from the status report. The deprecated
+  alias stays until v0.3.0.
+- Does not retry any of the 10 currently-failed manifest rows.
+- Does not push new GitHub Pages.
+- Does not tag `v0.2.1` or publish a GitHub Release. Both happen on
+  user approval.
 
 ## Summary
 

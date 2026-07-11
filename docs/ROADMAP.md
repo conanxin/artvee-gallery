@@ -476,7 +476,7 @@ build-script label fix remains.
 - Status split: `known_retired` (audited, not blocking) vs `blocking_unresolved` (needs attention)
 - New: `scripts/build_artvee_status_report.py` (no network, no subprocess)
 - New runtime artifacts: `reports/runtime/artvee-status-report.{json,md}` (NOT tracked)
-- Current snapshot: records=756, known_retired=4, blocking_unresolved=0, strict_integrity=pass
+- Current snapshot: library_records (live; see `docs/METRICS_MODEL.md`); known_retired=4, blocking_unresolved=0, strict_integrity=pass
 - Fallback: if p6b manifest missing → known_retired=0, blocking_unresolved=unresolved_count, warning logged
 - Telegram wording: `confirm_demo_refresh.sh` PASS summary now includes `Retired sources: N known_retired, blocking_unresolved=M`
 - See `<workspace>/reports/artvee-gallery-p6g-status-report-20260612.md`
@@ -501,7 +501,7 @@ build-script label fix remains.
 - Modes: default, `--date`, `--no-telegram`, `--online`, `--media`
 - Checks: readiness, integrity, status report, nightly batch, candidate refresh, digest history, near-dup clusters, candidate state, online (optional)
 - Recommended actions: `healthy_no_action` / `candidate_ready_manual_publish_optional` / `attention_required`
-- Current snapshot: records=756, known_retired=4, blocking_unresolved=0, integrity=PASS, readiness=PASS, candidate=PASS, online=200+200
+- Current snapshot: library_records (live; see `docs/METRICS_MODEL.md`); known_retired=4, blocking_unresolved=0, integrity=PASS, readiness=PASS, candidate=PASS, online=200+200 (HTTP)
 - Daily cron rhythm documented: 01:30 refill, 02:00 batch, 02:30 confirm_demo_refresh candidate, manual approved publish only
 - No auto-publish cron added — approval remains manual by design
 - See `<workspace>/reports/artvee-gallery-p7a-daily-automation-hardening-20260612.md`
