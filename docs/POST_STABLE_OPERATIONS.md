@@ -653,3 +653,41 @@ keeping the same allow-list and the same `readiness` /
 P8C does **not** widen the Pages allowlist, does **not** add
 external CDNs, does **not** depend on a JS framework, and
 does **not** require a rebuild of the local gallery data.
+
+## 13. Public Gallery bundle optimization (P9G+2)
+
+P9G+2 (2026-07-12) — see `<workspace>/reports/artvee-gallery-p9g2-bundle-optimization-20260712.md` — stops shipping `assets/thumbs/512/` in the public bundle. Local `web/data/*` and the local thumbnail tree are unchanged; the drop happens only at export time.
+
+### 13.1 What changed
+- `scripts/export_artvee_gallery_public_demo.py`: new `--detail-thumb-policy {all,none}` flag (default `none`). Under `none`, the exporter omits `assets/thumbs/512/`, sets `thumb_512 = null`, and remaps `image_path` to the 256 path.
+- `scripts/confirm_demo_refresh.sh`: new `--detail-thumb-policy` argument (default `none`); QA gates and soft/hard budgets (5 MB / 8 MB) become policy-aware.
+- `web/app.js`: explicit `thumb_512 || image_path || thumb_256` fallback in `openDetail`; Grid remains on 256 (lazy); a new `bundle policy` row surfaces the live policy under the metadata block.
+- `gallery_stats.json`: gained `detail_thumb_policy`, `thumbs_256_count`, `thumbs_512_count` (the existing `counts.thumb_*_total` keys are kept).
+
+### 13.2 What stays the same
+- Local Library `images/`, `metadata/`, `thumbs/`, and `web/data/` are not modified.
+- The detailed display in `P8A+1 / P8C` is unchanged; the only change is that the `<img src>` resolves to a 256 thumb when `thumb_512` is absent.
+- `images/` / `metadata/` / `tokens` / `chat-ids` / local paths are still forbidden from the public bundle.
+- Pages allowlist is unchanged; only the `projects/artvee-gallery-demo/assets/thumbs/512/` directory shrinks (the rsync uses `--delete`).
+
+### 13.3 Quick operator recipe (re-run for a quick resync)
+```bash
+# Run from the Artvee repo root (where scripts/ and docs/ live).
+bash scripts/confirm_demo_refresh.sh \
+  --no-telegram \
+  --gallery-limit 300 \
+  --detail-thumb-policy none
+
+# Dry-run, then approve, then push:
+bash scripts/publish_demo_refresh_candidate.sh \
+  --date "$(date +%F)" \
+  --dry-run
+bash scripts/publish_demo_refresh_candidate.sh \
+  --date "$(date +%F)" \
+  --approve \
+  --cdn-wait 90
+```
+
+### 13.4 When this section is revisited
+- Future record-count phases (e.g., moving past 500 records) MUST rerun the P9G+1-style bundle audit and update the policy in `docs/PUBLIC_BUNDLE_POLICY.md` together with this section.
+- Any change to the exporter flag (`all|none`) or the QA budgets must update the SECTION § 9/§12 entries above and bump the v0.2.1 observation window from that commit.

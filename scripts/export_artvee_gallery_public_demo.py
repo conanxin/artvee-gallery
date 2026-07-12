@@ -2,17 +2,17 @@
 """
 Artvee Gallery · Public Demo Exporter (P2)
 ============================================
-读取 P1 生成的 web/data/*.json + thumbs/{256,512}/，导出精选静态 demo 到
-dist/artvee-gallery-public-demo/，可被任意静态服务器托管。
+读取 P1 生成的 web/data/*.json + thumbs/{256,512}/,导出精选静态 demo 到
+dist/artvee-gallery-public-demo/,可被任意静态服务器托管。
 
-设计要点：
-  - 只读 P1 输出：从不修改 web/、thumbs/、web/data/
-  - 不复制原图：public demo 不包含 images/ 1.4G
-  - 路径改写：local 模式的 "../images/..." / "../thumbs/..." 改写为 "./assets/thumbs/..."
-  - 详情页 fallback：image_path 直接指向 512 缩略图（用户要的是"看图"，不是"下原图"）
-  - 保留 source_url：详情面板仍可跳回 artvee.com 原页面
-  - 精选策略：recent (按 downloaded_at 倒序) / diverse (按 category 轮转)
-  - 退出码：0 ok / 2 source missing / 3 strategy 错误
+设计要点:
+  - 只读 P1 输出:从不修改 web/、thumbs/、web/data/
+  - 不复制原图:public demo 不包含 images/ 1.4G
+  - 路径改写:local 模式的 "../images/..." / "../thumbs/..." 改写为 "./assets/thumbs/..."
+  - 详情页 fallback:image_path 直接指向 512 缩略图(用户要的是"看图",不是"下原图")
+  - 保留 source_url:详情面板仍可跳回 artvee.com 原页面
+  - 精选策略:recent (按 downloaded_at 倒序) / diverse (按 category 轮转)
+  - 退出码:0 ok / 2 source missing / 3 strategy 错误
 """
 from __future__ import annotations
 
@@ -136,7 +136,7 @@ def _build_p8b_info_card(
       - All link targets are absolute public URLs or local
         relative paths.
     """
-    total = "—" if total_records in (None, 0) else total_records
+    total = "-" if total_records in (None, 0) else total_records
     card = (
         '<!-- P8B:public-demo-info-card -->\n'
         '    <section class="p8b-info-card" aria-label="About this demo">\n'
@@ -178,7 +178,7 @@ def _build_p8b_info_card(
 
 # ---------- path rewriting ----------
 
-def rewrite_paths(record: dict, base_url: str) -> dict:
+def rewrite_paths(record: dict, base_url: str, detail_thumb_policy: str = "all") -> dict:
     """
     P1 record may have:
       - thumb_256 / thumb_512: "../thumbs/256|512/<basename>.jpg"  (local mode)
@@ -188,9 +188,19 @@ def rewrite_paths(record: dict, base_url: str) -> dict:
     Public demo record (after rewrite):
       - thumb_256 / thumb_512: "<base_url>/assets/thumbs/256|512/<basename>.jpg"
       - image_path:            "<base_url>/assets/thumbs/512/<basename>.jpg"  (fallback to 512)
+                              OR, when detail_thumb_policy="none", remapped to thumb_256
       - metadata_path:         DROPPED (the public demo has no metadata/ folder; the
-                               front-end shows "—" if empty, which is the correct UX)
+                               front-end shows "-" if empty, which is the correct UX)
       - source_url:            kept verbatim (https://artvee.com/...)
+
+    P9G+2 detail-thumb-policy:
+      - "all"  (default, back-compat): ship both 256 + 512 thumbs in assets/
+        and keep thumb_512 / image_path pointing at 512. ~11 MB of 512
+        thumbnails added to the public bundle.
+      - "none" (P9G+2 default in confirm_demo_refresh.sh): DO NOT ship 512
+        thumbs, set thumb_512 = null, and remap image_path to the 256 thumb
+        so the front-end detail-panel fallback chain works without 404s.
+        Saves ~76% of the bundle.
     """
     base = base_url.rstrip("/") if base_url else "."
 
@@ -203,19 +213,36 @@ def rewrite_paths(record: dict, base_url: str) -> dict:
 
     r = dict(record)  # shallow copy
     r["thumb_256"] = _aset(record.get("thumb_256", ""), 256)
-    r["thumb_512"] = _aset(record.get("thumb_512", ""), 512)
-    # image_path: in P1 it's the local original; for public demo we point at the 512 thumb.
-    # If the source record had image_path under images/ we replace it; if it was already
-    # empty, leave empty.
+
+    if detail_thumb_policy == "none":
+        # P9G+2: 512 thumbs are NOT included in the public bundle.
+        # The detail panel and any code that falls back from thumb_256
+        # must use thumb_256 itself (no broken image).
+        r["thumb_512"] = None
+    else:
+        # "all": keep 512 thumb path so the published bundle carries both.
+        r["thumb_512"] = _aset(record.get("thumb_512", ""), 512)
+
+    # image_path: in P1 it's the local original. For the public demo, when the
+    # policy is "all" we remap it to the 512 thumb path (matches the historical
+    # fallback the front-end used: `a.thumb_256 || a.image_path` and the detail
+    # panel `a.thumb_512 || a.image_path`). When the policy is "none" we cannot
+    # leave it pointing at a non-existent assets/thumbs/512/.../ so we remap it
+    # to thumb_256 instead. The front-end detail-panel fallback chain
+    # (thumb_512 || thumb_256 || image) will resolve correctly under either
+    # policy because we set thumb_512=None above.
     src_image = record.get("image_path", "")
-    if src_image:
+    if detail_thumb_policy == "none":
+        r["image_path"] = r["thumb_256"]
+    elif src_image:
         r["image_path"] = _aset(src_image, 512)
     else:
         r["image_path"] = r["thumb_512"]
+
     # P4D: drop metadata_path from public export. It points at local
     # "../metadata/<basename>.json" which (a) leaks the source-machine folder
     # layout in the public JSON, and (b) the public demo does not actually ship
-    # any metadata/ folder, so the path is dangling. The front-end shows "—"
+    # any metadata/ folder, so the path is dangling. The front-end shows "-"
     # for a missing metadata_path, which is the correct public-demo UX.
     r.pop("metadata_path", None)
     # source_url and other fields pass through unchanged
@@ -235,11 +262,15 @@ def export(
     exclude_risk: str | None = None,
     visual_qa_path: Path | None = None,
     require_prompt_fields: bool = False,
+    detail_thumb_policy: str = "all",
 ) -> int:
     out_dir = out_dir.resolve()
     if strategy not in STRATEGIES:
         print(f"ERROR: unknown --strategy={strategy}. Choose from: {list(STRATEGIES)}", file=sys.stderr)
         return 3
+    if detail_thumb_policy not in ("all", "none"):
+        print(f"ERROR: --detail-thumb-policy must be 'all' or 'none', got {detail_thumb_policy!r}", file=sys.stderr)
+        return 7
 
     arts_all = load_json(SRC_DATA / "artworks.json")
     stats_src = load_json(SRC_DATA / "gallery_stats.json")
@@ -345,11 +376,14 @@ def export(
                   file=sys.stderr)
             return 6
 
-    # Verify all needed thumbs exist
+    # Verify all needed thumbs exist.
+    # Under detail_thumb_policy="none" we only ship 256; under "all" we ship both.
     missing: list[tuple[str, int]] = []
+    sizes_to_check = (256,) if detail_thumb_policy == "none" else (256, 512)
+
     for a in picked:
         stem = a.get("id") or Path(a.get("image_path", "")).stem
-        for sz in (256, 512):
+        for sz in sizes_to_check:
             src = (SRC_THUMBS_256 if sz == 256 else SRC_THUMBS_512) / f"{stem}.jpg"
             if not src.exists():
                 missing.append((stem, sz))
@@ -358,24 +392,34 @@ def export(
         print(f"ERROR: {len(missing)} thumb(s) missing. First 5: {sample}", file=sys.stderr)
         return 2
 
-    # Rewrite records
-    exported = [rewrite_paths(a, base_url) for a in picked]
+    # Rewrite records. detail_thumb_policy controls whether 512 thumbs
+    # and thumb_512 / image_path URLs are present in the output JSON.
+    exported = [rewrite_paths(a, base_url, detail_thumb_policy) for a in picked]
 
     if dry_run:
         print(f"[dry-run] would write to: {out_dir}")
         print(f"[dry-run] {len(exported)} records, strategy={strategy}")
+        print(f"[dry-run] detail_thumb_policy={detail_thumb_policy}")
         cats = Counter(r.get("category") for r in exported)
         print(f"[dry-run] category distribution: {dict(cats)}")
-        for sz in (256, 512):
-            total = sum((out_dir / f"assets/thumbs/{sz}").glob("*.jpg") for _ in [0]) if False else 0
-            # estimate: we will copy len(exported) files per size
-            print(f"[dry-run] thumbs {sz}: would copy {len(exported)} files")
+        if detail_thumb_policy == "none":
+            print(f"[dry-run] thumbs 256: would copy {len(exported)} files")
+            print(f"[dry-run] thumbs 512: would copy 0 files (policy=none)")
+        else:
+            print(f"[dry-run] thumbs 256: would copy {len(exported)} files")
+            print(f"[dry-run] thumbs 512: would copy {len(exported)} files")
         return 0
 
     # Materialize
     out_assets_thumbs = out_dir / "assets" / "thumbs"
     (out_assets_thumbs / "256").mkdir(parents=True, exist_ok=True)
-    (out_assets_thumbs / "512").mkdir(parents=True, exist_ok=True)
+    if detail_thumb_policy == "all":
+        (out_assets_thumbs / "512").mkdir(parents=True, exist_ok=True)
+    else:
+        # P9G+2 policy=none: do NOT create the 512/ dir. This guarantees the
+        # publish-delta (rsync --delete) actually removes any pre-existing 512
+        # thumbs from the public Pages repo instead of leaving an empty dir.
+        pass
     (out_dir / "data").mkdir(parents=True, exist_ok=True)
 
     # Copy web/* (index.html, app.js, style.css). For index.html we do a
@@ -409,7 +453,7 @@ def export(
             # bundle stays a single-file index. The card is *informational
             # only*; the existing app.js / grid logic is untouched.
             last_updated = (stats_src.get("last_downloaded_at") or "")[:10] or datetime.now().date().isoformat()
-            total_records = stats_src.get("counts", {}).get("artworks", "—")
+            total_records = stats_src.get("counts", {}).get("artworks", "-")
             info_card = _build_p8b_info_card(
                 last_updated=last_updated,
                 public_record_count=len(exported),
@@ -433,19 +477,23 @@ def export(
         else:
             shutil.copy2(src, out_dir / name)
 
-    # Copy selected thumbs only
+    # Copy selected thumbs only. Under detail_thumb_policy="none" we skip
+    # the 512 loop entirely - no 512 files are emitted and no 512 dir exists.
     copied_256 = 0
     copied_512 = 0
     for a in exported:
         stem = a["id"]
-        for sz in (256, 512):
-            src = (SRC_THUMBS_256 if sz == 256 else SRC_THUMBS_512) / f"{stem}.jpg"
-            dst = out_assets_thumbs / str(sz) / f"{stem}.jpg"
-            shutil.copy2(src, dst)
-            if sz == 256:
-                copied_256 += 1
-            else:
-                copied_512 += 1
+        # 256 - always copied.
+        src256 = SRC_THUMBS_256 / f"{stem}.jpg"
+        dst256 = out_assets_thumbs / "256" / f"{stem}.jpg"
+        shutil.copy2(src256, dst256)
+        copied_256 += 1
+        # 512 - only when policy="all".
+        if detail_thumb_policy == "all":
+            src512 = SRC_THUMBS_512 / f"{stem}.jpg"
+            dst512 = out_assets_thumbs / "512" / f"{stem}.jpg"
+            shutil.copy2(src512, dst512)
+            copied_512 += 1
 
     # Write data/*.json
     (out_dir / "data" / "artworks.json").write_text(
@@ -463,6 +511,11 @@ def export(
             "limit": limit,
             "full_counts": stats_src.get("counts", {}),
         },
+        # P9G+2: detail-thumb policy is surfaced in the bundle stats so the
+        # front-end / any external consumer can read which size set is shipped.
+        "detail_thumb_policy": detail_thumb_policy,
+        "thumbs_256_count": copied_256,
+        "thumbs_512_count": copied_512,
         "counts": {
             "artworks": len(exported),
             "categories": len({a.get("category") for a in exported if a.get("category")}),
@@ -486,7 +539,10 @@ def export(
     print(f"[✓] wrote: {out_dir}/")
     print(f"    ├─ index.html, app.js, style.css  (copied from web/)")
     print(f"    ├─ data/artworks.json, gallery_stats.json")
-    print(f"    └─ assets/thumbs/{{256,512}}/  {copied_256} + {copied_512} files")
+    if detail_thumb_policy == "all":
+        print(f"    └─ assets/thumbs/{{256,512}}/  {copied_256} + {copied_512} files")
+    else:
+        print(f"    └─ assets/thumbs/256/  {copied_256} files (policy=none: 512 thumbs NOT shipped)")
     print(f"[i] category distribution: {dict(cats)}")
     print(f"[i] base-url: {base_url!r}")
     if exclude_duplicate_source_url_groups:
@@ -497,6 +553,8 @@ def export(
         print(f"[i] guard: --exclude-risk {exclude_risk} was active (visual QA: {visual_qa_path})")
     if require_prompt_fields:
         print(f"[i] guard: --require-prompt-fields was active")
+    if detail_thumb_policy != "all":
+        print(f"[i] detail-thumb-policy={detail_thumb_policy} (512 thumbs NOT shipped; image_path → thumb_256)")
     print(f"[i] preview: cd {out_dir} && python3 -m http.server 8890")
     return 0
 
@@ -551,6 +609,16 @@ def main():
                         "any of those empty. Records with none of these fields "
                         "pass through (defensive — the public demo JSON is not "
                         "required to surface prompt metadata).")
+    p.add_argument("--detail-thumb-policy", choices=("all", "none"),
+                   default="all",
+                   help="P9G+2. Controls whether the public Gallery bundle "
+                        "ships 512 thumbnails. 'all' = ship both 256 + 512 "
+                        "(back-compat; ~14.88 MB at 300 records). 'none' = "
+                        "ship 256 only; thumb_512 is null in JSON; image_path "
+                        "is remapped to thumb_256 so the detail-panel fallback "
+                        "chain works without 404s. P9G+2 sets this to 'none' "
+                        "by default in confirm_demo_refresh.sh to bring the "
+                        "bundle from ~14.88 MB → ~3.52 MB.")
     args = p.parse_args()
 
     # Default --visual-qa path if --exclude-risk is set and no explicit path
@@ -565,6 +633,7 @@ def main():
         exclude_risk=args.exclude_risk,
         visual_qa_path=args.visual_qa,
         require_prompt_fields=args.require_prompt_fields,
+        detail_thumb_policy=args.detail_thumb_policy,
     )
 
 

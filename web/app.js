@@ -90,11 +90,16 @@ function renderGrid() {
   grid.innerHTML = list.map((a) => {
     const tags = (a.tags || "").split(";").filter(Boolean).slice(0, 3);
     const date = fmtDate(a.downloaded_at);
+    // P9G+2 grid fallback chain. Grid always uses 256 (thumb_256). The
+    // image_path fallback was historically set to the 512 thumb path by the
+    // exporter, but under --detail-thumb-policy=none the exporter remaps
+    // image_path to the 256 thumb path too. Either way the chain is safe.
+    const gridSrc = a.thumb_256 || a.image_path;
     return `
       <article class="card" data-id="${escapeAttr(a.id)}">
         <img class="thumb" loading="lazy"
-             src="${escapeAttr(a.thumb_256 || a.image_path)}"
-             onerror="this.onerror=null;this.src='${escapeAttr(a.image_path)}';"
+             src="${escapeAttr(gridSrc)}"
+             onerror="this.onerror=null;this.src='${escapeAttr(a.image_path || a.thumb_256)}';"
              alt="${escapeAttr(a.title || a.id)}" />
         <div class="meta">
           <div class="title">${escapeHtml(a.title || a.id)}</div>
@@ -122,8 +127,26 @@ function openDetail(id) {
   const a = STATE.artworks.find((x) => x.id === id);
   if (!a) return;
   const det = $("#detail");
-  $("#detail-img").src = a.thumb_512 || a.image_path;
+  // P9G+2 detail-panel fallback chain. The public Gallery bundle ships
+  // thumb_512 only when the exporter was run with --detail-thumb-policy=all.
+  // Under the new default of "none", `a.thumb_512` is null and `a.image_path`
+  // is the 256 thumb path (set by the exporter), so this chain resolves to the
+  // 256 thumb → no broken image, no remote fetch. When an older published
+  // bundle is still live with `thumb_512` set and `image_path` pointing at
+  // assets/thumbs/512/, this still picks the 512 first as designed.
+  const detailSrc = a.thumb_512 || a.image_path || a.thumb_256;
+  $("#detail-img").src = detailSrc;
   $("#detail-img").alt = a.title || a.id;
+  // P9G+2 stats: surface the bundle's detail-thumb-policy so the user can
+  // see which thumbnail set is shipped. POLICY_LABEL maps the policy string
+  // to a human-friendly Chinese label.
+  const POLICY_LABEL = { all: "all（256 + 512）", none: "none（仅 256）" };
+  const policy = (STATE.stats && STATE.stats.detail_thumb_policy) || "all";
+  const policyLabel = POLICY_LABEL[policy] || policy;
+  // P9G+2: when 512 thumbs are not shipped, the row in the detail-meta
+  // shows "—" instead of a dangling path so users do not click a broken
+  // link or expect a 1024-resolution master that never existed.
+  const thumb512Display = a.thumb_512 ? escapeHtml(a.thumb_512) : "—";
   $("#detail-meta").innerHTML = `
     <h2>${escapeHtml(a.title || a.id)}</h2>
     <div class="row"><span class="k">艺术家</span><span class="v">${escapeHtml(a.artist || "—")}</span></div>
@@ -132,8 +155,9 @@ function openDetail(id) {
     <div class="row"><span class="k">下载时间</span><span class="v">${escapeHtml(fmtDate(a.downloaded_at) || "—")}</span></div>
     <div class="row"><span class="k">tags</span><span class="v">${escapeHtml(a.tags || "—")}</span></div>
     <div class="row"><span class="k">usage</span><span class="v">${escapeHtml(a.usage_note || "—")}</span></div>
+    <div class="row"><span class="k">bundle policy</span><span class="v">${escapeHtml(policyLabel)}</span></div>
     <div class="row"><span class="k">原图</span><span class="v path">${escapeHtml(a.image_path || "")}</span></div>
-    <div class="row"><span class="k">512 缩略</span><span class="v path">${escapeHtml(a.thumb_512 || "—")}</span></div>
+    <div class="row"><span class="k">512 缩略</span><span class="v path">${thumb512Display}</span></div>
     <div class="row"><span class="k">元数据</span><span class="v path">${escapeHtml(a.metadata_path || "—")}</span></div>
     <div class="row"><span class="k">source</span><span class="v"><a href="${escapeAttr(a.source_url)}" target="_blank" rel="noopener">${escapeHtml(a.source_url || "—")}</a></span></div>
   `;

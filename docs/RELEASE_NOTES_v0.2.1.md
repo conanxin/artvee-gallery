@@ -184,6 +184,68 @@ Compared to v0.2.0, v0.2.1 ships:
 
 ## Operational reliability
 
+> v0.2.1 aggregate — same story as the prior release-prep. P9F+1
+> brought fresh metrics tooling (scripts/artvee_metrics.py +
+> scripts/check_artvee_metrics.py + docs/METRICS_MODEL.md); P9G+2 is
+> a public-bundle change that does not touch reliability.
+
+## P9G+2 — Public Gallery Bundle Optimization (2026-07-12)
+
+> This section is part of the v0.2.1 release-prep narrative. Like
+> P9F+1 above, P9G+2 rolls into v0.2.1 without changing the version
+> number; the v0.2.1 observation window restarts from the P9G+2
+> commit.
+
+### Why this matters
+
+P9G expanded the public Gallery to 300 selected works (was 200) and
+left the public bundle at 14.88 MB. The P9G+1 audit pinned that
+weight onto the 11 MB of `assets/thumbs/512/` files that the Grid
+never loads (the Grid uses 256 thumbs, lazy-loaded, 300/300 cards).
+512 thumbs were only requested once a user opened the detail panel,
+and even then only one at a time — so the public bundle was paying
+shipping cost for an asset no scrolling path ever paid rendering
+cost for. P9G+2 turns that off.
+
+### What ships in P9G+2
+
+- **256-only public bundle.** The exporter stops writing
+  `assets/thumbs/512/` under `--detail-thumb-policy=none`. Live
+  bundle: 14.88 MB → **3.48 MB** (≈ –11.40 MB / –76.6%).
+- **Detail panel falls back to 256 cleanly.** Front-end uses
+  `thumb_512 || image_path || thumb_256`; under `none` the chain
+  resolves to 256 with no broken image, no extra request.
+- **`gallery_stats.json` records the policy.** New fields:
+  `detail_thumb_policy`, `thumbs_256_count`, `thumbs_512_count`.
+- **`docs/PUBLIC_BUNDLE_POLICY.md`** is the new single source of
+  truth for what the public bundle ships.
+- **Future expansion is unblocked.** 400 records at 256-only
+  project to **4.55 MB**, 500 records to **5.62 MB**, both within
+  the 5 MB soft / 8 MB hard budget.
+
+### What stays the same (and why it matters)
+
+- Local Library `images/` / `metadata/` / `thumbs/` / `web/data/`
+  are **not** modified. The 512 thumbnails still live on disk in
+  the local Library tree; only the public export stops including
+  them.
+- Full images / metadata / tokens / chat ids / local paths remain
+  forbidden from the public bundle. Open-source readiness, integrity
+  checker, and Pages Guard all keep enforcing it.
+- The Pages allowlist is unchanged. Only `projects/artvee-gallery-demo/`
+  is touched; old 512 thumbs are removed via `rsync -a --delete`.
+
+### What v0.2.1 + P9G+2 still does not do
+
+- Does **not** create the `v0.2.1` tag or the GitHub Release.
+  Both happen on explicit user approval after a 7-day green
+  observation window starts from the P9G+2 commit (2026-07-12).
+- Does **not** widen the public bundle to 400/500 records. The
+  capacity now exists, but record-count changes are a separate
+  decision (P9H) that requires its own grid/strategy review.
+- Does **not** download / refill / batch / retry retired URLs.
+- Does **not** modify any local source path.
+
 | Phase | Description | Status |
 | --- | --- | --- |
 | P7B+1 | Cron MEDIA delivery verification / failure-only fallback | ✅ PASS |
@@ -237,18 +299,23 @@ Verification report paths live under
   paths remain local and out of the commit history; v0.2.1 release
   prep intentionally does **not** add `reports/runtime/` to git.
 
-## Current verified status (2026-07-05)
+## Current verified status (2026-07-12, after P9G+2)
 
 | Field | Value | Source |
 | --- | --- | --- |
-| Public Gallery | 200 selected works | `https://conanxin.github.io/projects/artvee-gallery-demo/data/artworks.json` |
+| Public Gallery | 300 selected works (256-only) | `https://conanxin.github.io/projects/artvee-gallery-demo/data/artworks.json` |
+| Public Gallery bundle | 3.48 MB (–76.6% vs. P9G) | `du -sb` of the live Pages repo |
+| `detail_thumb_policy` (public bundle) | `none` (P9G+2) | `data/gallery_stats.json` |
+| Public 256 thumbs | 300 | `data/gallery_stats.json.thumbs_256_count` |
+| Public 512 thumbs | 0 (gallery); 1 (digest preview, unchanged) | `data/gallery_stats.json.thumbs_512_count` + digest bundle |
 | `known_retired` | 4 | ops status (`KNOW_RETIRED`-audited) |
 | `blocking_unresolved` | 0 | ops status |
-| `pending_media` | 0 | ops status + cron-2026-07-05.json |
-| `transport` | `ok` | ops status + cron-2026-07-05.json |
-| Public Digest history | 9 entries (latest 2026-06-12) | `https://conanxin.github.io/projects/artvee-gallery-digest/data/digest-history.json` |
+| `pending_media` | 0 | ops status + cron-2026-07-12.json |
+| `transport` | `ok` | ops status + cron-2026-07-12.json |
+| Public Digest history | 9 entries (latest 2026-07-12) | `https://conanxin.github.io/projects/artvee-gallery-digest/data/digest-history.json` |
 | Strict integrity | PASS (0 duplicates) | `scripts/check_gallery_integrity.py --strict` |
 | Open-source readiness | PASS (4/4) | `scripts/check_open_source_ready.py` |
+| Pages commit | `33ff10b` (646abf3..33ff10b) | Pages repo `git log -1 --oneline` |
 
 ### A note on `records` numbers
 

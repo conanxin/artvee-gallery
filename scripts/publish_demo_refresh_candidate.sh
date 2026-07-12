@@ -244,7 +244,9 @@ GALLERY_FINAL_STATUS="PASS"
 GALLERY_HAS_METADATA_PATH=0
 
 if [[ -s "$GALLERY_CANDIDATE/data/artworks.json" ]]; then
-    mapfile -t QA_OUTPUT < <("$PYTHON_BIN" - "$GALLERY_CANDIDATE" <<'PY'
+    mapfile -t QA_OUTPUT < <(
+        ARTVEE_DETAIL_THUMB_POLICY="${DETAIL_THUMB_POLICY:-none}" \
+        "$PYTHON_BIN" - "$GALLERY_CANDIDATE" <<'PY'
 import json, sys, os
 from collections import Counter
 from pathlib import Path
@@ -291,14 +293,18 @@ for a in arts:
 
 le_reve = sum(1 for s in sus_clean if 'le-reve' in s)
 
+# P9G+2: when --detail-thumb-policy=none, thumb_512 is null in JSON and
+# the assets/thumbs/512/ directory is intentionally absent. The QA must
+# NOT count those as missing, because they are by design.
+DETAIL_THUMB_POLICY = os.environ.get("ARTVEE_DETAIL_THUMB_POLICY", "all")
+keys = ('thumb_256',) if DETAIL_THUMB_POLICY == "none" else ('thumb_256', 'thumb_512')
 missing = 0
 for a in arts:
-    for tk in ('thumb_256', 'thumb_512'):
+    for tk in keys:
         rel = a.get(tk, '')
-        if not rel:
-            missing += 1
+        if not rel or rel is None:
             continue
-        rp = rel.lstrip('./')
+        rp = str(rel).lstrip('./')
         p = base / rp
         if not p.is_file():
             missing += 1

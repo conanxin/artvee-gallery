@@ -15,18 +15,25 @@ Latest release: **v0.2.0** (stable, 2026-06-16). See
 and [CHANGELOG.md](CHANGELOG.md).
 Previous pre-release: [v0.2.0-alpha](docs/RELEASE_NOTES_v0.2.0-alpha.md).
 
-> **v0.2.1 release-prep (2026-07-05, appended with P9F+1 on 2026-07-11):**
+> **v0.2.1 release-prep (2026-07-05, appended with P9F+1 on 2026-07-11, P9G+2 on 2026-07-12):**
 > CHANGELOG top section +
 > [docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md)
 > authored. **P9F+1** (`scripts/artvee_metrics.py` +
 > `scripts/check_artvee_metrics.py` + [docs/METRICS_MODEL.md](docs/METRICS_MODEL.md))
 > canonicalizes the metrics model so stale cached snapshots can never
-> reappear silently; on 2026-07-11 live counts are
-> `library_records=1286`, `manifest_downloaded=1290`,
+> reappear silently; on 2026-07-12 live counts are
+> `library_records=1306`, `manifest_downloaded=~1286`,
 > `manifest_pending=54`, `manifest_failed=10`, `known_retired=4`.
-> Public Gallery = 300 selected works; Public Digest history = 9
-> entries. **No `v0.2.1` tag cut yet, no GitHub Release published
-> yet** — pending user approval.
+> Public Gallery = 300 selected works; **P9G+2** shrinks the
+> public bundle from 14.88 MB to **3.48 MB** by stopping the
+> export of 512 thumbnails (Grid was using only 256 anyway); the
+> bundle now records its `detail-thumb-policy` in
+> `data/gallery_stats.json` and ships under the new
+> [docs/PUBLIC_BUNDLE_POLICY.md](docs/PUBLIC_BUNDLE_POLICY.md)
+> contract. Public Digest history = 9 entries.
+> **No `v0.2.1` tag cut yet, no GitHub Release published
+> yet** — pending user approval. **Observation window restarts
+> from the P9G+2 commit** (2026-07-12).
 
 > **v0.2.0 is the first stable daily-operable release.**
 > 3-day observation window (2026-06-14 — 2026-06-16) closed green;
@@ -290,6 +297,7 @@ For the full rationale and a risk surface, see
 | [docs/GALLERY_PUBLIC_DEMO.md](docs/GALLERY_PUBLIC_DEMO.md) | Public demo export internals |
 | [docs/GALLERY_DAILY_DIGEST.md](docs/GALLERY_DAILY_DIGEST.md) | Daily digest selection strategies and outputs |
 | [docs/PUBLIC_DEMO_REFRESH_PLAN.md](docs/PUBLIC_DEMO_REFRESH_PLAN.md) | Public demo refresh modes (manual / semi-auto / full-auto) |
+| [docs/PUBLIC_BUNDLE_POLICY.md](docs/PUBLIC_BUNDLE_POLICY.md) | Public bundle contract: what the public Gallery ships and why |
 | [docs/RELEASE_NOTES_v0.1.0-alpha.md](docs/RELEASE_NOTES_v0.1.0-alpha.md) | v0.1.0-alpha release notes (previous) |
 
 ## Current operational model
@@ -373,6 +381,13 @@ from <https://conanxin.github.io/projects/artvee-gallery-demo/>
 v0.2.1-era `--gallery-limit` parameter; v0.2.1 release-prep
 documentation lives in
 [docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md)).
+
+> **P9G+2 (2026-07-12):** the public bundle now ships **256
+> thumbnails only** (3.48 MB total, down from 14.88 MB). The
+> 512 thumbnails are no longer part of the public bundle and the
+> detail panel falls back to the 256 thumb cleanly under
+> `detail-thumb-policy=none`. See
+> [docs/PUBLIC_BUNDLE_POLICY.md](docs/PUBLIC_BUNDLE_POLICY.md).
 
 ### Daily digest demo
 

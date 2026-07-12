@@ -115,6 +115,80 @@ in the form `vMAJOR.MINOR.PATCH-stage` (pre-1.0).
   - `would_write_production_summary=true`,
   - `started_at=2026-07-05T03:10:01+08:00`.
 
+### v0.2.1 — P9G+2 (Public Bundle Optimization, appended 2026-07-12)
+
+> **Status:** appended to v0.2.1 release-prep. v0.2.1 has not been
+> tagged yet; this commit is included in the v0.2.1 cutoff. The
+> v0.2.1 observation window restarts from the P9G+2 commit.
+
+#### Changed
+- **`scripts/export_artvee_gallery_public_demo.py`** — new
+  `--detail-thumb-policy {all,none}` flag (default `none`).
+  Under `none` the exporter omits `assets/thumbs/512/` from the
+  candidate, sets `artworks.json.thumb_512 = null`, and remaps
+  `image_path` to mirror `thumb_256` so the detail-panel fallback
+  chain never requests a missing 512 asset.
+- **`scripts/confirm_demo_refresh.sh`** — new
+  `--detail-thumb-policy` argument (default `none`). QA is
+  policy-aware: `thumbs_512_count` target is 300 under `all` and
+  0 under `none`. Soft/hard size budgets switch to 5 MB / 8 MB
+  under `none` (legacy 15 MB / 20 MB under `all`).
+- **`web/app.js`** — explicit fallback chain
+  `thumb_512 || image_path || thumb_256`. The Grid remains on
+  256 (lazy). Detail-panel image now matches the policy: under
+  `none` it serves the 256 thumb (no request to `/512/`); under
+  `all` it still picks the 512 first as the previous release
+  shipped.
+- **Bundle size of the public Gallery:** 14.88 MB → 3.48 MB (a
+  reduction of ≈ 11.40 MB / ≈ 76.6%, exact size measured on
+  the live candidate; reports/audits may give slightly different
+  numbers depending on `du` flags). The full 300-record Gallery
+  (256 thumbs + base assets) is **6×** smaller than before.
+
+#### Added
+- **`docs/PUBLIC_BUNDLE_POLICY.md`** — single source of truth
+  for the public-bundle contract: surface, allowed/forbidden
+  fields, detail-thumb-policy semantics, detail-panel fallback
+  chain, when to revisit, acceptance checklist.
+- **`gallery_stats.json.detail_thumb_policy`** — explicit
+  field recording which policy the bundle ships under
+  (`all` / `none`).
+- **`gallery_stats.json.thumbs_256_count`** and
+  **`thumbs_512_count`** — explicit counts emitted in stats,
+  redundant with the existing `counts.thumb_256_total` /
+  `counts.thumb_512_total` (kept for back-compat with the
+  artist / category dashboards).
+
+#### QA & verification (P9G+2)
+- Records 300 / 256 thumbs 300 / 512 thumbs **0** (policy=none).
+- Bundle **3.48 MB** (well under soft 5 MB; well under hard 8 MB).
+- Local HTTP + Playwright smoke: 300 cards, 0 `/512/`
+  requests, 5 detail-panel clicks all load 256 thumbs, 0 broken
+  images, 0 console errors, 0 page errors.
+- Pages Guard: 305 changed / 305 allowed / 0 blocked (only
+  `projects/artvee-gallery-demo/**` + `data.json` touched).
+- Online `data/artworks.json`: 300 records, **0** `/512/`
+  references, no `metadata_path`, no `home-dir` prefix, no
+  `repo-name` mention, no `TOKEN` / `SECRET` / `CHAT_ID`.
+- 7/7 endpoints HTTP 200, 10 sample 256 thumbs HTTP 200, sample
+  512 paths HTTP 404 (verifying they were not just suppressed
+  on the wire but actually deleted from Pages).
+
+#### Safety (P9G+2)
+- Local Library `images/` / `metadata/` / `thumbs/` untouched
+  (full 1286 records + 512 thumbs remain on disk).
+- No download / refill / batch / retired retry.
+- No full image / metadata uploaded to Pages.
+- No `v0.2.1` tag cut, no GitHub Release published.
+- Pages commit `33ff10b` only touches the allow list.
+
+#### Future expansion (now feasible)
+- 400 records at 256-only → estimated **4.55 MB** (under soft 5
+  MB, ready to ship without revisiting the bundle policy).
+- 500 records at 256-only → estimated **5.62 MB** (under hard
+  8 MB, shipping requires a fresh P9H or later phase that
+  covers grid strategy as well as record count).
+
 ### Known behavior
 - **Dry-run vs production summary path aliasing.** In real
   `no_pending` media-replay summaries, the

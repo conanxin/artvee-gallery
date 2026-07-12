@@ -47,16 +47,27 @@ print_help() {
 用法：bash scripts/confirm_demo_refresh.sh [options]
 
 选项:
-  --date YYYY-MM-DD     指定候选日期 (默认今天)
-  --dry-run             只打印步骤，不写 dist/logs/，不发 Telegram
-  --no-telegram         正常跑流程但跳过 Telegram 通知
-  --help                显示此帮助
+  --date YYYY-MM-DD            指定候选日期 (默认今天)
+  --dry-run                    只打印步骤，不写 dist/logs/，不发 Telegram
+  --no-telegram                正常跑流程但跳过 Telegram 通知
+  --gallery-limit N            Gallery 候选记录数 (默认 100，本阶段 P9G+2 为 300)
+  --detail-thumb-policy {all,none}
+                               P9G+2: public Gallery bundle 是否发布 512
+                               thumbnails。默认 'none' (推荐，本阶段使用)：
+                               只发布 256 thumbnails，bundle 从 ~14.88 MB 降到
+                               ~3.52 MB。详情面板回退到 256 不产生 broken image。
+                               'all' 保留旧行为。
+  --help                       显示此帮助
 
-默认: --date=today, 跑全部步骤, 跑完发 Telegram
+默认: --date=today, --detail-thumb-policy=none, 跑全部步骤, 跑完发 Telegram
 USAGE
 }
 
 GALLERY_RECORD_TARGET="${GALLERY_RECORD_TARGET:-100}"
+# P9G+2: 默认 policy=none (仅 256)。明面下以及前端缺认下都是 P9G+2 推荐值
+# 调整成 none 来自动优化 bundle。如果调用者不传 *-detail-thumb-policy，
+# 本变量保持 'none'。可显式覆盖成 'all'。
+DETAIL_THUMB_POLICY="${DETAIL_THUMB_POLICY:-none}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -74,6 +85,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --gallery-limit)
             GALLERY_RECORD_TARGET="$2"
+            shift 2
+            ;;
+        --detail-thumb-policy)
+            DETAIL_THUMB_POLICY="$2"
             shift 2
             ;;
         --help|-h)
@@ -112,8 +127,20 @@ DIGEST_OUT="$CANDIDATE_BASE/$DATE/digest"
 # 阈值 (per brief)
 # GALLERY_RECORD_TARGET is now configurable via --gallery-limit N (default 100)
 GALLERY_THUMB_TARGET=300
-GALLERY_SOFT_LIMIT_MB=10
-GALLERY_HARD_LIMIT_MB=20
+# P9G+2: under --detail-thumb-policy=none the gallery bundle is *much* smaller
+# (256 thumbs only). The brief in P9G+2 sets soft=5MB / hard=8MB. We pick
+# budgets per policy so the old "all" path is still 15MB soft / 20MB hard
+# (current published bundle is 14.88 MB so 15 MB soft is right at the edge).
+if [[ "$DETAIL_THUMB_POLICY" == "none" ]]; then
+    GALLERY_SOFT_LIMIT_MB=5
+    GALLERY_HARD_LIMIT_MB=8
+    # Under policy=none, the 512 thumb-count target is 0, not 300.
+    GALLERY_THUMB_512_TARGET=0
+else
+    GALLERY_SOFT_LIMIT_MB=10
+    GALLERY_HARD_LIMIT_MB=20
+    GALLERY_THUMB_512_TARGET="$GALLERY_RECORD_TARGET"
+fi
 DIGEST_SELECT_TARGET=5
 # P8B digest size budgets — page is text-only + 1-5 thumbs; 5MB
 # soft / 10MB hard keeps the bundle honest.
@@ -274,6 +301,8 @@ _step "Export Gallery public demo candidate"
 if [[ $DRY_RUN -eq 0 ]]; then
     rm -rf "$GALLERY_OUT"
     mkdir -p "$GALLERY_OUT"
+    # P9G+2: pass --detail-thumb-policy through to the exporter. Default
+    # (set above) is 'none'; callers can override to 'all' for back-compat.
     if ! "$PYTHON_BIN" "$BASE_DIR/scripts/export_artvee_gallery_public_demo.py" \
             --limit "$GALLERY_RECORD_TARGET" \
             --strategy diverse \
@@ -282,13 +311,14 @@ if [[ $DRY_RUN -eq 0 ]]; then
             --require-unique-source-url \
             --exclude-risk high \
             --visual-qa "$BASE_DIR/reports/runtime/p5d-visual-qa-full.json" \
+            --detail-thumb-policy "$DETAIL_THUMB_POLICY" \
             --out-dir "$GALLERY_OUT" >> "$RUN_LOG" 2>&1; then
         _record_fail "gallery export failed; see $RUN_LOG"
         _finalize_and_exit 1
     fi
-    _log "  ✅ gallery candidate at $GALLERY_OUT"
+    _log "  ✅ gallery candidate at $GALLERY_OUT (detail-thumb-policy=$DETAIL_THUMB_POLICY)"
 else
-    _log "  (dry-run) would run export_artvee_gallery_public_demo.py → $GALLERY_OUT"
+    _log "  (dry-run) would run export_artvee_gallery_public_demo.py --detail-thumb-policy=$DETAIL_THUMB_POLICY → $GALLERY_OUT"
 fi
 
 # ----------------------------------------------------------------------------
@@ -339,7 +369,9 @@ if [[ $DRY_RUN -eq 0 ]]; then
 
     # JSON 字段分析
     if [[ -s "$GALLERY_OUT/data/artworks.json" ]]; then
-        mapfile -t QA_OUTPUT < <("$PYTHON_BIN" - "$GALLERY_OUT" <<'PY'
+        mapfile -t QA_OUTPUT < <(
+            ARTVEE_DETAIL_THUMB_POLICY="$DETAIL_THUMB_POLICY" \
+            "$PYTHON_BIN" - "$GALLERY_OUT" <<'PY'
 import json
 import os
 import sys
@@ -395,16 +427,25 @@ for a in arts:
 # Le_rêve guard
 le_reve = sum(1 for s in sus_clean if 'le-reve' in s)
 
-# missing thumbs: check thumb_256 and thumb_512 files exist
+# missing thumbs: check thumb_256 and thumb_512 files exist.
+# P9G+2: when --detail-thumb-policy=none, thumb_512 is null in JSON and
+# the assets/thumbs/512/ directory is intentionally absent. The QA must
+# NOT count those as missing, because they are by design. We toggle via
+# an env var injected from the bash wrapper (see below).
+import os
+DETAIL_THUMB_POLICY = os.environ.get("ARTVEE_DETAIL_THUMB_POLICY", "all")
+keys = ('thumb_256',) if DETAIL_THUMB_POLICY == "none" else ('thumb_256', 'thumb_512')
 missing = 0
 for a in arts:
-    for tk in ('thumb_256', 'thumb_512'):
+    for tk in keys:
         rel = a.get(tk, '')
-        if not rel:
-            missing += 1
+        # P9G+2: a thumb_* path may also be null (JSON null) when the
+        # exporter set it that way. Treat None as "not applicable"
+        # instead of "missing on disk".
+        if not rel or rel is None:
             continue
         # rel starts with ./ or /assets/ or assets/
-        rp = rel.lstrip('./')
+        rp = str(rel).lstrip('./')
         p = base / rp
         if not p.is_file():
             missing += 1
@@ -442,8 +483,20 @@ PY
         _log "  ⚠️ records=$GALLERY_RECORDS (target=$GALLERY_RECORD_TARGET)"
         GALLERY_FINAL_STATUS="FAIL"
     fi
-    if [[ "$GALLERY_THUMB_256" -ne "$GALLERY_RECORD_TARGET" || "$GALLERY_THUMB_512" -ne "$GALLERY_RECORD_TARGET" ]]; then
-        _log "  ⚠️ thumbs 256=$GALLERY_THUMB_256 512=$GALLERY_THUMB_512 (target=$GALLERY_RECORD_TARGET each)"
+    # P9G+2: QA is policy-aware.
+    #   - 256 count must equal GALLERY_RECORD_TARGET in either policy.
+    #   - 512 count must equal GALLERY_THUMB_512_TARGET (which is
+    #     GALLERY_RECORD_TARGET under policy=all, or 0 under policy=none).
+    if [[ "$GALLERY_THUMB_256" -ne "$GALLERY_RECORD_TARGET" ]]; then
+        _log "  ⚠️ thumbs 256=$GALLERY_THUMB_256 (target=$GALLERY_RECORD_TARGET)"
+        GALLERY_FINAL_STATUS="FAIL"
+    fi
+    if [[ "$GALLERY_THUMB_512" -ne "$GALLERY_THUMB_512_TARGET" ]]; then
+        if [[ "$DETAIL_THUMB_POLICY" == "none" ]]; then
+            _log "  ⚠️ thumbs 512=$GALLERY_THUMB_512 (target=$GALLERY_THUMB_512_TARGET under policy=none)"
+        else
+            _log "  ⚠️ thumbs 512=$GALLERY_THUMB_512 (target=$GALLERY_THUMB_512_TARGET under policy=all)"
+        fi
         GALLERY_FINAL_STATUS="FAIL"
     fi
     if [[ "$GALLERY_DUPE_ID" -ne 0 ]]; then
@@ -834,9 +887,10 @@ if [[ $DRY_RUN -eq 0 ]]; then
         echo "| --- | --- |"
         echo "| Path | \`$GALLERY_OUT\` |"
         echo "| Records | $GALLERY_RECORDS (target: $GALLERY_RECORD_TARGET) |"
+        echo "| Detail-thumb-policy | $DETAIL_THUMB_POLICY |"
         echo "| Thumbs (256) | $GALLERY_THUMB_256 |"
-        echo "| Thumbs (512) | $GALLERY_THUMB_512 |"
-        echo "| Size | $GALLERY_SIZE_HUMAN ($GALLERY_SIZE_BYTES bytes) |"
+        echo "| Thumbs (512) | $GALLERY_THUMB_512 (target: $GALLERY_THUMB_512_TARGET) |"
+        echo "| Size (soft/hard limit) | $GALLERY_SIZE_HUMAN ($GALLERY_SOFT_LIMIT_MB MB / $GALLERY_HARD_LIMIT_MB MB) |"
         echo "| Largest file | $GALLERY_LARGEST_HUMAN |"
         echo "| Duplicate id groups | $GALLERY_DUPE_ID |"
         echo "| Duplicate source_url groups | $GALLERY_DUPE_SOURCE_URL |"
@@ -913,7 +967,7 @@ if [[ $DRY_RUN -eq 0 ]]; then
             if [[ "$OVERALL" == "PASS" ]]; then
                 TELEGRAM_MSG="✅ Artvee Demo Refresh Candidate
 日期: $DATE
-Gallery: PASS, records=$GALLERY_RECORDS, thumbs=$((GALLERY_THUMB_256+GALLERY_THUMB_512)), size=$GALLERY_SIZE_HUMAN
+Gallery: PASS, records=$GALLERY_RECORDS, detail-thumb-policy=$DETAIL_THUMB_POLICY, thumbs=$((GALLERY_THUMB_256+GALLERY_THUMB_512)), size=$GALLERY_SIZE_HUMAN
 Digest: PASS, selected=$DIGEST_SELECTED, thumbs=$DIGEST_THUMB, size=$DIGEST_SIZE_HUMAN, archive_entries=$DIGEST_HISTORY_ENTRIES
 Guards: duplicate_source_url=$GALLERY_DUPE_SOURCE_URL, Le_rêve=$GALLERY_LE_REVE, leaks=$((GALLERY_LEAKS+DIGEST_LEAKS)), missing=$((GALLERY_MISSING+DIGEST_MISSING))
 $RETIRED_LINE

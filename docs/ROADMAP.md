@@ -603,6 +603,8 @@ build-script label fix remains.
 - **Optional 7-day observation continuation** from 2026-07-05 (track daily-health, ops status, and the optional 03:10 media-replay cron log).
 - **v0.2.2 / v0.3.0 cleanup candidates** — tighten `dry_run_summary_path` semantics so it never aliases `production_summary_path`; revisit the bucket classifier as the queue grows; add an `ops_records` vs. `integrity_records` label to remove the 875-vs-1206 ambiguity.
 - **Future 300+ public gallery expansion** — *P9G (2026-07-12)* expanded to 300 selected works (was 200); 17 MB gallery bundle (within 20 MB hard limit); performance review deferred to future phase if needed.
+- **P9G+1 (Public Gallery Performance / Bundle Audit, 2026-07-12)** confirmed 300 records worked but bundle size was dominated by 11 MB of 512 thumbnails that the Grid never loads. Top pick was a policy flag to drop 512 from the public bundle — landed as **P9G+2**.
+- **P9G+2 (Public Bundle Optimization, 2026-07-12)** stops shipping `assets/thumbs/512/` in the public bundle; new `docs/PUBLIC_BUNDLE_POLICY.md` documents the contract. Bundle 14.88 MB → **3.48 MB** (–11.40 MB). Front-end detail panel falls back to 256 under `detail-thumb-policy=none`. Pages commit `33ff10b`. Future projections: 400 records at 256-only → **4.55 MB**; 500 records at 256-only → **5.62 MB**, both within the 5 MB / 8 MB soft/hard budget. v0.2.1 observation window restarts here.
 - **v0.2.1 tag + GitHub Release** — cut after the 7-day observation window closes green and the user gives explicit approval.
 
 ### P7B+1 · Cron MEDIA delivery verification / failure-only fallback ✅ PASS (2026-06-13 04:30)
