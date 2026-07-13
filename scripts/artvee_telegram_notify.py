@@ -21,6 +21,42 @@ from pathlib import Path
 ARTVEE_OPENCLAW_BIN = os.environ.get('ARTVEE_OPENCLAW_BIN', 'openclaw')
 OPENCLAW_BIN = os.environ.get('OPENCLAW_BIN', '')
 
+# P8D+5: bounded transport retry knobs. Defaults match the brief:
+# 3 attempts, backoff 0/15/45 seconds. We only retry on transport-class
+# failures (openclaw exit 1 transport, ws timeout, transport-unreachable,
+# connection refused); we never retry on config / chat-id / argument
+# failures. Each attempt records its own history row so callers can show
+# exactly which attempt delivered and which failed.
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, '').strip()
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return default
+
+
+def _env_backoff(name: str, default: str) -> list:
+    """Parse a comma-separated backoff list, falling back to the default."""
+    raw = os.environ.get(name, '').strip()
+    if not raw:
+        return [int(x) for x in default.split(',')]
+    out = []
+    for piece in raw.split(','):
+        piece = piece.strip()
+        if not piece:
+            continue
+        try:
+            out.append(max(0, int(piece)))
+        except Exception:
+            continue
+    return out or [int(x) for x in default.split(',')]
+
+
+DEFAULT_MAX_ATTEMPTS = 3
+DEFAULT_BACKOFF_SECONDS = '0,15,45'
+
 CFG_PATH = Path.home() / '.openclaw' / 'openclaw.json'
 # Chat ID resolution order (P7B+1: no hard-coded ids in the repo):
 #   1. CLI argument --chat-id (most explicit; always wins)
@@ -156,6 +192,7 @@ def _classify_error(log_content: str, returncode: int) -> str:
       - "media_allowed": staged path is not under the openclaw allowlist
       - "timeout":       openclaw process exceeded the wait window
       - "exit_nonzero":  any other non-zero exit
+      - "config_missing": chat-id / config cannot be resolved → NEVER retry
       - "unknown":       no log content to classify
     """
     text = (log_content or "").lower()
@@ -169,9 +206,37 @@ def _classify_error(log_content: str, returncode: int) -> str:
         return "media_allowed"
     if "openclaw binary" in text or "no such file" in text:
         return "binary_missing"
+    if "chat id" in text and "not found" in text:
+        return "config_missing"
     if returncode != 0 and not text:
         return "exit_nonzero"
     return "unknown"
+
+
+# Error kinds that are eligible for bounded retry. Transport-class failures
+# are reasonably caused by transient gateway saturation; binary_missing and
+# config_missing are deterministic and would just waste attempts.
+_RETRYABLE_KINDS = {"transport", "timeout"}
+
+
+def _redact_log(text: str, max_chars: int = 1200) -> str:
+    """Strip secrets / chat-id / token-shaped substrings from a log blob.
+
+    The notifier output occasionally echoes the chat id inline (e.g.
+    ``message send --target 1540208324 ...``). We never write that to disk;
+    everything that touches ``/tmp/artvee_notify_*.log`` already contains
+    the literal id, but a future caller may copy this content into a
+    queue / report file. Defensive redact is cheap.
+    """
+    import re as _re
+    if not text:
+        return ""
+    out = text[:max_chars]
+    # 9-13 digit chat ids.
+    out = _re.sub(r'(?<!\d)\d{9,13}(?!\d)', '[REDACTED_CHAT_ID]', out)
+    # Bare bot tokens (numeric:alnum patterns).
+    out = _re.sub(r'\b\d{6,12}:[A-Za-z0-9_-]{30,}\b', '[REDACTED_TOKEN]', out)
+    return out
 
 
 def _check_openclaw_bin(cli_path: str = None):
@@ -226,7 +291,126 @@ def _extract_message_id(log_path: str) -> str:
     return None
 
 
+def _read_log_text(log_path: str) -> str:
+    """Read a notify log file as utf-8 text; return "" on any error."""
+    try:
+        with open(log_path, 'r', encoding='utf-8', errors='replace') as fh:
+            return fh.read()
+    except Exception:
+        return ""
+
+
+def _close_proc(proc):
+    """Best-effort terminate + wait for the subprocess."""
+    try:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _run_one_attempt(text: str, chat_id: str, media, resolved: str, ts: str, attempt: int) -> dict:
+    """Run a single openclaw send; return a structured per-attempt dict.
+
+    P8D+5: every attempt is run synchronously with a 300s wait so we know
+    whether the message actually landed before deciding to retry. A
+    background-mode launch (wait=False) is intentionally NOT used here
+    because we cannot tell whether it succeeded without parsing the log
+    file, and a crash between launch + log-parse would burn an attempt
+    silently.
+    """
+    cmd = [
+        resolved, 'message', 'send',
+        '--channel', 'telegram',
+        '--target', chat_id,
+        '--message', text,
+    ]
+    if media:
+        cmd += ['--media', str(media)]
+
+    log_path = f'/tmp/artvee_notify_{ts}_a{attempt}.log'
+    started_at = datetime.now().isoformat() if False else time.strftime('%Y-%m-%dT%H:%M:%S')
+    record: dict = {
+        'attempt': attempt,
+        'started_at': started_at,
+        'ended_at': None,
+        'duration_seconds': 0,
+        'log_path': log_path,
+        'pid': None,
+        'returncode': None,
+        'error_kind': None,
+        'error': None,
+        'message_id': None,
+    }
+    proc = None
+    try:
+        with open(log_path, 'w', encoding='utf-8') as log_fh:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        record['pid'] = proc.pid
+        try:
+            proc.wait(timeout=300)
+            rc = proc.returncode
+        except subprocess.TimeoutExpired:
+            record['error'] = 'timeout after 300s'
+            record['error_kind'] = 'timeout'
+            record['ended_at'] = time.strftime('%Y-%m-%dT%H:%M:%S')
+            _close_proc(proc)
+            return record
+        record['returncode'] = rc
+        log_text = _read_log_text(log_path)
+        message_id = _extract_message_id(log_path)
+        record['error_kind'] = _classify_error(log_text, rc) if rc != 0 else None
+        if message_id:
+            record['message_id'] = message_id
+        # ok requires BOTH rc=0 AND a non-empty message_id. Either failure
+        # is a candidate for retry (when retryable_kind) or terminal
+        # (binary_missing / config_missing / media_allowed / exit_nonzero).
+        record['ok'] = bool(rc == 0 and message_id)
+        if rc != 0:
+            record['error'] = f'openclaw exit {rc} (redacted)'
+        elif not message_id:
+            record['error'] = 'openclaw exit 0 but no message_id parsed (treated as undelivered)'
+    except Exception as e:
+        record['error'] = f'{type(e).__name__}: {e}'
+        record['error_kind'] = 'exit_nonzero'
+    finally:
+        try:
+            record['ended_at'] = time.strftime('%Y-%m-%dT%H:%M:%S')
+            if record.get('started_at') and record.get('ended_at'):
+                t0 = time.mktime(time.strptime(record['started_at'], '%Y-%m-%dT%H:%M:%S'))
+                t1 = time.mktime(time.strptime(record['ended_at'], '%Y-%m-%dT%H:%M:%S'))
+                record['duration_seconds'] = max(0, int(t1 - t0))
+        except Exception:
+            record['duration_seconds'] = 0
+        if proc is not None:
+            try:
+                proc.wait(timeout=1)
+            except Exception:
+                pass
+    return record
+
+
 def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = None, openclaw_bin: str = None) -> dict:
+    """Single-shot send (kept for backwards compatibility).
+
+    For new code prefer ``send_text_with_retry``, which adds bounded
+    retry on transport-class failures. This function preserves the
+    legacy behaviour: it either blocks until the underlying process
+    returns (wait=True), or fires-and-forgets (wait=False).
+    """
     resolved = _resolve_openclaw_bin(openclaw_bin)
     if not _check_openclaw_bin(openclaw_bin):
         return {'ok': False, 'error': f'OpenClaw binary missing or not executable. Tried: ARTVEE_OPENCLAW_BIN={ARTVEE_OPENCLAW_BIN!r}, OPENCLAW_BIN={OPENCLAW_BIN!r}, PATH lookup for openclaw, or --openclaw-bin if provided.', 'resolved': resolved}
@@ -266,7 +450,7 @@ def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = N
                 rc = proc.returncode
                 message_id = _extract_message_id(log_path)
                 result = {
-                    'ok': rc == 0,
+                    'ok': bool(rc == 0 and message_id),
                     'pid': proc.pid,
                     'returncode': rc,
                     'log_path': log_path,
@@ -274,14 +458,13 @@ def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = N
                 if message_id:
                     result['message_id'] = message_id
                 if rc != 0:
-                    log_text = ''
-                    try:
-                        with open(log_path, 'r', encoding='utf-8', errors='replace') as lf:
-                            log_text = lf.read()
-                    except Exception:
-                        pass
-                    result['error'] = f'openclaw exit {rc}'
+                    log_text = _read_log_text(log_path)
+                    result['error'] = f'openclaw exit {rc} (redacted)'
                     result['error_kind'] = _classify_error(log_text, rc)
+                elif not message_id:
+                    log_text = _read_log_text(log_path)
+                    result['error'] = 'openclaw exit 0 but no message_id parsed (treated as undelivered)'
+                    result['error_kind'] = 'unknown'
                 return result
             except subprocess.TimeoutExpired:
                 return {
@@ -305,6 +488,114 @@ def send_text(text: str, chat_id: str = None, wait: bool = False, media: str = N
             'ok': False,
             'error': str(e),
         }
+
+
+def send_text_with_retry(
+    text: str,
+    chat_id: str = None,
+    media: str = None,
+    openclaw_bin: str = None,
+    *,
+    max_attempts: int = None,
+    backoff_seconds: list = None,
+) -> dict:
+    """Bounded-retry wrapper around ``send_text``.
+
+    P8D+5: design contract.
+    - ``error_kind`` ∈ ``{transport, timeout}`` ⇒ retry up to ``max_attempts``
+      with the given per-attempt backoff. Any successful attempt (rc=0 AND
+      non-empty ``message_id``) returns immediately with ``delivered: True``.
+    - ``error_kind`` ∈ ``{binary_missing, config_missing, media_allowed,
+      exit_nonzero, unknown}`` ⇒ stop on the first attempt; these are
+      deterministic and re-running them will just burn time / fill logs.
+    - ``error`` is set on every attempt; the final return merges the last
+      attempt's error plus an explicit ``retry_history`` array so the caller
+      has the full audit trail without needing to re-parse the per-attempt
+      logs.
+    - The function NEVER prints chat id, token, or any secret. Internal
+      logging is sanitized via ``_redact_log`` before being captured into
+      the returned dict's ``error`` field.
+    """
+    if max_attempts is None:
+        max_attempts = _env_int('ARTVEE_NOTIFY_MAX_ATTEMPTS', DEFAULT_MAX_ATTEMPTS)
+    if backoff_seconds is None:
+        backoff_seconds = _env_backoff('ARTVEE_NOTIFY_BACKOFF_SECONDS', DEFAULT_BACKOFF_SECONDS)
+    # Truncate the backoff list to the number of attempts we will run.
+    if len(backoff_seconds) < max_attempts:
+        backoff_seconds = list(backoff_seconds) + [backoff_seconds[-1]] * (max_attempts - len(backoff_seconds))
+
+    resolved = _resolve_openclaw_bin(openclaw_bin)
+    if not _check_openclaw_bin(openclaw_bin):
+        return {
+            'ok': False, 'delivered': False,
+            'error': 'OpenClaw binary missing or not executable',
+            'error_kind': 'binary_missing',
+            'attempt_used': 0,
+            'max_attempts': max_attempts,
+            'retry_history': [],
+            'resolved': resolved,
+        }
+
+    # Resolve chat id once up-front; missing config never retries.
+    if chat_id is None:
+        try:
+            chat_id = load_chat_id()
+        except Exception as e:
+            return {
+                'ok': False, 'delivered': False,
+                'error': f'chat id resolution failed: {type(e).__name__}',
+                'error_kind': 'config_missing',
+                'attempt_used': 0,
+                'max_attempts': max_attempts,
+                'retry_history': [],
+            }
+
+    ts = time.strftime('%Y%m%d_%H%M%S')
+    history: list = []
+    for attempt_idx in range(1, max_attempts + 1):
+        rec = _run_one_attempt(text, chat_id, media, resolved, ts, attempt_idx)
+        # Record the attempt. Strip the redundant ``started_at`` from older
+        # attempts to keep the final payload small, but keep ``log_path``
+        # so support can read the per-attempt log later.
+        rec_for_history = dict(rec)
+        history.append(rec_for_history)
+        if rec.get('ok') and rec.get('message_id'):
+            return {
+                'ok': True, 'delivered': True,
+                'message_id': rec['message_id'],
+                'error_kind': None,
+                'attempt_used': attempt_idx,
+                'max_attempts': max_attempts,
+                'retry_history': history,
+                'log_path': rec.get('log_path'),
+            }
+        kind = rec.get('error_kind') or 'unknown'
+        # Non-retryable → stop.
+        if kind not in _RETRYABLE_KINDS:
+            return {
+                'ok': False, 'delivered': False,
+                'error': _redact_log(rec.get('error') or ''),
+                'error_kind': kind,
+                'attempt_used': attempt_idx,
+                'max_attempts': max_attempts,
+                'retry_history': history,
+            }
+        # Retryable. Sleep before next attempt unless this was the last.
+        if attempt_idx < max_attempts:
+            wait_seconds = backoff_seconds[attempt_idx - 1]
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+
+    # Out of attempts and still failing with a retryable kind.
+    last = history[-1] if history else {}
+    return {
+        'ok': False, 'delivered': False,
+        'error': _redact_log(last.get('error') or ''),
+        'error_kind': last.get('error_kind') or 'transport',
+        'attempt_used': max_attempts,
+        'max_attempts': max_attempts,
+        'retry_history': history,
+    }
 
 
 def main():

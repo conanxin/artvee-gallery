@@ -1,6 +1,9 @@
 # Daily Operating Playbook
 
-> Living document. Last updated: 2026-07-01 (P8D+3 media replay verification cleanup: neutralized replay title, recovered-WARN classification in § 9.10).
+> Living document. Last updated: 2026-07-13 (P8D+5: end-to-end
+> Telegram notification recovery — bounded text retry, full
+> notification bundle queue, 03:10 replay state machine, OpenClaw
+> health-probe user-bus distinction).
 > This is the operational reference for the Artvee Gallery daily workflow.
 
 ---
@@ -928,3 +931,120 @@ sleep 90
   — the diagnosis that surfaced the signal-distortion bug.
 - `<workspace>/reports/artvee-gallery-p7e2-public-demo-restore-20260615.md`
   — the approved restore that shipped `a5ad80c` and the health-script fix.
+
+---
+
+## 13. End-to-End Telegram Notification Recovery (P8D+5)
+
+The 03:00 daily-health Telegram notification has been failing intermittently
+since 2026-07-09 with `NOTIFY_FAIL: openclaw exit 1 error_kind=transport`.
+Health and integrity checks stayed PASS throughout (`library_records=1326`,
+`source_mode=live`, `age=0s`). The notification channel — not the data — was
+broken.
+
+P8D+5 splits that into two distinct problems and adds two distinct fixes.
+
+### 13.1 A. Binary PATH resolution (refill / batch wrappers)
+
+- **Symptom**: `01:30` / `02:00` wrapper logs reported
+  `OpenClaw binary missing or not executable`.
+- **Cause**: legacy crontab entries did not export
+  `PATH=$HOME/.local/bin:...` to the bash spawned for the wrapper.
+- **Fix**: `scripts/artvee_nightly_wrapper.sh` now unconditionally prepends
+  `$HOME/.local/bin` to PATH and exports `ARTVEE_TELEGRAM_ENV_FILE` before
+  any notifier call (belt-and-suspenders so the wrapper is safe even if a
+  future crontab regression drops the env-block again).
+- **Resolution order (canonical, in scripts/artvee_telegram_notify.py)**:
+
+  1. CLI argument `--openclaw-bin`.
+  2. Environment variable `ARTVEE_OPENCLAW_BIN`.
+  3. Environment variable `OPENCLAW_BIN`.
+  4. `PATH` lookup for `openclaw`.
+  5. `$HOME/.local/bin/openclaw` (last resort).
+  6. Hard error, returning structured `binary_missing`.
+
+### 13.2 B. Text / MEDIA transport failure (daily-health cron)
+
+- **Symptom**: 03:00 text sent → `openclaw exit 1 error_kind=transport`;
+  MEDIA orphan-guard correctly skipped; 03:10 had nothing to recover.
+- **Cause**: a flaky OpenClaw gateway transport (gateway is active but
+  `eventLoopDelayMaxMs ≈ 10636ms` / `eventLoopUtilization ≈ 0.914` during
+  plugin reload at 03:01). Not a binary-resolution issue.
+- **Fix 1 — bounded text retry**:
+  `scripts/artvee_telegram_notify.py: send_text_with_retry(text, max_attempts=3, backoff_seconds=[0,15,45])`.
+  Only `transport` and `timeout` error_kinds are retried; `binary_missing`,
+  `config_missing`, `media_allowed` and `exit_nonzero` fail fast.
+  `ok` requires both `rc == 0` AND a non-empty parsed `message_id`;
+  exit-0-but-no-msg is now treated as a failure.
+- **Fix 2 — full notification bundle queue**: when text finally fails on a
+  healthy day, the report's
+  (`text + (already-staged) staged_report`) is persisted under
+  `reports/runtime/daily-health-delivery/pending/notification-<date>-<ts>.json`
+  (schema `artvee-notification-bundle-v1`), so 03:10 can replay the
+  **entire** notification atomically.
+- **Fix 3 — 03:10 replay state machine** (`scripts/replay_pending_media.py:
+  replay_notification_bundle`, gated by
+  `--include-notification-bundles`):
+
+  1. send **text** only,
+  2. require non-empty `text_message_id`,
+  3. send **MEDIA** with the already-staged path,
+  4. require non-empty `media_message_id`,
+  5. move the bundle to `<delivery_root>/replayed/`.
+
+  If text succeeds but MEDIA fails, the bundle is preserved with
+  `text_message_id` recorded; the next 03:10 attempts the media path only,
+  never re-sending text. Excess retries move the bundle to
+  `<delivery_root>/quarantine/` with `status=quarantined`.
+
+### 13.3 Fixed delivery queue roots (no recursion)
+
+```
+reports/runtime/daily-health-delivery/
+├── pending/        # active bundles only
+├── replayed/       # terminal — both ids non-empty
+├── quarantine/     # terminal — exhausted retries
+└── results/        # per-run aggregate JSON (no active scan)
+```
+
+- `terminal / backup / nested` paths (e.g. `replayed/replayed/`,
+  `pending/pending/`, anything under `queue-fix-backup-*`,
+  `legacy-cleaned/`, `stable_dup/`) **never** participate in the
+  active scan — same classifier rules as the legacy media-only queue
+  (P8D+4B).
+- `delivered` requires a durable, non-empty `message_id` from the
+  OpenClaw CLI's own log (`messageId=NNN` parsed by
+  `_extract_message_id`).
+
+### 13.4 OpenClaw health probe (`<home-dir>/.local/bin/openclaw-health-check.sh`)
+
+Previous behaviour: every `systemctl --user` non-zero exit was logged
+as `服务未运行或正在重启中`，which fired every minute when cron ran the
+probe without a usable user-bus.
+
+P8D+5 distinguishes four mutually exclusive states and writes them to
+`<home-dir>/.local/share/openclaw/state/status.json`:
+
+| state            | meaning                                                  |
+|------------------|----------------------------------------------------------|
+| `active`         | systemctl active AND HTTP 200                             |
+| `degraded`       | systemctl active AND curl / HTTP code / latency degraded  |
+| `unavailable`    | systemctl reports inactive or no such unit                 |
+| `probe_error`    | systemctl failed (e.g. `DBUS_SESSION_BUS_ADDRESS` unset)   |
+
+`probe_error: user_bus_unavailable` is the explicit marker for the
+"user-bus / namespace problem" case; it is **never** reported as
+"服务未运行".
+
+### 13.5 Evidence (post-fix E2E)
+
+A post-fix E2E test delivered both text and staged MEDIA and moved
+the bundle to the fixed replayed root. Real Telegram message IDs are
+recorded in the workspace report only — not in tracked docs.
+All 18 P8D+5 unit + simulated tests pass.
+
+### 13.6 v0.2.1 observation reset
+
+P8D+5 is required before v0.2.1 can be tagged and released. Once this
+commit lands, the v0.2.1 observation window resets to that commit's
+SHA. Until then there is no tag and no GitHub Release.

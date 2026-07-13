@@ -122,6 +122,39 @@
   new step. The `docs/DEVELOPMENT.md` pre-commit checklist
   includes the new gate.
 
+### P8D+5 · End-to-End Telegram Notification Recovery
+**Status:** ✅ PASS (2026-07-13, committed; v0.2.1 observation window
+resets on this commit)
+- Chronic 03:00 `NOTIFY_FAIL: openclaw exit 1 error_kind=transport`
+  silently dropped daily-health summaries. Fix splits into two
+  failures with two distinct fixes:
+  - **Refill / batch wrapper PATH** —
+    `scripts/artvee_nightly_wrapper.sh` now unconditionally
+    prepends `$HOME/.local/bin` to PATH and exports
+    `ARTVEE_TELEGRAM_ENV_FILE` before any notifier call.
+  - **03:00 daily-health transport** —
+    `scripts/artvee_telegram_notify.py: send_text_with_retry` (3
+    attempts, backoff `0/15/45`); only transport-class retries;
+    `ok` requires `rc=0` AND non-empty `message_id`.
+- New `reports/runtime/daily-health-delivery/{pending,replayed,
+  quarantine,results}/` queue. On healthy-day text exhaustion the
+  bundle (text + staged_report) is enqueued and replayed atomically
+  by 03:10 (`scripts/replay_pending_media.py:
+  replay_notification_bundle`). `delivered` requires both
+  `text_message_id` and `media_message_id`. Terminal / backup /
+  nested paths never participate in the active scan.
+- `<home-dir>/.local/bin/openclaw-health-check.sh` now distinguishes four
+  states (`active` / `degraded` / `unavailable` / `probe_error`)
+  and writes `<home-dir>/.local/share/openclaw/state/status.json`. User-bus
+  failures are no longer mis-reported as `服务未运行`.
+- 18 unit + simulated tests in `scripts/test_p8d5.py` cover retry,
+  bundle, classifier and probe semantics. Post-fix real-Telegram
+  E2E delivered both text and staged MEDIA and moved the bundle to
+  the fixed `replayed/` root (real message IDs recorded in the
+  workspace report, not tracked docs).
+- No tag, no GitHub Release — those still wait for the
+  user-authorized v0.2.1 round.
+
 ## 2. Up next
 
 ### P4B · Filename collision fix + index/web data migration

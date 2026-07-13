@@ -847,3 +847,45 @@ under the standard `confirm_demo_refresh` → `publish_demo_refresh`
 | Safety | No download / refill / batch / `--approve` / Pages push / retired retry / MEDIA allowlist widen; no tokens / chat_ids / secrets printed; replay behavior, staged-only MEDIA, `pending=0` silent-no-op, optional 03:10 install workflow — all unchanged |
 | Files changed | `scripts/replay_pending_media.py` (title string only), `docs/MEDIA_REPLAY.md`, `docs/DAILY_OPERATING_PLAYBOOK.md`, `docs/POST_STABLE_OPERATIONS.md`, `docs/PROJECT_STATUS.md`, `docs/ROADMAP.md`, `docs/RETROSPECTIVE.md` |
 | Report | `<workspace>/reports/artvee-gallery-p8d3-media-replay-verification-cleanup-20260701.md` |
+
+---
+
+## P8D+5 — End-to-End Telegram Notification Recovery (2026-07-13)
+
+The 03:00 daily-health Telegram send repeatedly failed with
+`NOTIFY_FAIL: openclaw exit 1 error_kind=transport` (2026-07-09, 07-12,
+07-13). Data state stayed healthy throughout
+(`library_records=1326`, `source_mode=live`, `age=0s`,
+`integrity=PASS`, `readiness=PASS`). The failure was on the
+notification channel only.
+
+P8D+5 fixes both ends:
+
+- **PATH / binary resolution** — `scripts/artvee_nightly_wrapper.sh`
+  prepends `$HOME/.local/bin` to PATH and exports
+  `ARTVEE_TELEGRAM_ENV_FILE` so the 01:30 / 02:00 wrappers can resolve
+  `openclaw`. Canonical resolution order is in
+  `scripts/artvee_telegram_notify.py: _resolve_openclaw_bin`.
+- **Bounded text retry + full notification bundle** — when the 03:00
+  text send exhausts bounded retries on a healthy day, the report
+  + staged MEDIA path are persisted under
+  `reports/runtime/daily-health-delivery/pending/`. The 03:10 cron
+  (`scripts/artvee_media_replay_cron.sh --include-notification-bundles`)
+  drains both queues in one run, replaying text first then MEDIA,
+  and only marking `replayed/` when both message_ids are non-empty.
+
+| Gate | Result |
+|---|---|
+| `bash -n scripts/artvee_*.sh` & `bash -n scripts/install_*.sh` | PASS (5 shell scripts) |
+| `python3 -m py_compile` | PASS (5 Python files) |
+| `python3 scripts/test_p8d5.py -v` | 18/18 PASS |
+| Real-Telegram cron-like send | `NOTIFY_OK message_id=...` (workspace report only) |
+| Real-Telegram bundle replay E2E | text + MEDIA delivered; bundle moved to `replayed/` |
+| `check_open_source_ready.py` | PASS |
+| `check_gallery_integrity.py --strict` | PASS |
+| `check_artvee_metrics.py --strict` | 20/20 PASS |
+| `artvee_ops_status.sh --online --no-telegram` | candidate-ready |
+
+v0.2.1 observation window resets at this P8D+5 commit. Until the
+commit lands and CI passes there is **no tag and no GitHub Release**
+for v0.2.1.

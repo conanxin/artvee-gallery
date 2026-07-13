@@ -80,8 +80,13 @@ CRON_BLOCK="${MARKER_BEGIN}
 # CRON environment: PATH must include \$HOME/.local/bin so the OpenClaw
 # binary used by check_openclaw_transport.py is resolvable. set -a below
 # exports all assignments on this line as env vars for the cron job.
+# P8D+2: ARTVEE_TELEGRAM_ENV_FILE points to a private env file so the
+# notifier can resolve the chat id without baking it into the crontab.
+# P8D+5: also drain the notification-bundle queue from the same run
+# (the replay script is invoked with --include-notification-bundles).
 CRON_TZ=${CRON_TZ}
-PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+PATH=\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+ARTVEE_TELEGRAM_ENV_FILE=\$HOME/.config/artvee-gallery/telegram.env
 ${CRON_TIME} cd ${REPO_DIR} && bash scripts/artvee_media_replay_cron.sh --limit 5 --max-retries 3 >> logs/media-replay-cron/media_replay_cron.log 2>&1
 ${MARKER_END}"
 

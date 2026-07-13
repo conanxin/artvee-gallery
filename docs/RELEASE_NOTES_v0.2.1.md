@@ -1,12 +1,13 @@
 # Artvee Gallery v0.2.1 Release Notes
 
 > **Status:** Draft / release-prep 2026-07-05, **appended with P9F+1
-> on 2026-07-11** — not yet tagged, not yet published as a GitHub
-> Release. Awaiting user approval before the `v0.2.1` tag is cut. See
+> on 2026-07-11** and **P8D+5 on 2026-07-13** — not yet tagged, not
+> yet published as a GitHub Release. Awaiting user approval before
+> the `v0.2.1` tag is cut. See
 > [`CHANGELOG.md`](../CHANGELOG.md) for the aggregated changelog and
-> this file for the v0.2.1-specific narrative. The P9F+1 section
-> below documents the metrics normalization that the v0.2.1 release
-> will include.
+> this file for the v0.2.1-specific narrative. The P8D+5 section
+> below documents the end-to-end Telegram notification recovery
+> that is the final prerequisite for the v0.2.1 release.
 
 ## P9F+1 — Metrics Normalization (REQUIRED for v0.2.1)
 
@@ -487,3 +488,112 @@ A healthy v0.2.1 installation reports:
   — daily operating timeline and commands
 - [`docs/MEDIA_REPLAY.md`](MEDIA_REPLAY.md) — media-replay queue,
   cron, and dry-run semantics
+
+---
+
+## P8D+5 — End-to-End Telegram Notification Recovery (REQUIRED for v0.2.1)
+
+### Why this matters
+
+The 2026-07-09 / 07-12 / 07-13 03:00 daily-health Telegram sends
+silently dropped the day's notification with
+`NOTIFY_FAIL: openclaw exit 1 error_kind=transport`. Health and
+integrity checks stayed PASS (`library_records=1326`,
+`source_mode=live`, `age=0s`). The failure was on the notification
+channel only — not data — but to a user it looked like v0.2.1 had
+started failing daily. v0.2.1 cannot ship with this latent silent
+failure; P8D+5 is the prerequisite that closes both the symptom
+(the silent text loss) and the underlying two distinct failures.
+
+### Two distinct failures, two distinct fixes
+
+1. **Refill / batch wrapper PATH resolution** — the `01:30` /
+   `02:00` wrapper logs reported
+   `OpenClaw binary missing or not executable` because the legacy
+   crontab block never exported `PATH=$HOME/.local/bin:...` to
+   the bash session running the wrapper.
+
+   **Fix**: `scripts/artvee_nightly_wrapper.sh` unconditionally
+   prepends `$HOME/.local/bin` and exports
+   `ARTVEE_TELEGRAM_ENV_FILE` before any notifier call. Canonical
+   resolution priority (in `_resolve_openclaw_bin`) is, in order:
+   `--openclaw-bin` → `ARTVEE_OPENCLAW_BIN` → `OPENCLAW_BIN` →
+   `command -v openclaw` → `$HOME/.local/bin/openclaw` → hard
+   `binary_missing` error.
+
+2. **03:00 daily-health text transport** — the text send hit
+   `openclaw exit 1 error_kind=transport` and no fallback existed
+   for 03:10 to recover.
+
+   **Fix 1 (bounded retry)**:
+   `scripts/artvee_telegram_notify.py: send_text_with_retry(..., max_attempts=3, backoff_seconds=[0,15,45])`.
+   Only transport-class failures retry;
+   `binary_missing` / `config_missing` / `media_allowed` /
+   `exit_nonzero` fail fast. `ok` requires **both** `rc == 0`
+   **and** a non-empty parsed `message_id` (camelCase
+   `messageId=` matched). A separate `_redact_log` helper scrubs
+   9-13 digit chat-ids and bot-token shapes from anything that
+   reaches the queue.
+
+   **Fix 2 (full-notification bundle queue)**:
+   `reports/runtime/daily-health-delivery/{pending,replayed,
+   quarantine,results}/` anchored by stable root names. When the
+   03:00 text send exhausts bounded retries on a healthy day,
+   the bundle (`text + (already-staged) staged_report`) is
+   persisted under `pending/` with schema
+   `artvee-notification-bundle-v1`. Chat-id / token are never
+   persisted; staged_report is re-validated against the
+   `<home-dir>/.openclaw/media/artvee-reports/` allowlist before persistence.
+
+   **Fix 3 (03:10 replay state machine)**:
+   `scripts/replay_pending_media.py: replay_notification_bundle(...)`
+   invoked from `scripts/artvee_media_replay_cron.sh` with
+   `--include-notification-bundles` so one 03:10 run drains both
+   queues. Sequence: send text → require non-empty
+   `text_message_id` → send MEDIA with the staged path → require
+   non-empty `media_message_id` → move to `replayed/`. Text
+   success + MEDIA failure is preserved as media-only pending and
+   retried without re-sending text. Excess retries move to
+   `quarantine/`. Terminal / backup / nested paths never
+   participate in the active scan.
+
+3. **OpenClaw health probe** —
+   `<home-dir>/.local/bin/openclaw-health-check.sh` previously collapsed
+   every `systemctl --user` non-zero exit into a single
+   `服务未运行` log line; that fired every minute when the cron
+   ran the probe without a usable user-bus, masking actual
+   state. The probe now distinguishes four mutually exclusive
+   states — `active` / `degraded` / `unavailable` /
+   `probe_error` — and writes a structured
+   `<home-dir>/.local/share/openclaw/state/status.json`. The user-bus /
+   namespace case is explicitly tagged
+   `probe_error: user_bus_unavailable (DBUS_SESSION_BUS_ADDRESS
+   unset)` instead of falsely claiming the service is down.
+
+### Effect on the v0.2.1 release
+
+P8D+5 is the final prerequisite for v0.2.1: without it, the
+03:00 silent-drop would have repeated every day after the
+release. With it, the worst case becomes "the 03:00 text drops,
+03:10 replays both text and MEDIA atomically, and the user's day
+is unbroken".
+
+| P8D+5 verification | Result |
+|---|---|
+| `bash -n` (5 shell scripts) | PASS |
+| `python3 -m py_compile` (5 Python files) | PASS |
+| `scripts/test_p8d5.py -v` (18 unit + simulated tests) | PASS |
+| Real-Telegram cron-like send (logged in workspace report only) | text `message_id` non-empty |
+| Real-Telegram bundle replay E2E | both text and MEDIA delivered, bundle moved to `replayed/` |
+| `check_open_source_ready.py` | PASS |
+| `check_gallery_integrity.py --strict` | PASS |
+| `check_artvee_metrics.py --strict` | 20/20 PASS |
+| `artvee_ops_status.sh --online --no-telegram` | `action=candidate_ready_manual_publish_optional` |
+
+### v0.2.1 observation window
+
+The v0.2.1 observation window resets at the P8D+5 commit
+(committed 2026-07-13, but **not yet tagged**). The user is the
+only party who can authorize the `v0.2.1` tag and the
+GitHub Release. Until that authorization arrives there is
+**no tag and no GitHub Release** for v0.2.1.

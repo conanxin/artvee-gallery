@@ -2,7 +2,9 @@
 
 > Artvee Gallery · Pending MEDIA replay workflow
 > Authored: 2026-06-18
-> Updated: 2026-07-04 (P8D+4C: dry-run summary isolation — dry-run never overwrites production summary)
+> Updated: 2026-07-13 (P8D+5: notification-bundle queue now reuses the
+> same replay script and stable archival roots; 03:10 drains both the
+> legacy media-only queue and the full notification bundle queue)
 > Status: **Live** — verified end-to-end with synthetic and real Telegram sends.
 
 ## 1. Purpose
@@ -642,3 +644,95 @@ AFTER_MTIME=$(stat -c %Y "$PROD")
 * ``docs/RETROSPECTIVE.md`` § 2.28 (lesson: dry-run must not
   overwrite production observability artifacts).
 
+---
+
+## 14. P8D+5: Notification bundle queue (full-notification replay)
+
+P8D+5 extends the replay workflow with a second queue that recovers
+**text + MEDIA** as one atomic unit, when the 03:00 send exhausts
+bounded retries on a healthy day.
+
+### 14.1 Queue layout
+
+```
+reports/runtime/daily-health-delivery/
+├── pending/        # active bundles (text_message_id == null)
+├── replayed/       # terminal — both ids present
+├── quarantine/     # terminal — exhausted text/media retries
+└── results/        # per-run aggregate JSON
+```
+
+Terminal / backup / nested paths never count toward `active`. The
+classifier (`_classify_pending_path` in
+`scripts/artvee_daily_health_check.py`) is shared between this
+queue and the legacy media-only queue, so the cron summary counts
+stay consistent.
+
+### 14.2 Bundle schema (v1)
+
+```jsonc
+{
+  "schema_version": "artvee-notification-bundle-v1",
+  "date": "YYYY-MM-DD",
+  "status": "pending" | "replayed" | "quarantined",
+  "reason": "text_transport_failed",
+  "text": "<Daily Health summary text>",
+  "staged_report": "<allowlisted staged path or null>",
+  "text_attempts": 3,
+  "media_attempts": 0,
+  "text_message_id": null,
+  "media_message_id": null
+}
+```
+
+`staged_report` is re-validated against the OpenClaw media allowlist
+before persistence; raw report paths outside
+`<workspace>/.openclaw/media/artvee-reports/` are dropped from the
+bundle (never sent raw). No chat-id / token / cookie / secret is
+stored in the bundle file.
+
+### 14.3 Replay state machine
+
+`scripts/replay_pending_media.py: replay_notification_bundle(...)`:
+
+1. If `text_attempts < max_retries` and the bundle has no
+   `text_message_id` yet, send **text**; record `text_message_id` on
+   success or bump `text_attempts` on transport failure.
+2. If `text_message_id` is set, `staged_report` is present, and the
+   bundle has no `media_message_id`, send **MEDIA** with the staged
+   path; record `media_message_id` on success.
+3. Once both message_ids are non-empty, move the bundle to
+   `replayed/`, write `replayed_at`, and emit the per-run aggregate.
+4. If `text_attempts` or `media_attempts` exhaust
+   `max_retries`, move to `quarantine/` with `status=quarantined` and
+   a `quarantine_reason` field.
+
+If text succeeds but MEDIA fails, the bundle is rewritten in place
+with `text_message_id` preserved and `media_attempts` bumped; the
+next 03:10 attempts the media path without re-sending text.
+
+### 14.4 Cron integration
+
+`scripts/artvee_media_replay_cron.sh` now invokes the replay script
+with `--include-notification-bundles` so a single 03:10 run drains
+both queues. The cron summary gains:
+
+- `notification_bundles_before`
+- `notification_text_delivered`
+- `notification_media_delivered`
+- `notification_failed`
+- `notification_quarantined`
+- `notification_aggregate_path`
+
+The dry-run mode (`--dry-run`) never touches the production summary;
+see § 13 (P8D+4C) for the isolation rules. `--only-notification-bundles`
+is available for targeted testing.
+
+### 14.5 Safety boundaries (unchanged from § 7)
+
+- No retry of retired URLs, refill, nightly batch, or Pages push.
+- No MEDIA allowlist expansion; the bundle writer enforces it.
+- No chat-id / token log lines (the `_redact_log` helper scrubs
+  9-13 digit runs and bot-token shapes from anything that lands in
+  `pending/`, `replayed/`, `quarantine/` or `results/`).
+- Failed bundles move to `quarantine/`, never deleted.

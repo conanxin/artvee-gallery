@@ -191,6 +191,16 @@ REPLAY_DELIVERED=0
 REPLAY_QUARANTINED=0
 REPLAY_FAILED=0
 REPLAY_PLANNED=0
+# P8D+5: notification-bundle counters. Initialized at script-top so
+# ``out=$(... heredoc ...)`` always sees defined values (set -u is on
+# via ``set -uo pipefail``). The conditional assignment deeper down
+# overrides these when the bundle aggregate exists.
+BUNDLE_PROCESSED=0
+BUNDLE_TEXT_DELIVERED=""
+BUNDLE_MEDIA_DELIVERED=""
+BUNDLE_FAILED=0
+BUNDLE_QUARANTINED=0
+BUNDLE_AGGREGATE="${BASE_DIR}/reports/runtime/daily-health-delivery/results/notification-bundle-results-${RUN_DATE}.json"
 RESULTS_DIR="${BASE_DIR}/reports/runtime/media-replay/results"
 
 if [[ "${PENDING_COUNT}" == "-1" ]]; then
@@ -212,11 +222,18 @@ elif [[ "${PENDING_COUNT}" -gt 0 ]]; then
     if [[ "${DRY_RUN}" == true ]]; then
       BASE_DIR="${BASE_DIR}" python3 "${BASE_DIR}/scripts/replay_pending_media.py" \
         --limit "${LIMIT}" --max-retries "${MAX_RETRIES}" --dry-run \
+        --include-notification-bundles \
         2>&1 | tee "${REPLAY_OUT_BASE}.dryrun.txt" || true
       OUTCOME="dry_run_completed"
     else
+      # P8D+5: also drain the notification-bundle queue in the same
+      # run. ``--include-notification-bundles`` switches the
+      # downstream replay script to also process bundles under
+      # reports/runtime/daily-health-delivery/pending/, alongside the
+      # legacy .fallback-pending-*.json queue.
       BASE_DIR="${BASE_DIR}" python3 "${BASE_DIR}/scripts/replay_pending_media.py" \
         --limit "${LIMIT}" --max-retries "${MAX_RETRIES}" --apply \
+        --include-notification-bundles \
         > "${REPLAY_OUT_BASE}.log" 2>&1 || true
       # P8D+4: read the aggregate JSON (stable path) instead of guessing
       # from per-pending sidecars. The aggregate JSON has the full
@@ -258,6 +275,59 @@ try:
 except Exception:
   print(0)
 " 2>/dev/null || echo 0)
+        # P8D+5: also read the notification-bundle aggregate written by
+        # the same replay run. The aggregate lives at a stable path
+        # under reports/runtime/daily-health-delivery/results/. Only the
+        # legacy ``REPLAY_DELIVERED`` etc. drive ``OUTCOME``; bundle
+        # counters are surfaced separately below for ops dashboards.
+        BUNDLE_AGGREGATE="${BASE_DIR}/reports/runtime/daily-health-delivery/results/notification-bundle-results-${RUN_DATE}.json"
+        BUNDLE_TEXT_DELIVERED=""
+        BUNDLE_MEDIA_DELIVERED=""
+        BUNDLE_FAILED=0
+        BUNDLE_QUARANTINED=0
+        BUNDLE_PROCESSED=0
+        if [[ -f "${BUNDLE_AGGREGATE}" ]]; then
+          BUNDLE_PROCESSED=$(python3 -c "
+import json, sys
+try:
+  d = json.loads(open('${BUNDLE_AGGREGATE}').read())
+  print(int((d.get('totals') or {}).get('processed', 0)))
+except Exception:
+  print(0)
+" 2>/dev/null || echo 0)
+          BUNDLE_TEXT_DELIVERED=$(python3 -c "
+import json, sys
+try:
+  d = json.loads(open('${BUNDLE_AGGREGATE}').read())
+  print(','.join(str(m) for m in (d.get('text_message_ids') or []) if m))
+except Exception:
+  pass
+" 2>/dev/null || true)
+          BUNDLE_MEDIA_DELIVERED=$(python3 -c "
+import json, sys
+try:
+  d = json.loads(open('${BUNDLE_AGGREGATE}').read())
+  print(','.join(str(m) for m in (d.get('media_message_ids') or []) if m))
+except Exception:
+  pass
+" 2>/dev/null || true)
+          BUNDLE_FAILED=$(python3 -c "
+import json, sys
+try:
+  d = json.loads(open('${BUNDLE_AGGREGATE}').read())
+  print(int((d.get('totals') or {}).get('send_failed_will_retry', 0)))
+except Exception:
+  print(0)
+" 2>/dev/null || echo 0)
+          BUNDLE_QUARANTINED=$(python3 -c "
+import json, sys
+try:
+  d = json.loads(open('${BUNDLE_AGGREGATE}').read())
+  print(int((d.get('totals') or {}).get('quarantined', 0)))
+except Exception:
+  print(0)
+" 2>/dev/null || echo 0)
+        fi
       fi
       # P8D+4: outcome must reflect what actually happened.
       # - aggregate JSON missing or unreadable → replay_no_results
@@ -354,6 +424,15 @@ out = {
     "replay_delivered": ${REPLAY_DELIVERED:-0},
     "replay_quarantined": ${REPLAY_QUARANTINED:-0},
     "replay_failed": ${REPLAY_FAILED:-0},
+    # P8D+5: notification-bundle queue summary. These are 0 when the
+    # bundle queue is empty (the common case); a non-zero value means
+    # 03:00 text sends were deferred and 03:10 actually replayed them.
+    "notification_bundles_before": ${BUNDLE_PROCESSED:-0},
+    "notification_text_delivered": "${BUNDLE_TEXT_DELIVERED}",
+    "notification_media_delivered": "${BUNDLE_MEDIA_DELIVERED}",
+    "notification_failed": ${BUNDLE_FAILED:-0},
+    "notification_quarantined": ${BUNDLE_QUARANTINED:-0},
+    "notification_aggregate_path": "${BUNDLE_AGGREGATE}",
     "lock_file": "${LOCK_FILE}",
 }
 print(json.dumps(out, indent=2, ensure_ascii=False))

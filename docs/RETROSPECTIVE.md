@@ -1421,3 +1421,79 @@ fields so a future regression cannot silently rewrite
 production data. Two different artifacts (production + dry-run)
 is the minimum cost; the alternative (one shared slot) is what
 crashed auditability here.
+
+---
+
+## 7. P8D+5 — End-to-End Telegram Notification Recovery
+
+### 7.1 What changed (just for this round)
+- A new bounded-retry wrapper (`send_text_with_retry`) on the
+  daily-health text path, plus a full-notification-bundle queue
+  for atomic 03:10 recovery.
+- OpenClaw CLI binary resolution hardened in the wrapper itself
+  (belt-and-suspenders against future crontab regressions).
+- OpenClaw gateway health probe rewritten to distinguish four
+  mutually exclusive states and write a structured JSON.
+
+### 7.2 Key lessons
+
+- **Two distinct failures can look identical in a log line.**
+  `01:30` / `02:00` had `OpenClaw binary missing or not executable`;
+  `03:00` had `openclaw exit 1 error_kind=transport`. Both read like
+  "notifier is broken", but the binary-resolution failure was a PATH
+  configuration bug and the transport failure was a flaky gateway.
+  Conflating them delays the fix; splitting them by evidence
+  (`which openclaw` succeeds vs `--check-config` ok vs gateway
+  event-loop stall) is the only way to land both correctly.
+- **`delivered` must require a parsed `message_id`.** A
+  non-empty `ok` flag from a wrapper that exits 0 but cannot
+  recover the message_id is *worse* than a clean failure: it
+  silently tells the user the notification was sent when it
+  wasn't. The wrapper now treats `rc=0 + no message_id` as a
+  failure and increments attempts like any other transport error.
+- **Bounded retry must respect error class.** Retrying
+  `binary_missing`, `config_missing`, or `media_allowed` just
+  repeats the deterministic failure 3 × and burns time. Only
+  transient-class failures (`transport`, `timeout`) get the
+  bounded retry; everything else fails fast.
+- **One-shot TELEMETRY is not state.** `openclaw-health-check.sh`
+  used to fold every `systemctl --user` non-zero exit into a
+  single `服务未运行` log line. That string was confidently wrong
+  in the user-bus-unavailable case and confidently useless in the
+  active-but-degraded case. A four-state, JSON-emitting probe is
+  both more accurate and more automatable.
+- **Bundle queues must have stable roots.** The legacy media-replay
+  queue had a P8D+4B regression where files were re-archived into
+  `replayed/replayed/`. We copy that rule to the new
+  notification-bundle queue (`pending/`, `replayed/`,
+  `quarantine/`, `results/`) so the pre-existing classifier's
+  "exclude nested paths" rule applies uniformly.
+
+### 7.3 Phase-by-phase impact
+- **Operations**: 03:00 text send now retries up to 3x; on a
+  healthy day a failed text is recoverable at 03:10; the
+  OpenClaw health-probe dashboard becomes trustworthy again.
+- **Release**: v0.2.1 cannot be tagged and released until this
+  round lands; the prerequisite chain is now closed.
+- **Test suite**: 18 unit + simulated tests cover retry, bundle,
+  classifier, and probe semantics. Real-Telegram E2E proves the
+  end-to-end happy path. No test reaches beyond the workspace
+  sandbox; redaction prevents secrets from leaking into test
+  fixtures.
+
+### 7.4 Open questions
+- Whether to expose a Telegram-side notification when a bundle
+  is **quarantined** (currently it is silently abandoned after
+  retries). For now we prefer silent + logged; a future round
+  could surface this to the user channel.
+- Whether the 03:10 cron should send a one-line "recovered
+  notification" message when it successfully replays a
+  bundle. Currently we replay the original payload as-is;
+  adding a header would be a UX change that needs user
+  authorization.
+
+### 7.5 Recommended next phase
+- **P8D+5A — Next-day real-cron verification.** Real 03:00 / 03:10
+  runs against actual production data, no manual test bundles, no
+  simulated failures. Confirms the recovery tooling works under
+  real cron conditions before v0.2.1 can be tagged.

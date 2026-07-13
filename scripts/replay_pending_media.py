@@ -119,6 +119,19 @@ RESULTS_STABLE_SUBDIR = "results"
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_LIMIT = 10
 
+# P8D+5: notification bundle queue constants. Active bundles live under
+# ``daily-health-delivery/pending/``; archives land in ``replayed/``,
+# ``quarantine/`` next to ``pending/``; aggregate sidecars go to
+# ``results/``. The bundle queue is structurally identical to the
+# media-replay queue (same stable-root + active-classification rules)
+# but carries a richer payload (full text + staged_report).
+NOTIFICATION_BUNDLE_GLOB = "notification-*-*.json"
+NOTIFICATION_DELIVERY_ROOTNAME = "daily-health-delivery"
+NOTIFICATION_PENDING_SUBDIR = "pending"
+NOTIFICATION_REPLAYED_SUBDIR = "replayed"
+NOTIFICATION_QUARANTINE_SUBDIR = "quarantine"
+NOTIFICATION_RESULTS_SUBDIR = "results"
+
 
 def _now_iso() -> str:
     return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -301,6 +314,303 @@ def _archive_dir(root: Path, name: str) -> Path:
         target = root / name
     target.mkdir(parents=True, exist_ok=True)
     return target
+
+
+def _delivery_archive_dir(delivery_root: Path, name: str) -> Path:
+    """Resolve the stable archive root for a notification-bundle queue.
+
+    P8D+5: ``delivery_root`` is ``reports/runtime/daily-health-delivery``.
+    Archives (replayed/, quarantine/, results/) live IMMEDIATELY under
+    that root, never under ``pending/``, so a bundle already in
+    replayed/ cannot be re-archived into ``pending/replayed/`` by a
+    botched ``pending_path.parent`` lookup. ``delivery_root`` is
+    honored exactly as given (test-flow friendly).
+    """
+    target = (delivery_root / name).resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def _active_notification_bundles(delivery_root: Path) -> list[Path]:
+    """Return only ``active`` notification bundle files under pending/.
+
+    P8D+5: a bundle is active iff:
+    - file lives in ``delivery_root/pending/`` (immediate child),
+    - has not been quarantined (status != "quarantined") or
+      replayed (status != "replayed").
+    Skips terminal / nested / backup artifacts so the active scan
+    mirrors the media-pending classifier.
+    """
+    if not delivery_root.exists():
+        return []
+    active_dir = delivery_root / NOTIFICATION_PENDING_SUBDIR
+    if not active_dir.exists():
+        return []
+    out = []
+    for p in sorted(active_dir.glob(NOTIFICATION_BUNDLE_GLOB)):
+        if not p.is_file():
+            continue
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            out.append(p)
+            continue
+        status = (doc.get("status") or "").strip().lower()
+        if status in ("replayed", "quarantined"):
+            continue
+        out.append(p)
+    return out
+
+
+def replay_notification_bundle(
+    bundle_path: Path,
+    delivery_root: Path,
+    *,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    media_root: Path | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Replay a single notification bundle (text first, then MEDIA).
+
+    P8D+5: state machine contract.
+      * ``replay_text_and_media``: returns ``delivered=True`` only when
+        BOTH ``text_message_id`` and ``media_message_id`` (or no media)
+        are non-empty. The bundle is then moved to
+        ``delivery_root/replayed/`` with ``status=replayed`` and both
+        ids recorded.
+      * ``replay_text_only``: text succeeded, media failed. The bundle
+        is rewritten in place with ``status=media_pending``,
+        ``text_message_id`` recorded, ``media_attempts`` bumped. On
+        the next replay run we send only the media (no double text).
+      * ``text_failed``: the bundle stays pending; ``attempts`` is
+        bumped and ``last_error`` set; nothing is moved.
+      * ``quarantined``: ``attempts >= max_retries`` ⇒ move to
+        ``delivery_root/quarantine/`` and write ``status=quarantined``.
+
+    The function never prints chat_id, tokens, or any secret.
+    """
+    if media_root is None:
+        media_root = _resolve_media_root_default()
+
+    try:
+        bundle = _safe_load(bundle_path)
+    except Exception as e:
+        return {
+            "bundle": str(bundle_path),
+            "outcome": "quarantine_corrupt",
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+    schema = (bundle.get("schema_version") or "").strip()
+    if schema != "artvee-notification-bundle-v1":
+        return {
+            "bundle": str(bundle_path),
+            "outcome": "skipped_wrong_schema",
+            "schema_version": schema,
+            "expected": "artvee-notification-bundle-v1",
+        }
+
+    date = bundle.get("date") or "(unknown)"
+    text = bundle.get("text") or ""
+    staged = (bundle.get("staged_report") or "").strip()
+    text_attempts = int(bundle.get("text_attempts") or 0)
+    media_attempts = int(bundle.get("media_attempts") or 0)
+    if not text:
+        return {
+            "bundle": str(bundle_path),
+            "outcome": "skipped_empty_text",
+            "date": date,
+        }
+
+    # Already partially replayed: text delivered, media still pending.
+    text_message_id = (bundle.get("text_message_id") or "").strip() or None
+    media_message_id = (bundle.get("media_message_id") or "").strip() or None
+
+    # Cap retries by text_attempts + media_attempts — the bundle is
+    # done when BOTH have hit max_retries.
+    if text_attempts >= max_retries and media_attempts >= max_retries:
+        if dry_run:
+            return {"bundle": str(bundle_path), "outcome": "dry_run", "date": date,
+                    "staged_report": staged, "text_message_id": text_message_id}
+        archive_dir = _delivery_archive_dir(delivery_root, NOTIFICATION_QUARANTINE_SUBDIR)
+        target = archive_dir / bundle_path.name
+        shutil.move(str(bundle_path), str(target))
+        bundle["status"] = "quarantined"
+        bundle["quarantined_at"] = _now_iso()
+        bundle["quarantine_reason"] = "max_retries_text_and_media"
+        _safe_dump(bundle, target)
+        return {
+            "bundle": str(bundle_path),
+            "outcome": "quarantine_max_retries",
+            "date": date,
+            "text_message_id": text_message_id,
+            "media_message_id": media_message_id,
+            "text_attempts": text_attempts,
+            "media_attempts": media_attempts,
+            "max_retries": max_retries,
+        }
+
+    # Step 1: text send (only if we don't already have message_id).
+    if not text_message_id and text_attempts < max_retries:
+        if dry_run:
+            return {
+                "bundle": str(bundle_path),
+                "outcome": "dry_run",
+                "date": date,
+                "staged_report": staged,
+                "text_preview": text[:200],
+            }
+        try:
+            chat_id = load_chat_id()
+        except Exception as e:
+            new_text_attempts = text_attempts + 1
+            bundle["text_attempts"] = new_text_attempts
+            bundle["last_error"] = f"chat_id_resolve: {type(e).__name__}"
+            bundle["last_attempt_at"] = _now_iso()
+            _safe_dump(bundle, bundle_path)
+            if new_text_attempts >= max_retries:
+                archive_dir = _delivery_archive_dir(delivery_root, NOTIFICATION_QUARANTINE_SUBDIR)
+                new_loc = archive_dir / bundle_path.name
+                shutil.move(str(bundle_path), str(new_loc))
+                bundle["status"] = "quarantined"
+                bundle["quarantined_at"] = _now_iso()
+                bundle["quarantine_reason"] = "max_retries_chat_id"
+                _safe_dump(bundle, new_loc)
+                return {
+                    "bundle": str(bundle_path),
+                    "outcome": "quarantine_no_chat_id",
+                    "attempts": new_text_attempts,
+                }
+            return {
+                "bundle": str(bundle_path),
+                "outcome": "skipped_no_chat_id",
+                "attempts": new_text_attempts,
+            }
+
+        t0 = time.time()
+        text_result = send_text(text, chat_id=chat_id, wait=True)
+        elapsed_ms = int((time.time() - t0) * 1000)
+        new_text_attempts = text_attempts + 1
+        bundle["text_attempts"] = new_text_attempts
+        bundle["last_attempt_at"] = _now_iso()
+        if text_result.get("ok") and text_result.get("message_id"):
+            text_message_id = text_result["message_id"]
+            bundle["text_message_id"] = text_message_id
+            bundle["text_attempt_elapsed_ms"] = elapsed_ms
+        else:
+            err = (text_result.get("error") or "(no error)")[:300]
+            bundle["last_error"] = err
+            bundle["text_attempt_elapsed_ms"] = elapsed_ms
+            _safe_dump(bundle, bundle_path)
+            if new_text_attempts >= max_retries:
+                archive_dir = _delivery_archive_dir(delivery_root, NOTIFICATION_QUARANTINE_SUBDIR)
+                new_loc = archive_dir / bundle_path.name
+                shutil.move(str(bundle_path), str(new_loc))
+                bundle["status"] = "quarantined"
+                bundle["quarantined_at"] = _now_iso()
+                bundle["quarantine_reason"] = "max_retries_text"
+                _safe_dump(bundle, new_loc)
+                return {
+                    "bundle": str(bundle_path),
+                    "outcome": "quarantine_text_failed",
+                    "attempts": new_text_attempts,
+                    "error": err,
+                }
+            return {
+                "bundle": str(bundle_path),
+                "outcome": "text_failed_will_retry",
+                "attempts": new_text_attempts,
+                "error": err,
+            }
+
+    # Step 2: media send (only if we have a text_message_id and no
+    # media_message_id yet, and there is a staged_report). Skip if the
+    # bundle was queued text-only.
+    if text_message_id and not media_message_id and staged:
+        ok, reason = _validate_staged(staged, media_root)
+        if not ok:
+            # Staged path drifted; record but do not crash.
+            bundle["last_error"] = f"validate_staged: {reason}"
+            bundle["last_attempt_at"] = _now_iso()
+            _safe_dump(bundle, bundle_path)
+            return {
+                "bundle": str(bundle_path),
+                "outcome": "skipped_invalid_staged",
+                "text_message_id": text_message_id,
+                "staged_report": staged,
+                "reason": reason,
+            }
+        if dry_run:
+            return {
+                "bundle": str(bundle_path),
+                "outcome": "dry_run_media_only",
+                "text_message_id": text_message_id,
+                "staged_report": staged,
+            }
+        try:
+            chat_id = load_chat_id()
+        except Exception:
+            chat_id = None
+        t0 = time.time()
+        media_result = send_text(text, chat_id=chat_id, wait=True, media=staged)
+        elapsed_ms = int((time.time() - t0) * 1000)
+        new_media_attempts = media_attempts + 1
+        bundle["media_attempts"] = new_media_attempts
+        bundle["last_attempt_at"] = _now_iso()
+        bundle["media_attempt_elapsed_ms"] = elapsed_ms
+        if media_result.get("ok") and media_result.get("message_id"):
+            media_message_id = media_result["message_id"]
+            bundle["media_message_id"] = media_message_id
+        else:
+            bundle["last_error"] = (media_result.get("error") or "(no error)")[:300]
+            _safe_dump(bundle, bundle_path)
+            if new_media_attempts >= max_retries:
+                archive_dir = _delivery_archive_dir(delivery_root, NOTIFICATION_QUARANTINE_SUBDIR)
+                new_loc = archive_dir / bundle_path.name
+                shutil.move(str(bundle_path), str(new_loc))
+                bundle["status"] = "quarantined"
+                bundle["quarantined_at"] = _now_iso()
+                bundle["quarantine_reason"] = "max_retries_media"
+                _safe_dump(bundle, new_loc)
+                return {
+                    "bundle": str(bundle_path),
+                    "outcome": "quarantine_media_failed",
+                    "text_message_id": text_message_id,
+                    "media_attempts": new_media_attempts,
+                    "error": bundle["last_error"],
+                }
+            # Keep bundle in pending; next run will try media-only.
+            return {
+                "bundle": str(bundle_path),
+                "outcome": "media_failed_will_retry",
+                "text_message_id": text_message_id,
+                "media_attempts": new_media_attempts,
+                "error": bundle["last_error"],
+            }
+
+    # Final: text_message_id (and media_message_id if applicable) both
+    # land the bundle in replayed/.
+    bundle["status"] = "replayed"
+    bundle["replayed_at"] = _now_iso()
+    if dry_run:
+        return {
+            "bundle": str(bundle_path),
+            "outcome": "dry_run_complete",
+            "text_message_id": text_message_id,
+            "media_message_id": media_message_id,
+        }
+    archive_dir = _delivery_archive_dir(delivery_root, NOTIFICATION_REPLAYED_SUBDIR)
+    new_loc = archive_dir / bundle_path.name
+    shutil.move(str(bundle_path), str(new_loc))
+    _safe_dump(bundle, new_loc)
+    return {
+        "bundle": str(bundle_path),
+        "outcome": "delivered",
+        "date": date,
+        "text_message_id": text_message_id,
+        "media_message_id": media_message_id,
+        "archived_to": str(new_loc),
+    }
 
 
 def _build_replay_text(pending: dict) -> str:
@@ -548,6 +858,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pending-root", default="reports/runtime",
                         help="Where to look for .fallback-pending-*.json (default: reports/runtime)")
+    parser.add_argument("--delivery-root", default=None,
+                        help="P8D+5: override the notification-bundle queue root. "
+                             "Defaults to reports/runtime/daily-health-delivery/.")
     parser.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES,
                         help=f"Archive to quarantine after this many failed attempts (default: {DEFAULT_MAX_RETRIES})")
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT,
@@ -560,6 +873,12 @@ def main() -> int:
                         help="OpenClaw binary override (forwarded to the notifier).")
     parser.add_argument("--media-root", default=None,
                         help="Override the OpenClaw media allowlist root (advanced).")
+    parser.add_argument("--include-notification-bundles", action="store_true",
+                        help="P8D+5: also replay notification bundles under "
+                             "reports/runtime/daily-health-delivery/pending/.")
+    parser.add_argument("--only-notification-bundles", action="store_true",
+                        help="P8D+5: skip the legacy .fallback-pending-*.json queue "
+                             "and only process notification bundles.")
     args = parser.parse_args()
 
     base_dir = Path(__file__).resolve().parent.parent
@@ -622,7 +941,10 @@ def main() -> int:
             aggregate_path,
         )
         print(f"[info] empty aggregate results written: {aggregate_path}")
-        return 0
+        # P8D+5: do NOT early-return here; fall through to the bundle pass
+        # below so an empty legacy queue does not skip notification-bundle
+        # work when --include-notification-bundles /
+        # --only-notification-bundles is set.
 
     targets = pendings[: max(0, args.limit)]
     skipped = pendings[args.limit:]
@@ -702,7 +1024,79 @@ def main() -> int:
         if r.get("outcome", "").startswith("quarantine_")
         or r.get("outcome") == "send_failed_will_retry"
     )
-    return 1 if fatal else 0
+
+    # P8D+5: notification-bundle replay pass. Always run when the
+    # --include-notification-bundles / --only-notification-bundles flag
+    # is set. The bundle queue is structurally separate from the legacy
+    # media-only queue: bundles carry the *text* + an optional staged
+    # MEDIA path, so 03:10 can fully recover a Daily Health notification
+    # that 03:00 failed to deliver.
+    bundle_results = []
+    bundle_fatal = 0
+    if args.include_notification_bundles or args.only_notification_bundles:
+        if args.delivery_root:
+            delivery_root = Path(args.delivery_root).expanduser().resolve()
+        else:
+            delivery_root = base_dir / "reports" / "runtime" / NOTIFICATION_DELIVERY_ROOTNAME
+        active = _active_notification_bundles(delivery_root)
+        bundle_results = []
+        bundle_fatal = 0
+        if not active:
+            print("[info] notification_bundles_active=0 (no pending bundles)")
+        for target in active[: max(0, args.limit)]:
+            print(f"[bundle] pending={target.name}")
+            outcome = replay_notification_bundle(
+                target,
+                delivery_root,
+                max_retries=args.max_retries,
+                media_root=media_root,
+                dry_run=dry_run,
+            )
+            bundle_results.append(outcome)
+            text_mid = outcome.get("text_message_id")
+            media_mid = outcome.get("media_message_id")
+            err = outcome.get("error")
+            print(f"  [bundle:{outcome.get('outcome')}] text_message_id={text_mid} media_message_id={media_mid} error={err}")
+            bundle_fatal += 1 if (
+                str(outcome.get("outcome", "")).startswith("quarantine_")
+                or outcome.get("outcome") in ("text_failed_will_retry", "media_failed_will_retry")
+            ) else 0
+
+        # Per-run aggregate for the notification-bundle pass.
+        results_dir = _delivery_archive_dir(delivery_root, NOTIFICATION_RESULTS_SUBDIR)
+        today = datetime.now().strftime("%Y-%m-%d")
+        aggregate_path = results_dir / f"notification-bundle-results-{today}.json"
+        delivered_text_mids = [
+            str(r.get("text_message_id")) for r in bundle_results
+            if r.get("outcome") == "delivered" and r.get("text_message_id")
+        ]
+        delivered_media_mids = [
+            str(r.get("media_message_id")) for r in bundle_results
+            if r.get("outcome") == "delivered" and r.get("media_message_id")
+        ]
+        aggregated = {
+            "date": today,
+            "generated_at": _now_iso(),
+            "dry_run": dry_run,
+            "pending_root": str(delivery_root),
+            "max_retries": args.max_retries,
+            "limit": args.limit,
+            "totals": {
+                "processed": len(bundle_results),
+                "delivered": sum(1 for r in bundle_results if r.get("outcome") == "delivered"),
+                "quarantined": sum(1 for r in bundle_results if str(r.get("outcome", "")).startswith("quarantine_")),
+                "send_failed_will_retry": bundle_fatal,
+            },
+            "results": bundle_results,
+            "text_message_ids": delivered_text_mids,
+            "media_message_ids": delivered_media_mids,
+        }
+        _safe_dump(aggregated, aggregate_path)
+        print(f"[info] notification-bundle aggregate results: {aggregate_path}")
+        print(f"[info] delivered text_message_ids ({len(delivered_text_mids)}): {','.join(delivered_text_mids) or '(none)'}")
+        print(f"[info] delivered media_message_ids ({len(delivered_media_mids)}): {','.join(delivered_media_mids) or '(none)'}")
+
+    return 1 if (fatal or bundle_fatal) else 0
 
 
 if __name__ == "__main__":

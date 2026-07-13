@@ -30,6 +30,17 @@ from pathlib import Path
 # daily health "replayable" count agrees with what the replay would do.
 DEFAULT_MAX_RETRIES_PENDING = 3
 
+# P8D+5: full notification bundle queue roots. Active pending lives at the
+# canonical ``daily-health-delivery/pending/`` directory; archives are
+# written under ``replayed/`` / ``quarantine/`` next to ``pending/``;
+# aggregate per-run sidecars land in ``results/``. The replay script
+# imports these so they cannot drift.
+DAILY_DELIVERY_ROOTNAME = "daily-health-delivery"
+DAILY_PENDING_ROOTNAME = "pending"
+DAILY_REPLAYED_ROOTNAME = "replayed"
+DAILY_QUARANTINE_ROOTNAME = "quarantine"
+DAILY_RESULTS_ROOTNAME = "results"
+
 # P9F+1: import the canonical metrics collector so this script never
 # silently reads a frozen status report. Every run collects live state.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -372,6 +383,7 @@ def run_check(args):
     # We do NOT auto-replay here. Replay is a separate step
     # (scripts/replay_pending_media.py). We just surface counts.
     pending_scan = _scan_pending_media(report_dir)
+    notification_scan = _scan_notification_bundles(_delivery_root(base_dir))
     transport_probe = _probe_transport(base_dir, args.openclaw_bin)
 
     # Build JSON report
@@ -401,6 +413,18 @@ def run_check(args):
             "transport_latency_ms": transport_probe.get("latency_ms", 0),
             "transport_checked_at": transport_probe.get("checked_at", ""),
             "transport_limited_cli": transport_probe.get("limited_cli", True),
+            # P8D+5: split out notification-bundle queue from media-only
+            # pending. Replay summary must distinguish these so the 03:10
+            # run can report delivered text vs delivered media separately.
+            "notification_bundles_before": notification_scan.get("active", 0),
+            "notification_active_replayable": notification_scan.get("active_replayable", 0),
+            "notification_terminal_replayed": notification_scan.get("terminal_replayed", 0),
+            "notification_terminal_quarantine": notification_scan.get("terminal_quarantine", 0),
+            "notification_results": notification_scan.get("results", 0),
+            "notification_backup_or_legacy": notification_scan.get("backup_or_legacy", 0),
+            "notification_nested_legacy": notification_scan.get("legacy_nested", 0),
+            "media_only_before": pending_scan.get("active_pending", pending_scan.get("pending", 0)),
+            "media_only_replayable": pending_scan.get("active_replayable", pending_scan.get("replayable", 0)),
         },
     }
 
@@ -527,9 +551,17 @@ Action: {action}"""
             msg += f"\nOnline HTTP: gallery={gcode}, digest={dcode}"
 
         # Resolve OpenClaw binary before attempting any send
-        notifier_cmd = [sys.executable, str(base_dir / "scripts" / "artvee_telegram_notify.py")]
-        if args.openclaw_bin:
-            notifier_cmd += ["--openclaw-bin", args.openclaw_bin]
+        sys.path.insert(0, str(base_dir / "scripts"))
+        from artvee_telegram_notify import (  # noqa: E402
+            send_text_with_retry, load_chat_id as _resolve_chat_id,
+        )
+
+        def _safe_resolve_chat_id():
+            try:
+                return _resolve_chat_id()
+            except Exception as e:
+                return f"RESOLVE_FAILED:{type(e).__name__}"
+
         # Probe with a no-wait invocation to see if the binary resolves and exits cleanly.
         # If wait=False, the notifier still exits 0 when it can start a background send.
         resolved = False
@@ -549,21 +581,46 @@ Action: {action}"""
             telegram["openclaw_status"] = "resolved"
 
             # --- Step 1: text_summary (always) ---
+            # P8D+5: route the 03:00 text send through send_text_with_retry
+            # so a single transport stall doesn't silently drop the entire
+            # notification. Once bounded retries exhaust, we enqueue a
+            # full notification bundle for 03:10 to replay, instead of
+            # leaving the user with nothing.
             telegram["text_summary"]["attempted"] = True
-            ts_cmd = notifier_cmd + ["--text", msg, "--wait"]
-            ts_result = subprocess.run(ts_cmd, capture_output=True, text=True, cwd=str(base_dir))
-            if ts_result.returncode == 0 and "NOTIFY_OK" in ts_result.stdout:
+            try:
+                ts_result = send_text_with_retry(
+                    text=msg,
+                    chat_id=None,
+                    media=None,
+                    openclaw_bin=args.openclaw_bin,
+                )
+            except Exception as e:
+                ts_result = {
+                    "ok": False, "delivered": False,
+                    "error": f"{type(e).__name__}: {e}",
+                    "error_kind": "exit_nonzero",
+                    "attempt_used": 0,
+                    "max_attempts": 0,
+                    "retry_history": [],
+                }
+
+            # Persist the structured attempt history BEFORE we lose it in
+            # the next re-assignment of telegram["text_summary"].
+            attempt_history = ts_result.get("retry_history") or []
+            telegram["text_summary"]["retry_history"] = attempt_history
+            telegram["text_summary"]["attempt_used"] = ts_result.get("attempt_used")
+            telegram["text_summary"]["max_attempts"] = ts_result.get("max_attempts")
+
+            if ts_result.get("ok") and ts_result.get("message_id"):
                 telegram["text_summary"]["sent"] = True
-                # Parse message_id from the notifier stdout (format: NOTIFY_OK ... message_id=NNN)
-                import re as _re
-                m = _re.search(r"message_id=(\d+)", ts_result.stdout)
-                if m:
-                    telegram["text_summary"]["message_id"] = m.group(1)
-                print(f"[✓] Telegram text summary sent (message_id={telegram['text_summary']['message_id']})")
+                telegram["text_summary"]["message_id"] = ts_result.get("message_id")
+                print(f"[✓] Telegram text summary sent (message_id={telegram['text_summary']['message_id']}, attempt={ts_result.get('attempt_used')}/{ts_result.get('max_attempts')})")
             else:
                 telegram["text_summary"]["sent"] = False
-                telegram["text_summary"]["error"] = (ts_result.stdout.strip() or ts_result.stderr.strip() or f"exit {ts_result.returncode}")[:300]
-                print(f"[warn] Telegram text summary failed: {telegram['text_summary']['error']}")
+                err_raw = ts_result.get("error") or f"unknown error_kind={ts_result.get('error_kind')}"
+                telegram["text_summary"]["error"] = err_raw[:300]
+                telegram["text_summary"]["error_kind"] = ts_result.get("error_kind")
+                print(f"[warn] Telegram text summary failed after {ts_result.get('attempt_used', 0)} attempt(s): {telegram['text_summary']['error'][:200]}")
 
             # --- Step 1.5: flush any previously-deferred fallback (P7B+2) ---
             # If a prior run hit a transport error and wrote a
@@ -582,29 +639,35 @@ Action: {action}"""
                             pending = json.load(pf)
                         pending_text = pending.get("fallback_text") or ""
                         if pending_text:
-                            flush_cmd = notifier_cmd + ["--text", pending_text, "--wait"]
-                            flush_result = subprocess.run(flush_cmd, capture_output=True, text=True, cwd=str(base_dir))
-                            if flush_result.returncode == 0 and "NOTIFY_OK" in flush_result.stdout:
-                                # We expose the flush under a dedicated field
-                                # so it does not collide with the current
-                                # run's fallback.
+                            # P8D+5: route the legacy P7B+2 deferred-fallback
+                            # flush through send_text_with_retry so even this
+                            # path benefits from bounded retry. Same
+                            # semantics: parse message_id from the structured
+                            # return, not from stdout parsing.
+                            flush_result = send_text_with_retry(
+                                text=pending_text,
+                                chat_id=None,
+                                media=None,
+                                openclaw_bin=args.openclaw_bin,
+                            )
+                            if flush_result.get("ok") and flush_result.get("message_id"):
                                 if "flushed_pending_fallbacks" not in telegram:
                                     telegram["flushed_pending_fallbacks"] = []
-                                m = _re.search(r"message_id=(\d+)", flush_result.stdout)
                                 telegram["flushed_pending_fallbacks"].append({
                                     "date": pending.get("date"),
                                     "reason": pending.get("reason"),
                                     "sent": True,
-                                    "message_id": m.group(1) if m else None,
+                                    "message_id": flush_result.get("message_id"),
+                                    "attempt_used": flush_result.get("attempt_used"),
                                     "local_path": str(pending_path),
                                 })
-                                print(f"[✓] Flushed deferred fallback from {pending_path} (message_id={m.group(1) if m else '?'})")
+                                print(f"[✓] Flushed deferred fallback from {pending_path} (message_id={flush_result.get('message_id')}, attempt={flush_result.get('attempt_used')})")
                                 try:
                                     pending_path.unlink()
                                 except Exception as e:
                                     print(f"[warn] Failed to unlink pending fallback {pending_path}: {e}")
                             else:
-                                err = (flush_result.stdout.strip() or flush_result.stderr.strip() or f"exit {flush_result.returncode}")[:200]
+                                err = (flush_result.get("error") or "")[:200]
                                 if "flushed_pending_fallbacks" not in telegram:
                                     telegram["flushed_pending_fallbacks"] = []
                                 telegram["flushed_pending_fallbacks"].append({
@@ -612,9 +675,11 @@ Action: {action}"""
                                     "reason": pending.get("reason"),
                                     "sent": False,
                                     "error": err,
+                                    "attempt_used": flush_result.get("attempt_used"),
+                                    "error_kind": flush_result.get("error_kind"),
                                     "local_path": str(pending_path),
                                 })
-                                print(f"[warn] Deferred fallback flush failed: {err}")
+                                print(f"[warn] Deferred fallback flush failed after {flush_result.get('attempt_used')} attempt(s): {err[:200]}")
                     except Exception as e:
                         print(f"[warn] Deferred fallback read failed: {e}")
 
@@ -690,26 +755,32 @@ Action: {action}"""
                         telegram["media"]["error_kind"] = "stage_failed"
 
                     if media_path:
-                        media_cmd = notifier_cmd + ["--text", msg, "--media", media_path, "--wait"]
-                        media_result = subprocess.run(media_cmd, capture_output=True, text=True, cwd=str(base_dir))
-                        if media_result.returncode == 0 and "NOTIFY_OK" in media_result.stdout:
+                        # P8D+5: route the media send through the bounded
+                        # retry helper so a one-shot transport stall can't
+                        # silently drop the attachment. The MEDIA send is
+                        # co-failure with the text send by OpenClaw's nature
+                        # (same gateway), so transport retries often do not
+                        # help here — but on the happy path we still want the
+                        # message_id for delivery auditing.
+                        media_result = send_text_with_retry(
+                            text=msg,
+                            chat_id=None,
+                            media=media_path,
+                            openclaw_bin=args.openclaw_bin,
+                        )
+                        if media_result.get("ok") and media_result.get("message_id"):
                             telegram["media"]["sent"] = True
-                            import re as _re
-                            m = _re.search(r"message_id=(\d+)", media_result.stdout)
-                            if m:
-                                telegram["media"]["message_id"] = m.group(1)
-                            m2 = _re.search(r"error_kind=(\S+)", media_result.stdout)
-                            if m2:
-                                telegram["media"]["error_kind"] = m2.group(1)
-                            print(f"[✓] Telegram MEDIA sent (message_id={telegram['media']['message_id']})")
+                            telegram["media"]["message_id"] = media_result.get("message_id")
+                            telegram["media"]["error_kind"] = None
+                            telegram["media"]["attempt_used"] = media_result.get("attempt_used")
+                            print(f"[✓] Telegram MEDIA sent (message_id={telegram['media']['message_id']}, attempt={media_result.get('attempt_used')})")
                         else:
                             telegram["media"]["sent"] = False
-                            err = (media_result.stdout.strip() or media_result.stderr.strip() or f"exit {media_result.returncode}")[:300]
+                            err = (media_result.get("error") or "unknown")[:300]
                             telegram["media"]["error"] = err
-                            import re as _re
-                            m2 = _re.search(r"error_kind=(\S+)", media_result.stdout)
-                            telegram["media"]["error_kind"] = m2.group(1) if m2 else "exit_nonzero"
-                            print(f"[warn] Telegram MEDIA failed ({telegram['media']['error_kind']}): {err}")
+                            telegram["media"]["error_kind"] = media_result.get("error_kind") or "exit_nonzero"
+                            telegram["media"]["attempt_used"] = media_result.get("attempt_used")
+                            print(f"[warn] Telegram MEDIA failed after {media_result.get('attempt_used')} attempt(s) ({telegram['media']['error_kind']}): {err}")
 
             # --- Step 3: failure-only fallback ---
             # Conditions: health PASS + text sent + MEDIA requested + MEDIA failed.
@@ -791,32 +862,121 @@ Action: {action}"""
                         # reaches ops — this is a degraded mode, not a silent
                         # failure.
                         telegram["fallback"]["error"] = f"defer write failed: {e}"[:200]
-                        fb_cmd = notifier_cmd + ["--text", fallback_text, "--wait"]
-                        fb_result = subprocess.run(fb_cmd, capture_output=True, text=True, cwd=str(base_dir))
-                        if fb_result.returncode == 0 and "NOTIFY_OK" in fb_result.stdout:
+                        fb_result = send_text_with_retry(
+                            text=fallback_text,
+                            chat_id=None,
+                            media=None,
+                            openclaw_bin=args.openclaw_bin,
+                        )
+                        if fb_result.get("ok") and fb_result.get("message_id"):
                             telegram["fallback"]["sent"] = True
                             telegram["fallback"]["reason"] = "media_failed"
-                            import re as _re
-                            m = _re.search(r"message_id=(\d+)", fb_result.stdout)
-                            if m:
-                                telegram["fallback"]["message_id"] = m.group(1)
-                            print(f"[✓] Telegram fallback (text-only) sent (message_id={telegram['fallback']['message_id']})")
+                            telegram["fallback"]["message_id"] = fb_result.get("message_id")
+                            telegram["fallback"]["attempt_used"] = fb_result.get("attempt_used")
+                            print(f"[✓] Telegram fallback (text-only) sent (message_id={telegram['fallback']['message_id']}, attempt={fb_result.get('attempt_used')})")
                 else:
-                    fb_cmd = notifier_cmd + ["--text", fallback_text, "--wait"]
+                    # P8D+5: non-deferred fallback (stage_failed / media_failed)
+                    # also routes through send_text_with_retry for consistency
+                    # with the text_summary path.
                     telegram["fallback"]["attempted"] = True
                     telegram["fallback"]["reason"] = fallback_reason
-                    fb_result = subprocess.run(fb_cmd, capture_output=True, text=True, cwd=str(base_dir))
-                    if fb_result.returncode == 0 and "NOTIFY_OK" in fb_result.stdout:
+                    fb_result = send_text_with_retry(
+                        text=fallback_text,
+                        chat_id=None,
+                        media=None,
+                        openclaw_bin=args.openclaw_bin,
+                    )
+                    if fb_result.get("ok") and fb_result.get("message_id"):
                         telegram["fallback"]["sent"] = True
-                        import re as _re
-                        m = _re.search(r"message_id=(\d+)", fb_result.stdout)
-                        if m:
-                            telegram["fallback"]["message_id"] = m.group(1)
-                        print(f"[✓] Telegram fallback (text-only) sent (message_id={telegram['fallback']['message_id']})")
+                        telegram["fallback"]["message_id"] = fb_result.get("message_id")
+                        telegram["fallback"]["attempt_used"] = fb_result.get("attempt_used")
+                        print(f"[✓] Telegram fallback (text-only) sent (message_id={telegram['fallback']['message_id']}, attempt={fb_result.get('attempt_used')})")
                     else:
-                        err = (fb_result.stdout.strip() or fb_result.stderr.strip() or f"exit {fb_result.returncode}")[:300]
+                        err = (fb_result.get("error") or "unknown")[:300]
+                        telegram["fallback"]["error"] = err
+                        telegram["fallback"]["error_kind"] = fb_result.get("error_kind")
+                        telegram["fallback"]["attempt_used"] = fb_result.get("attempt_used")
+                        print(f"[warn] Telegram fallback failed after {fb_result.get('attempt_used')} attempt(s): {err}")
                         telegram["fallback"]["error"] = err
                         print(f"[warn] Telegram fallback failed: {err}")
+
+            # --- P8D+5: full-notification-bundle enqueue ---
+            # When the text-summary send exhausts bounded retries, we
+            # MUST NOT silently drop the day's notification. Stage the
+            # report (if --media was requested) BEFORE the text send,
+            # then on text failure enqueue a full notification bundle
+            # under ``reports/runtime/daily-health-delivery/pending/``
+            # so the 03:10 replay run can re-issue the complete message.
+            # Health stays PASS; the user just learns the message
+            # arrived at 03:10 instead of 03:00.
+            health_pass_for_bundle = (
+                integrity_status == "PASS"
+                and readiness_status == "PASS"
+                and blocking == 0
+            )
+            text_exhausted = (
+                telegram["text_summary"]["attempted"]
+                and not telegram["text_summary"]["sent"]
+                and telegram["text_summary"].get("error_kind") in ("transport", "timeout", "unknown", "exit_nonzero")
+            )
+            if (
+                args.telegram
+                and health_pass_for_bundle
+                and text_exhausted
+            ):
+                # Stage the report up front so the bundle carries a
+                # media-root-compliant path (or None for text-only).
+                staged_for_bundle = None
+                try:
+                    if args.media and not args.simulate_media_failure:
+                        stage_proc = subprocess.run(
+                            [sys.executable, str(base_dir / "scripts" / "stage_report_for_telegram_media.py"),
+                             "--report", str(report_md), "--print-meta"],
+                            capture_output=True, text=True, cwd=str(base_dir))
+                        if stage_proc.returncode == 0 and stage_proc.stdout.strip():
+                            try:
+                                meta = json.loads(stage_proc.stdout.strip().splitlines()[-1])
+                                if meta and not meta.get("stage_failed") and meta.get("staged_report"):
+                                    if meta["staged_report"] != meta.get("raw_report"):
+                                        staged_for_bundle = meta["staged_report"]
+                            except Exception:
+                                pass
+                except Exception:
+                    staged_for_bundle = None
+
+                # De-dup: do not enqueue a 2nd bundle for the same date
+                # in the same active-pending scan. Existing bundles
+                # take priority; the new one would just add noise.
+                existing = list(_delivery_root(base_dir).glob(f"{DAILY_PENDING_ROOTNAME}/notification-{args.date}-*.json"))
+                if not existing:
+                    try:
+                        bundle_path = _write_notification_bundle(
+                            date=args.date,
+                            text=msg,
+                            staged_report=staged_for_bundle,
+                            text_attempts=int(telegram["text_summary"].get("max_attempts") or DEFAULT_MAX_RETRIES_PENDING),
+                            reason="text_transport_failed",
+                            pending_root=_delivery_root(base_dir),
+                        )
+                        telegram.setdefault("notification_bundle", {})
+                        telegram["notification_bundle"]["enqueued"] = True
+                        telegram["notification_bundle"]["path"] = str(bundle_path)
+                        telegram["notification_bundle"]["reason"] = "text_transport_failed"
+                        telegram["notification_bundle"]["attempts"] = int(telegram["text_summary"].get("max_attempts") or DEFAULT_MAX_RETRIES_PENDING)
+                        telegram["notification_bundle"]["staged_report"] = staged_for_bundle
+                        print(f"[info] Enqueued full notification bundle for 03:10 replay: {bundle_path}")
+                    except Exception as e:
+                        telegram.setdefault("notification_bundle", {})
+                        telegram["notification_bundle"]["enqueued"] = False
+                        telegram["notification_bundle"]["error"] = f"{type(e).__name__}: {e}"[:200]
+                        print(f"[warn] Failed to enqueue notification bundle: {e}")
+                else:
+                    telegram.setdefault("notification_bundle", {})
+                    telegram["notification_bundle"]["enqueued"] = False
+                    telegram["notification_bundle"]["existing_path"] = str(existing[0])
+                    telegram["notification_bundle"]["reason"] = "already_pending"
+                    print(f"[info] Skipping bundle enqueue; another bundle is already pending for {args.date}: {existing[0]}")
+
     else:
         telegram["openclaw_status"] = "skipped"
 
@@ -839,6 +999,85 @@ Action: {action}"""
 # ``active_pending`` bucket drives the ``pending`` counter.
 _NON_ACTIVE_TERMINAL_DIRS = {"replayed", "quarantine", "results"}
 _NON_ACTIVE_ARCHIVE_HINTS = ("queue-fix-backup-", "legacy-cleaned", "stable_dup")
+
+
+def _delivery_root(base_dir: Path) -> Path:
+    """Return the canonical ``reports/runtime/daily-health-delivery/`` root.
+
+    P8D+5: the notification bundle queue is anchored at this stable path
+    so the replay script and the active-scan helper agree on the layout.
+    """
+    return (base_dir / "reports" / "runtime" / DAILY_DELIVERY_ROOTNAME).resolve()
+
+
+def _write_notification_bundle(
+    *,
+    date: str,
+    text: str,
+    staged_report: str | None,
+    text_attempts: int,
+    reason: str,
+    pending_root: Path,
+) -> Path:
+    """Write a notification bundle JSON for 03:10 replay.
+
+    P8D+5: when the 03:00 text send exhausts its bounded retries, we
+    persist the *text* + the optional *staged_report* path so the next
+    replay run can re-issue the full notification atomically. The bundle
+    schema is fixed (``artvee-notification-bundle-v1``). It must never
+    contain a chat id, token, or any other secret; the only path that
+    goes in is the previously-validated staged MEDIA path.
+    """
+    safe_staged = staged_report or ""
+    # If a staged_report value is given, it must already live under the
+    # OpenClaw media root — re-validate defensively. Raw report paths
+    # are NEVER persisted here (otherwise the bundle would force the
+    # security boundary to expand).
+    if safe_staged:
+        try:
+            from stage_report_for_telegram_media import _resolve_media_root  # type: ignore
+            media_root = Path(_resolve_media_root("")).resolve()
+        except Exception:
+            media_root = Path.home() / ".openclaw" / "media"
+        try:
+            staged_abs = Path(safe_staged).resolve(strict=False)
+        except Exception:
+            staged_abs = Path(safe_staged)
+        try:
+            in_allowlist = (
+                media_root in staged_abs.parents or staged_abs == media_root
+                or any(part == "artvee-reports" for part in staged_abs.parts)
+            )
+        except Exception:
+            in_allowlist = False
+        if not in_allowlist:
+            # Defensive: refuse to persist a raw report path; fall back to
+            # no-media which still allows the bundle to retry the text.
+            safe_staged = ""
+
+    pending_dir = pending_root / DAILY_PENDING_ROOTNAME
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    bundle_path = pending_dir / f"notification-{date}-{ts}.json"
+    body = {
+        "schema_version": "artvee-notification-bundle-v1",
+        "date": date,
+        "status": "pending",
+        "reason": reason,
+        "text": text,
+        "staged_report": safe_staged or None,
+        "text_attempts": text_attempts,
+        "media_attempts": 0,
+        "created_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "last_attempt_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "last_error_kind": "transport",
+        "last_error": "text exhausted bounded retry (redacted)",
+        "text_message_id": None,
+        "media_message_id": None,
+    }
+    with open(bundle_path, "w", encoding="utf-8") as fh:
+        json.dump(body, fh, indent=2, ensure_ascii=False)
+    return bundle_path
 
 
 def _classify_pending_path(p: Path, runtime_root: Path | None) -> str:
@@ -881,6 +1120,66 @@ def _classify_pending_path(p: Path, runtime_root: Path | None) -> str:
                 else f"terminal_{seg}"
             )
     return "active_pending"
+
+
+def _scan_notification_bundles(delivery_root: Path) -> dict:
+    """Count active vs terminal notification bundles under delivery_root.
+
+    Mirrors ``_scan_pending_media`` so the JSON report always reports
+    active count separately from terminal / backup / nested artifacts.
+    Returns ``active``, ``active_replayable``, ``terminal_replayed``,
+    ``terminal_quarantine``, ``results``, ``backup_or_legacy`` and
+    ``legacy_nested`` counts. Empty if the root does not exist yet.
+    """
+    buckets = {
+        "active": 0,
+        "active_replayable": 0,
+        "terminal_replayed": 0,
+        "terminal_quarantine": 0,
+        "results": 0,
+        "backup_or_legacy": 0,
+        "legacy_nested": 0,
+        "unknown": 0,
+    }
+    if not delivery_root.exists():
+        return buckets
+    bundle_files = list(delivery_root.rglob("notification-*-*.json"))
+    stable_suffixes = {DAILY_REPLAYED_ROOTNAME, DAILY_QUARANTINE_ROOTNAME, DAILY_RESULTS_ROOTNAME}
+    for p in bundle_files:
+        if not p.is_file():
+            continue
+        parts = p.parts
+        # Nested pathology: stable suffix followed by itself.
+        for i in range(len(parts) - 1):
+            if parts[i] == parts[i + 1] and parts[i] in stable_suffixes:
+                buckets["legacy_nested"] += 1
+                break
+        else:
+            # Immediate child of delivery_root = active pending.
+            relative = p.relative_to(delivery_root)
+            head = relative.parts[0] if relative.parts else ""
+            if head == DAILY_PENDING_ROOTNAME:
+                buckets["active"] += 1
+                try:
+                    doc = json.loads(p.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                # Replayable = still pending + has text + (no staged_report OR staged_report exists).
+                staged = (doc.get("staged_report") or "").strip()
+                if doc.get("status") == "pending" and (doc.get("text") or "").strip():
+                    if (not staged) or Path(staged).exists():
+                        buckets["active_replayable"] += 1
+            elif head == DAILY_REPLAYED_ROOTNAME:
+                buckets["terminal_replayed"] += 1
+            elif head == DAILY_QUARANTINE_ROOTNAME:
+                buckets["terminal_quarantine"] += 1
+            elif head == DAILY_RESULTS_ROOTNAME:
+                buckets["results"] += 1
+            elif any(hint in seg for seg in parts for hint in _NON_ACTIVE_ARCHIVE_HINTS):
+                buckets["backup_or_legacy"] += 1
+            else:
+                buckets["unknown"] += 1
+    return buckets
 
 
 def _scan_pending_media(report_dir: Path) -> dict:

@@ -691,3 +691,52 @@ bash scripts/publish_demo_refresh_candidate.sh \
 ### 13.4 When this section is revisited
 - Future record-count phases (e.g., moving past 500 records) MUST rerun the P9G+1-style bundle audit and update the policy in `docs/PUBLIC_BUNDLE_POLICY.md` together with this section.
 - Any change to the exporter flag (`all|none`) or the QA budgets must update the SECTION § 9/§12 entries above and bump the v0.2.1 observation window from that commit.
+
+---
+
+## 14. End-to-End Telegram Notification Recovery (P8D+5)
+
+P8D+5 closes the gap where the 03:00 daily-health Telegram summary
+failed silently on `openclaw exit 1 error_kind=transport` for several
+consecutive days (2026-07-09, 07-12, 07-13) and no fallback was
+queued for 03:10 to recover. All check data stayed PASS
+(`library_records=1326`, `source_mode=live`, `age=0s`); the failure
+was on the Telegram channel, not the data.
+
+### 14.1 What changed for operators
+
+- 03:00 text send now uses bounded retry
+  (`scripts/artvee_telegram_notify.py: send_text_with_retry`,
+  default `max_attempts=3`, `backoff=[0,15,45]`).
+- When text fails after bounded retries on a healthy day, a
+  full-notification bundle is enqueued under
+  `reports/runtime/daily-health-delivery/pending/`.
+- 03:10 (cron `10 3 * * *`) now drains both the legacy media-only
+  queue and the new bundle queue in one run
+  (`--include-notification-bundles`).
+- A post-fix real-Telegram E2E delivered both text and staged MEDIA
+  and moved the bundle to the fixed `replayed/` root.
+- `<home-dir>/.local/bin/openclaw-health-check.sh` now distinguishes
+  `active` / `degraded` / `unavailable` / `probe_error` and writes
+  `<home-dir>/.local/share/openclaw/state/status.json`; user-bus failures
+  are no longer mis-reported as `服务未运行`.
+
+### 14.2 Two problems, separately
+
+- `01:30` / `02:00` wrappers used to log
+  `OpenClaw binary missing or not executable` because the legacy
+  crontab block did not export PATH to `<home-dir>/.local/bin`. Fixed in the
+  wrapper itself (`scripts/artvee_nightly_wrapper.sh` now prepends
+  PATH unconditionally).
+- `03:00` daily-health text send used to die on transport class
+  failures because the notifier had no retry and the bundle queue did
+  not exist. Fixed with `send_text_with_retry` + the new bundle queue.
+
+### 14.3 Effects on the post-stable operating model
+
+- 03:00 / 03:10 cron schedules are unchanged. The 03:10 cron line now
+  triggers both queues; the new aggregate JSON lives at
+  `reports/runtime/daily-health-delivery/results/notification-bundle-results-<date>.json`.
+- v0.2.1 observation window resets at the P8D+5 commit. Until that
+  commit lands and CI passes there is **no tag and no GitHub Release**
+  for v0.2.1.

@@ -7,7 +7,15 @@ set -euo pipefail
 #
 # 路径策略：BASE_DIR 由脚本位置自动推导，PYTHON 默认调用系统 python3。
 # 高级用户可通过环境变量覆盖：
-#   ARTvee_PYTHON=python3 bash scripts/artvee_nightly_wrapper.sh batch
+#   ARTVEE_PYTHON=python3 bash scripts/artvee_nightly_wrapper.sh batch
+#
+# P8D+5: hard-guarantee that $HOME/.local/bin is on the PATH before ANY
+# notifier call. cron normally exports PATH per-line inside the install
+# block, but the legacy pre-P8D+1 crontab entries never did and the
+# notifier silently logged NOTIFY_FAIL on every run. Belt + suspenders:
+# also re-export here so the wrapper is safe even if invoked by hand
+# with a stripped PATH. Secrets (tokens / chat ids) are NEVER printed;
+# only the resolved path + openclaw resolution status is logged.
 
 # 推导项目根目录（脚本所在目录的父目录），不依赖 $HOME 或任何机器路径
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,6 +25,19 @@ PYTHON="${ARTVEE_PYTHON:-python3}"
 NOTIFIER="$BASE_DIR/scripts/artvee_telegram_notify.py"
 RUN_TYPE="${1:-batch}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+
+# P8D+5: ensure OpenClaw at $HOME/.local/bin is on PATH before any
+# notifier invocation. This belt-and-suspenders line is independent of
+# whatever crontab set, so the wrapper is safe even when run from a
+# stripped environment (cron, systemd --user, or interactive shell).
+# We do NOT mask the caller's existing PATH; $HOME/.local/bin takes
+# precedence so user-installed binaries win over system ones.
+if [[ ":${PATH}:" != *":${HOME}/.local/bin:"* ]]; then
+  export PATH="${HOME}/.local/bin:${PATH}"
+fi
+# Same belt for the chat-id env file: the install block already exports
+# this, but the wrapper should remain self-contained.
+export ARTVEE_TELEGRAM_ENV_FILE="${ARTVEE_TELEGRAM_ENV_FILE:-${HOME}/.config/artvee-gallery/telegram.env}"
 
 LOG_DIR="$BASE_DIR/logs"
 WRAPPER_LOG_DIR="$LOG_DIR/wrapper_runs"
@@ -45,7 +66,17 @@ dir_size() {
 
 send_telegram() {
     local msg="$1"
+    # P8D+5: never log the actual chat-id or token. We surface a
+    # structured diagnostic so the cron log records resolution
+    # status without leaking the payload. The legacy background-send
+    # mode is kept (fire-and-forget); bounded retry is only exercised
+    # by the daily-health path because cron waits for refill/batch
+    # anyway and a stuck notify should not block the pipeline.
     log_wrapper "Sending Telegram notification (background via OpenClaw Gateway)..."
+    # Probe + log non-secret diagnostics (path + resolution status only).
+    if "$PYTHON" "$NOTIFIER" --check-config >> "$RUN_LOG" 2>&1; then
+        log_wrapper "Notifier chat-id resolution OK"
+    fi
     if "$NOTIFIER" --text "$msg" >> "$RUN_LOG" 2>&1; then
         log_wrapper "Telegram background send started OK"
     else

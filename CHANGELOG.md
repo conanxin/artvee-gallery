@@ -14,6 +14,128 @@ in the form `vMAJOR.MINOR.PATCH-stage` (pre-1.0).
 > [docs/RELEASE_NOTES_v0.2.1.md](docs/RELEASE_NOTES_v0.2.1.md) for
 > the full narrative.
 
+### v0.2.1 — P8D+5 (End-to-End Telegram Notification Recovery, appended 2026-07-13)
+
+> **Status:** appended to v0.2.1 release-prep. v0.2.1 has not been
+> tagged yet; this commit is included in the v0.2.1 cutoff. The
+> P9F+1 metrics work already shipped in the v0.2.1 cutoff; this section
+> adds the missing Telegram-notification recovery that the 03:00
+> cron observed daily since 2026-07-09 (`NOTIFY_FAIL: openclaw exit 1
+> error_kind=transport`). After this commit the 03:00 text failures
+> can be fully recovered at 03:10 via a new notification-bundle queue.
+
+#### Added
+- **`scripts/artvee_telegram_notify.py: send_text_with_retry(...)`** — a
+  bounded-retry wrapper over `send_text` that runs up to 3 attempts
+  with a configurable backoff (default `0,15,45` seconds). Only
+  transport-class failures retry (`error_kind ∈ {transport, timeout}`);
+  binary_missing, config_missing, media_allowed and exit_nonzero fail
+  fast. Every attempt's structured history is returned so callers can
+  surface exactly which attempt delivered and which failed.
+- **`scripts/artvee_daily_health_check.py` — full-notification-bundle
+  queue:** `reports/runtime/daily-health-delivery/{pending,replayed,
+  quarantine,results}/` plus `_write_notification_bundle(...)` and
+  `_scan_notification_bundles(...)`. When the 03:00 text send exhausts
+  bounded retries on a healthy day, the report + (already-staged)
+  MEDIA path are persisted into a single bundle so 03:10 can replay
+  the **entire** notification as one atomic unit.
+- **`scripts/replay_pending_media.py: replay_notification_bundle(...)`
+  + `--include-notification-bundles` / `--only-notification-bundles`
+  / `--delivery-root` flags**: extends the legacy media-only replay
+  queue with a notification-bundle state machine. Text is sent first;
+  if MEDIA fails the bundle is preserved as media-pending and re-sent
+  in the next replay without re-sending text.
+- **`scripts/test_p8d5.py`** — 18 unit + simulated tests covering
+  binary resolution from PATH and `$HOME/.local/bin`, config / binary
+  non-retry, 3-attempt transport retry, attempt #2 success,
+  exit-0-but-no-message_id, redactor leak-scan, classifier buckets
+  (active vs terminal vs backup vs nested), bundle-writer secret scan,
+  bundle replay end-to-end, and the health-probe `user_bus` semantics.
+- **`docs/P8D+5 notifications section`** (this commit): DAILY_OPERATING_PLAYBOOK,
+  MEDIA_REPLAY, POST_STABLE_OPERATIONS, DEVELOPMENT, PROJECT_STATUS,
+  ROADMAP, RETROSPECTIVE and RELEASE_NOTES_v0.2.1 each gain a new
+  "End-to-End Telegram Notification Recovery" subsection.
+
+#### Changed
+- **`scripts/artvee_telegram_notify.py`** — `send_text(wait=True)` now
+  treats `openclaw exit 0 but no message_id parsed` as a failure, not a
+  success. The redactor (`_redact_log`) scrubs 9-13 digit chat-id runs
+  and bot-token-shaped substrings before they reach any queue file.
+- **`scripts/artvee_daily_health_check.py`** — the 03:00 text send now
+  routes through `send_text_with_retry`; text attempt history is
+  recorded under `telegram.text_summary.retry_history` and the JSON
+  report gains `media_replay.notification_bundles_before` /
+  `notification_active_replayable` / `notification_terminal_replayed`
+  / `notification_terminal_quarantine` / `notification_results`
+  fields so the 03:10 summary distinguishes the two queues.
+- **`scripts/artvee_nightly_wrapper.sh`** — unconditionally prepends
+  `$HOME/.local/bin` to PATH and exports `ARTVEE_TELEGRAM_ENV_FILE`
+  before every notifier call. Belt-and-suspenders against future
+  crontab regressions that drop the env-block.
+- **`scripts/artvee_media_replay_cron.sh`** — now invokes the replay
+  script with `--include-notification-bundles` so a single 03:10 run
+  drains both queues. The cron summary JSON gains
+  `notification_bundles_before`, `notification_text_delivered`,
+  `notification_media_delivered`, `notification_failed`,
+  `notification_quarantined` and `notification_aggregate_path`.
+- **`scripts/install_media_replay_cron.sh`** — the P8D cron block
+  now also exports `ARTVEE_TELEGRAM_ENV_FILE` so the chat-id
+  resolution works during the replay run (the previous block only
+  set `PATH`).
+
+#### Fixed
+- **OpenClaw health probe (`<home-dir>/.local/bin/openclaw-health-check.sh`)** —
+  the previous script collapsed every `systemctl --user` non-zero exit
+  into a single `"服务未运行"` log line, which fired every minute when
+  cron ran the probe without a usable user-bus. The patched probe
+  distinguishes four mutually exclusive states (`active`, `degraded`,
+  `unavailable`, `probe_error`) and writes a structured
+  `<home-dir>/.local/share/openclaw/state/status.json` so dashboards and
+  ops_status can read the probe outcome without parsing log lines.
+  The probe_error path explicitly tags `user_bus_unavailable` when
+  `DBUS_SESSION_BUS_ADDRESS` is unset, instead of falsely claiming the
+  service is down.
+- **Notification cron observability** — 03:00 text failures no longer
+  silently drop the day's notification: a pending bundle is enqueued
+  for 03:10 to replay atomically (text + MEDIA). All checks stayed
+  PASS throughout (library_records=1326, integrity=PASS, readiness=PASS,
+  metrics source=live).
+
+#### Safety
+- **No download / refill / nightly batch triggered** — daily health,
+  notifier, replay and probe scripts only touch reports / runtime /
+  log files. No `images/`, `metadata/`, `thumbs/`, `inbox/`, `index/`,
+  `manifest`, `web/data/` or `dist/` was modified.
+- **No GitHub Pages push** — the round does not touch pages.
+- **No tag / GitHub Release** — round ends at the v0.2.1 release-prep
+  branch, no `v0.2.1` Git tag was cut.
+- **Stage MEDIA path allowlist enforced** — the bundle writer re-checks
+  that the staged REPORT path lives under
+  `<home-dir>/.openclaw/media/artvee-reports/`; raw report paths outside the
+  allowlist are dropped from the bundle (never sent raw).
+- **Secret redaction** — the redactor scrubs the queue log of any
+  9-13 digit chat-id run or 6-12-digit-prefix token-shape. Real
+  E2E test verified that both text and MEDIA landed with non-empty
+  `message_id`s, without leaking secrets. Concrete message IDs
+  live in `<workspace>/reports/artvee-gallery-p8d5-notification-recovery-20260713.md`
+  (workspace report, not tracked).
+
+#### Verification
+- All 18 P8D+5 unit + simulated tests pass.
+- Cron-like real Telegram send: `NOTIFY_OK message_id=<text>`.
+- Bundle replay E2E (real Telegram): text_message_id=<text>,
+  media_message_id=<media>; bundle moved `pending/` → `replayed/`.
+- `bash -n` clean on all four `.sh` scripts; `py_compile` clean on
+  five Python files; `check_open_source_ready.py` + `check_gallery_
+  integrity.py --strict` + `check_artvee_metrics.py --strict` all PASS.
+
+#### Observation window reset
+- The P7B+3 / P8D + N observation windows are reset only when v0.2.1 is
+  finally tagged and released. Until then, **v0.2.1 observation
+  remains in flight** — this commit's recovery tooling is a hard
+  prerequisite for tagging, but the final tag and Release await a
+  separate user-authorized round.
+
 ### v0.2.1 — P9F+1 (Metrics Normalization, appended 2026-07-11)
 
 > **Status:** appended to v0.2.1 release-prep. v0.2.1 has not been

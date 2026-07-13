@@ -955,3 +955,114 @@ Expected: `NOTIFY_OK`, exit 0, no secrets in log.
 - The notifier's `_check_config()` diagnostic is safe to log or print.
 
 ---
+
+---
+
+## 29. P8D+5 — End-to-End Telegram Notification Recovery
+
+P8D+5 closes the silent failure where 03:00 daily-health text sends
+were lost on `openclaw exit 1 error_kind=transport` and no fallback
+existed for 03:10.
+
+### 29.1 Bounded text retry (`scripts/artvee_telegram_notify.py`)
+
+New `send_text_with_retry(text, *, max_attempts=3, backoff_seconds=[0,15,45])`:
+
+- Each attempt is run synchronously with a 300 s wait so we know
+  whether the message actually landed.
+- Retry only on `error_kind ∈ {transport, timeout}`.
+  `binary_missing`, `config_missing`, `media_allowed`, `exit_nonzero`
+  fail fast.
+- `ok` requires **both** `rc == 0` **and** a non-empty parsed
+  `message_id` (camelCase `messageId=` patterns matched).
+- Returned dict includes `attempt_used`, `max_attempts`, full
+  `retry_history[]` (per attempt: `started_at`, `ended_at`,
+  `duration_seconds`, `pid`, `returncode`, `error_kind`, `error`,
+  `message_id`, `log_path`).
+- `error` is run through `_redact_log` (9-13 digit chat-ids and
+  bot-token shapes replaced) before being returned.
+
+### 29.2 Full notification bundle queue
+
+New anchors under `reports/runtime/daily-health-delivery/`:
+
+```
+pending/    replayed/    quarantine/    results/
+```
+
+`scripts/artvee_daily_health_check.py` exposes:
+
+- `_delivery_root(base_dir)` → canonical root.
+- `_write_notification_bundle(date, text, staged_report, text_attempts,
+  reason, pending_root)` → writes a `pending/notification-…json` with
+  schema `artvee-notification-bundle-v1`. Re-validates
+  `staged_report` against the OpenClaw media allowlist; raw report
+  paths are dropped.
+- `_scan_notification_bundles(delivery_root)` → active /
+  `terminal_replayed` / `terminal_quarantine` / `results` /
+  `backup_or_legacy` / `legacy_nested` counts that mirror the
+  existing media-only classifier.
+
+The daily-health report now exposes `media_replay.notification_*`
+counters alongside the legacy `media_replay.pending` so the cron
+summary can distinguish the two queues.
+
+### 29.3 03:10 replay state machine (`scripts/replay_pending_media.py`)
+
+New `replay_notification_bundle(bundle_path, delivery_root, ...)`:
+
+1. Send text; record `text_message_id` on success.
+2. On text success + staged_report present, send MEDIA; record
+   `media_message_id` on success.
+3. Move to `replayed/` only when both ids are non-empty.
+4. If MEDIA fails, keep text_message_id and bump `media_attempts`;
+   next replay attempts MEDIA only.
+5. Quarantine on `text_attempts ≥ max_retries` or
+   `media_attempts ≥ max_retries`.
+
+New CLI flags: `--include-notification-bundles`,
+`--only-notification-bundles`, `--delivery-root <path>`.
+
+`scripts/artvee_media_replay_cron.sh` now invokes the replay script
+with `--include-notification-bundles` so a single 03:10 run drains
+both queues. The cron summary JSON adds `notification_bundles_before`,
+`notification_text_delivered`, `notification_media_delivered`,
+`notification_failed`, `notification_quarantined`,
+`notification_aggregate_path`.
+
+### 29.4 OpenClaw health probe fix
+
+`<home-dir>/.local/bin/openclaw-health-check.sh` distinguishes:
+
+| state         | when                                                       |
+|---------------|------------------------------------------------------------|
+| active        | systemctl active + HTTP 200                                |
+| degraded      | systemctl active + curl / HTTP / latency degraded         |
+| unavailable   | systemctl inactive or no such unit                         |
+| probe_error   | systemctl failed (e.g. `DBUS_SESSION_BUS_ADDRESS` unset)   |
+
+It writes a structured `<home-dir>/.local/share/openclaw/state/status.json`.
+The legacy `服务未运行` log line is now emitted **only** in the
+`probe_error` path, not as a blanket fallback.
+
+### 29.5 Tests (`scripts/test_p8d5.py`)
+
+18 unit + simulated tests covering:
+
+- binary resolution from PATH and `$HOME/.local/bin`,
+- config_missing / binary_missing non-retry,
+- 3× transport retry,
+- attempt #2 success with non-empty message_id,
+- exit-0-but-no-message_id is a failure,
+- text redaction (no chat-id / token leak),
+- classifier buckets (active vs terminal_replayed /
+  terminal_quarantine / results / backup_or_legacy / legacy_nested),
+- bundle-writer secret redaction,
+- bundle replay happy path.
+
+### 29.6 Compatibility
+
+- `send_text` signature unchanged; legacy callers keep working.
+- `--check-config` output unchanged.
+- The README, CHANGELOG, and v0.2.1 release notes are updated so
+  the v0.2.1 observation window can reset on this commit.
